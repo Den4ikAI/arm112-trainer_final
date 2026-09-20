@@ -15,7 +15,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Что приходит в задачу из HTTP-эндпоинта.
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Input {
     pub group_id: Uuid,
@@ -23,7 +23,7 @@ pub struct Input {
     pub to: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupStats {
     pub group_id: Uuid,
@@ -46,9 +46,55 @@ pub struct GroupStats {
     pub guessed_share: f64,
     pub top_problems: Vec<Problem>,
     pub students: Vec<StudentRow>,
+    /// Ошибки по полям и видам — исходник тепловой карты.
+    pub heatmap: Vec<HeatCell>,
+    /// Занятия по времени: сколько заняло против норматива.
+    pub timeline: Vec<TimelinePoint>,
+    /// Сколько полей выяснено, угадано и не заполнено.
+    pub funnel: Funnel,
+    /// Сколько каких замечаний.
+    pub by_kind: Vec<KindCount>,
 }
 
-#[derive(Serialize)]
+/// Клетка тепловой карты: поле × вид замечания.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HeatCell {
+    pub label: String,
+    pub kind: String,
+    pub count: i64,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TimelinePoint {
+    pub at: chrono::DateTime<chrono::Utc>,
+    pub fio: String,
+    pub elapsed_sec: i32,
+    pub norm_sec: i32,
+    pub score: i32,
+    pub over_norm: bool,
+}
+
+/// Воронка: из всего, что требовалось заполнить, сколько выяснено
+/// у заявителя, сколько угадано и сколько не заполнено вовсе.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Funnel {
+    pub learned: i64,
+    pub guessed: i64,
+    pub wrong: i64,
+    pub missing: i64,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct KindCount {
+    pub kind: String,
+    pub count: i64,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Problem {
     pub label: String,
@@ -56,7 +102,7 @@ pub struct Problem {
     pub count: i64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct StudentRow {
     pub user_id: Uuid,
@@ -188,6 +234,73 @@ pub async fn stats(pool: &PgPool, input: &Value) -> Result<GroupStats> {
     })
     .collect();
 
+    // Тепловая карта: поле × вид замечания. Берём только поля, где
+    // хоть что-то было не так, — «верно» в карте ошибок не нужно
+    let heatmap: Vec<HeatCell> = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT f ->> 'label', f ->> 'kind', count(*)
+           FROM grades gr
+           JOIN sessions s ON s.id = gr.session_id
+           JOIN group_members m ON m.user_id = s.user_id
+           CROSS JOIN LATERAL jsonb_array_elements(gr.findings) AS f
+          WHERE m.group_id = $1
+            AND ($2::timestamptz IS NULL OR gr.created_at >= $2)
+            AND ($3::timestamptz IS NULL OR gr.created_at < $3)
+            AND f ->> 'kind' <> 'ok'
+          GROUP BY 1, 2
+          ORDER BY 1, 2",
+    )
+    .bind(input.group_id)
+    .bind(input.from)
+    .bind(input.to)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(label, kind, count)| HeatCell { label, kind, count })
+    .collect();
+
+    // Динамика: последние занятия по времени. Больше двухсот точек
+    // на графике всё равно не различить
+    let timeline: Vec<TimelinePoint> = sqlx::query_as::<_, (
+        chrono::DateTime<chrono::Utc>, String, i32, i32, i32, bool,
+    )>(
+        "SELECT gr.created_at, u.fio, gr.elapsed_sec, gr.norm_sec, gr.score, gr.over_norm
+           FROM grades gr
+           JOIN sessions s ON s.id = gr.session_id
+           JOIN users u ON u.id = s.user_id
+           JOIN group_members m ON m.user_id = s.user_id
+          WHERE m.group_id = $1
+            AND ($2::timestamptz IS NULL OR gr.created_at >= $2)
+            AND ($3::timestamptz IS NULL OR gr.created_at < $3)
+          ORDER BY gr.created_at DESC
+          LIMIT 200",
+    )
+    .bind(input.group_id)
+    .bind(input.from)
+    .bind(input.to)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .rev()
+    .map(|(at, fio, elapsed_sec, norm_sec, score, over_norm)| TimelinePoint {
+        at, fio, elapsed_sec, norm_sec, score, over_norm,
+    })
+    .collect();
+
+    let by_kind: Vec<KindCount> = kinds
+        .iter()
+        .filter(|(k, _)| k != "ok")
+        .map(|(kind, count)| KindCount { kind: kind.clone(), count: *count })
+        .collect();
+
+    // «Выяснил» — это «ok» за вычетом угаданного: угаданное тоже
+    // совпало с эталоном, но заявитель этого не говорил
+    let funnel = Funnel {
+        learned: ok,
+        guessed,
+        wrong: count_of("wrong"),
+        missing: count_of("missing"),
+    };
+
     Ok(GroupStats {
         group_id: input.group_id,
         group_title,
@@ -205,6 +318,10 @@ pub async fn stats(pool: &PgPool, input: &Value) -> Result<GroupStats> {
         guessed_share: share(guessed, guessed + ok),
         top_problems,
         students,
+        heatmap,
+        timeline,
+        funnel,
+        by_kind,
     })
 }
 

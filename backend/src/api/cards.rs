@@ -30,7 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/cards/{id}/responses", post(add_response))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ListQuery {
     /// `service` — только профильные для своей ДДС; `own` — свои;
@@ -53,7 +53,7 @@ fn default_size() -> i64 {
     50
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CardBrief {
     pub id: Uuid,
@@ -70,7 +70,7 @@ pub struct CardBrief {
     pub waiting_sec: Option<i64>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ListResponse {
     pub items: Vec<CardBrief>,
@@ -79,6 +79,16 @@ pub struct ListResponse {
     pub size: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/cards",
+    tag = "Журнал",
+    responses(
+        (status = 200, description = "Лента карточек", body = ListResponse),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn list(
     State(state): State<AppState>,
     user: AuthUser,
@@ -156,7 +166,7 @@ async fn list(
     Ok(Json(ListResponse { items, total, page: q.page.max(0), size }))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResponseEntry {
     pub id: Uuid,
@@ -168,7 +178,7 @@ pub struct ResponseEntry {
     pub comment: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceResponses {
     pub service_id: String,
@@ -179,7 +189,7 @@ pub struct ServiceResponses {
     pub allowed_next: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CardDetail {
     #[serde(flatten)]
@@ -187,6 +197,19 @@ pub struct CardDetail {
     pub services: Vec<ServiceResponses>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/cards/{id}",
+    tag = "Журнал",
+    params(
+        ("id" = String, Path, description = "Идентификатор карточки"),
+    ),
+    responses(
+        (status = 200, description = "Карточка со статусами служб", body = CardDetail),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn one(
     State(state): State<AppState>,
     user: AuthUser,
@@ -248,7 +271,7 @@ async fn one(
     Ok(Json(CardDetail { card, services: out }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NewResponse {
     pub service_id: String,
@@ -257,6 +280,19 @@ pub struct NewResponse {
     pub comment: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/cards/{id}/responses",
+    tag = "Журнал",
+    params(
+        ("id" = String, Path, description = "Идентификатор карточки"),
+    ),
+    responses(
+        (status = 200, description = "Проставить статус реагирования", body = ResponseEntry),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn add_response(
     State(state): State<AppState>,
     user: AuthUser,

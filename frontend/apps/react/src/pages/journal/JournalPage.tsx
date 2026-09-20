@@ -134,6 +134,11 @@ export const JournalPage = () => {
             {user && user.role !== 'student' && (
               <>
                 {' · '}
+                <button className={s.adminLink} data-testid="analytics-link"
+                        onClick={() => nav('/analytics')}>
+                  аналитика
+                </button>
+                {' · '}
                 <button className={s.adminLink} data-testid="admin-link"
                         onClick={() => nav('/admin')}>
                   администрирование

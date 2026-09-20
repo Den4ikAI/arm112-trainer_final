@@ -225,3 +225,62 @@ export interface Health {
   jobsRunning: number;
   version: string;
 }
+
+// ─── Аналитика по группе ────────────────────────────────────────────
+
+export interface GroupBrief {
+  id: string;
+  title: string;
+  teacherFio: string;
+  members: number;
+}
+
+export interface Problem {
+  label: string;
+  kind: string;
+  count: number;
+}
+
+export interface StudentRow {
+  userId: string;
+  fio: string;
+  sessions: number;
+  avgScore: number | null;
+  overNorm: number;
+  guessed: number;
+}
+
+export interface GroupStats {
+  groupId: string;
+  groupTitle: string;
+  members: number;
+  sessions: number;
+  avgScore: number | null;
+  avgElapsedSec: number | null;
+  avgNormSec: number | null;
+  overNorm: number;
+  overNormShare: number;
+  guessed: number;
+  ok: number;
+  /** Доля угаданного среди совпавшего с эталоном. */
+  guessedShare: number;
+  topProblems: Problem[];
+  students: StudentRow[];
+  heatmap: Array<{ label: string; kind: string; count: number }>;
+  timeline: Array<{
+    at: string; fio: string; elapsedSec: number;
+    normSec: number; score: number; overNorm: boolean;
+  }>;
+  funnel: { learned: number; guessed: number; wrong: number; missing: number };
+  byKind: Array<{ kind: string; count: number }>;
+}
+
+export interface JobView {
+  id: string;
+  kind: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  createdAt: string;
+  finishedAt: string | null;
+  output?: unknown;
+  error?: string;
+}

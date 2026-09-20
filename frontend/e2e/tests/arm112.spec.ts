@@ -414,6 +414,57 @@ test.describe('Администрирование', () => {
   });
 });
 
+test.describe('Аналитика', () => {
+  /**
+   * Отдельный критерий экспертизы: «оценка достоверности будет
+   * проводиться на основании визуальной наглядности диаграмм и
+   * отражения ими данных». Поэтому проверяем не наличие картинки,
+   * а совпадение чисел на диаграмме с числами отчёта.
+   */
+  test('диаграммы показывают настоящие числа', async ({ page }, info) => {
+    // Сначала занятие, чтобы данным было откуда взяться
+    await login(page, info);
+    await launchTicket3(page);
+    await fillFireCard(page);
+    await page.getByTestId('save-card').click();
+    await expect(page.getByTestId('score')).toBeVisible();
+
+    await login(page, info, 'teacher1');
+    await page.getByTestId('analytics-link').click();
+
+    const metrics = page.getByTestId('analytics-metrics');
+    await expect(metrics).toBeVisible({ timeout: 30_000 });
+    await expect(metrics).toContainText('Угадано, а не выяснено');
+
+    // Воронка: «угадал» и «выяснил» — разные столбцы с числами
+    await expect(page.getByText('Выяснил у заявителя')).toBeVisible();
+    await expect(page.getByText('Угадал', { exact: true })).toBeVisible();
+
+    // Тепловая карта и график времени построены
+    await expect(page.getByText('Тепловая карта ошибок')).toBeVisible();
+    await expect(page.getByRole('img', { name: /Время заполнения карточки/ })).toBeVisible();
+  });
+
+  test('сводка собирается из настоящей статистики', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('analytics-link').click();
+    await expect(page.getByTestId('analytics-metrics')).toBeVisible({ timeout: 30_000 });
+
+    await page.getByTestId('ask-insights').click();
+    const text = page.getByTestId('insights');
+    await expect(text).toBeVisible({ timeout: 30_000 });
+    await expect(text).toContainText('Занятий');
+  });
+
+  test('курсанту раздел не показывается', async ({ page }, info) => {
+    await login(page, info);
+    await expect(page.getByTestId('analytics-link')).toHaveCount(0);
+
+    await go(page, info, '/analytics');
+    await expect(page.getByText('доступен преподавателю и администратору')).toBeVisible();
+  });
+});
+
 test.describe('Адаптивность', () => {
   test('на узком экране нет горизонтальной прокрутки', async ({ page }, info) => {
     await page.setViewportSize({ width: 400, height: 900 });

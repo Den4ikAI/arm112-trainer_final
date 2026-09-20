@@ -29,7 +29,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/auth/me", get(me))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "user_role", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -38,7 +38,7 @@ pub enum Role {
     Admin,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Claims {
     /// Идентификатор пользователя
     pub sub: Uuid,
@@ -51,7 +51,7 @@ pub struct Claims {
     pub exp: i64,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserView {
     pub id: Uuid,
@@ -62,7 +62,7 @@ pub struct UserView {
     pub workstation: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct LoginRequest {
     pub login: String,
     pub password: String,
@@ -71,13 +71,23 @@ pub struct LoginRequest {
     pub workstation: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginResponse {
     pub token: String,
     pub user: UserView,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    tag = "Аутентификация",
+    responses(
+        (status = 200, description = "Вход в систему", body = LoginResponse),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn login(
     State(state): State<AppState>,
     ClientIp(ip): ClientIp,
@@ -170,10 +180,30 @@ async fn login(
 
 /// Токен живёт до истечения срока, серверного списка отзыва нет.
 /// Для учебного стенда этого достаточно; фронтенд просто забывает токен.
+#[utoipa::path(
+    post,
+    path = "/api/auth/logout",
+    tag = "Аутентификация",
+    responses(
+        (status = 204, description = "Выход"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn logout() -> axum::http::StatusCode {
     axum::http::StatusCode::NO_CONTENT
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/auth/me",
+    tag = "Аутентификация",
+    responses(
+        (status = 200, description = "Текущий пользователь", body = UserView),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<UserView>> {
     let row: Option<UserView> = sqlx::query_as(
         "SELECT id, login, fio, role, service_id, workstation FROM users WHERE id = $1",

@@ -41,6 +41,8 @@ jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust
 argon2 = "0.6.0"
 password-hash = { version = "0.6.1", features = ["getrandom", "rand_core"] }
 rand = "0.10.3"
+utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,112 @@
+@use '@styles/mixins' as m;
+
+.scroll {
+  overflow-x: auto;
+  @include m.thin-scroll;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  min-width: 520px;
+  height: auto;
+}
+
+.axis { fill: var(--c-text-muted); font-size: 11px; }
+.normLabel { fill: var(--c-danger); font-size: 11px; }
+
+/* ─── Тепловая карта ─────────────────────────────────────────── */
+
+.heat {
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th, td {
+    padding: 4px 10px;
+    border: 1px solid var(--c-border);
+    text-align: center;
+  }
+
+  thead th {
+    color: var(--c-label);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+}
+
+.heatCorner { text-align: left !important; }
+
+.heatLabel {
+  max-width: 280px;
+  font-weight: 400;
+  text-align: left !important;
+  white-space: nowrap;
+}
+
+.heatCell {
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+
+.heatTotal {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Столбцы ────────────────────────────────────────────────── */
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 190px) 1fr minmax(88px, auto);
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.barLabel { font-size: 13px; }
+
+.barTrack {
+  height: 18px;
+  border-radius: 3px;
+  background: #eceff1;
+}
+
+.barFill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: 3px;
+  transition: width .2s;
+}
+
+.barValue {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.barShare {
+  margin-left: var(--sp-2);
+  color: var(--c-text-muted);
+}
+
+.note {
+  margin: var(--sp-3) 0 0;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.empty {
+  padding: var(--sp-4);
+  color: var(--c-text-muted);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .barRow { grid-template-columns: 1fr; gap: 2px; }
+  .barValue { text-align: left; }
+}

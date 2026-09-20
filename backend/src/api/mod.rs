@@ -12,6 +12,7 @@ pub mod cards;
 pub mod reports;
 pub mod sessions;
 pub mod health;
+pub mod openapi;
 
 use crate::state::AppState;
 use axum::Router;

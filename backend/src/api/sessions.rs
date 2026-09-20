@@ -36,7 +36,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/sessions/{id}/grade", get(grade_view))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
 #[sqlx(type_name = "session_mode", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum SessionMode {
@@ -44,7 +44,7 @@ pub enum SessionMode {
     Dds,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionView {
     pub id: Uuid,
@@ -56,7 +56,7 @@ pub struct SessionView {
 
 /// Сценарий в том виде, в каком его можно показать курсанту:
 /// без эталона и без ответов на ещё не заданные вопросы.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScenarioPublic {
     pub id: Uuid,
@@ -72,7 +72,7 @@ pub struct ScenarioPublic {
     pub questions: Vec<QuestionPublic>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionPublic {
     pub fact_id: Uuid,
@@ -82,7 +82,7 @@ pub struct QuestionPublic {
     pub revealed: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CardView {
     pub id: Uuid,
@@ -110,7 +110,7 @@ pub struct CardView {
     pub service_ids: Vec<String>,
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScenarioBrief {
     pub id: Uuid,
@@ -124,6 +124,16 @@ pub struct ScenarioBrief {
 
 /// Список вызовов, которые можно взять в работу. Эталон не отдаётся
 /// и здесь: в списке его тем более незачем показывать.
+#[utoipa::path(
+    get,
+    path = "/api/scenarios",
+    tag = "Занятие",
+    responses(
+        (status = 200, description = "Доступные учебные вызовы", body = Vec<ScenarioBrief>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn list_scenarios(
     State(state): State<AppState>,
     user: AuthUser,
@@ -146,7 +156,7 @@ async fn list_scenarios(
     Ok(Json(items))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRequest {
     pub scenario_id: Uuid,
@@ -155,7 +165,7 @@ pub struct CreateRequest {
     pub assignment_id: Option<Uuid>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateResponse {
     pub session: SessionView,
@@ -163,6 +173,16 @@ pub struct CreateResponse {
     pub scenario: ScenarioPublic,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/sessions",
+    tag = "Занятие",
+    responses(
+        (status = 200, description = "Начать занятие", body = CreateResponse),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn create(
     State(state): State<AppState>,
     user: AuthUser,
@@ -287,13 +307,13 @@ async fn create(
     ))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AskRequest {
     pub fact_id: Uuid,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AskResponse {
     pub answer: String,
@@ -304,6 +324,19 @@ pub struct AskResponse {
 
 /// Курсант задаёт вопрос — заявитель отвечает. Факт помечается
 /// выясненным: на этом держится разбор «узнал или угадал».
+#[utoipa::path(
+    post,
+    path = "/api/sessions/{id}/ask",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Задать вопрос заявителю", body = AskResponse),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn ask(
     State(state): State<AppState>,
     user: AuthUser,
@@ -356,7 +389,7 @@ async fn ask(
     Ok(Json(AskResponse { answer, at_sec, unlocks }))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchCard {
     pub phone_provided: Option<String>,
@@ -389,7 +422,7 @@ where
     Option::deserialize(de).map(Some)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchResponse {
     pub card: CardView,
@@ -398,6 +431,19 @@ pub struct PatchResponse {
 
 /// Частичное обновление. Вызывается по дебаунсу с фронтенда —
 /// это и есть автосохранение, переживающее обрыв сети.
+#[utoipa::path(
+    patch,
+    path = "/api/sessions/{id}/card",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Частичное обновление карточки", body = PatchResponse),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn patch_card(
     State(state): State<AppState>,
     user: AuthUser,
@@ -476,7 +522,7 @@ async fn patch_card(
     }))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveResponse {
     pub card: CardView,
@@ -486,6 +532,19 @@ pub struct SaveResponse {
 /// Сохранение карточки завершает занятие и сразу считает разбор.
 /// Считается один раз: пересчёт задним числом после смены версии
 /// классификатора менял бы уже выставленные отметки.
+#[utoipa::path(
+    post,
+    path = "/api/sessions/{id}/save",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Сохранить карточку и получить разбор", body = SaveResponse),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn save(
     State(state): State<AppState>,
     user: AuthUser,
@@ -581,6 +640,19 @@ async fn save(
 
 /// Разбор доступен только после сохранения: пока курсант не закончил,
 /// показывать ему эталон нельзя.
+#[utoipa::path(
+    get,
+    path = "/api/sessions/{id}/grade",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Разбор занятия", body = Grade),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn grade_view(
     State(state): State<AppState>,
     user: AuthUser,
@@ -594,7 +666,7 @@ async fn grade_view(
         .ok_or(AppError::NotFound)
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptLine {
     pub who: String,
@@ -602,6 +674,19 @@ pub struct TranscriptLine {
     pub at_sec: i32,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/sessions/{id}/transcript",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Стенограмма разговора", body = Vec<TranscriptLine>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn transcript(
     State(state): State<AppState>,
     user: AuthUser,

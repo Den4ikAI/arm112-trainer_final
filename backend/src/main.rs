@@ -1,7 +1,7 @@
 //! Точка входа HTTP-сервера.
 
 use anyhow::{Context, Result};
-use arm112::{api, config::Config, jobs, ml::MlSuite, state::AppState, store};
+use arm112::{api, api::openapi::ApiDoc, config::Config, jobs, ml::MlSuite, state::AppState, store};
 use axum::Router;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
@@ -40,6 +40,13 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .merge(api::routes())
         .merge(arm112::ws::routes::routes())
+        // Схема и Swagger UI: по ТЗ решение должно уметь встраиваться
+        // в стороннюю систему, а для этого описание нужно читаемое
+        // не только человеком
+        .merge(
+            utoipa_swagger_ui::SwaggerUi::new("/api/docs")
+                .url("/api/openapi.json", <ApiDoc as utoipa::OpenApi>::openapi()),
+        )
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         // Dev-режим: фронтенд живёт на другом порту.

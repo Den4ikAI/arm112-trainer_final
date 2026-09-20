@@ -23,7 +23,7 @@ use uuid::Uuid;
 /// Регистр и пробелы — как в исходном файле, включая опечатку у ОАТИ.
 const INFORMATIONAL_VALUES: [&str; 3] = ["карточка-112", "карточка -112", "нет реагирования"];
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NotifiedService {
     pub service_id: String,
@@ -36,7 +36,7 @@ pub struct NotifiedService {
     pub condition: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassifyResult {
     /// Итоговый тип происшествия, строка «Класс.» в карточке

@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionReport {
     pub session_id: Uuid,
@@ -37,7 +37,7 @@ pub struct SessionReport {
     pub grammar: Grammar,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Student {
     pub id: Uuid,
@@ -46,7 +46,7 @@ pub struct Student {
     pub service_title: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ScenarioRef {
     pub ticket: Option<i32>,
@@ -54,7 +54,7 @@ pub struct ScenarioRef {
     pub legend: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Timing {
     pub elapsed_sec: i32,
@@ -64,7 +64,7 @@ pub struct Timing {
     pub over_norm: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Action {
     pub at_sec: i32,
@@ -73,7 +73,7 @@ pub struct Action {
     pub text: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Grammar {
     /// Какие поля проверялись — свободный текст, который уйдёт в службу
@@ -82,7 +82,7 @@ pub struct Grammar {
     pub total: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GrammarField {
     pub field: String,

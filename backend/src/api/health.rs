@@ -4,7 +4,7 @@ use crate::{error::AppResult, state::AppState};
 use axum::{extract::State, routing::get, Json, Router};
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub struct Health {
     /// Отвечает ли база
     db: bool,
@@ -24,6 +24,16 @@ pub fn routes() -> Router<AppState> {
     Router::new().route("/api/admin/health", get(health))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/admin/health",
+    tag = "Состояние",
+    responses(
+        (status = 200, description = "Живость сервиса", body = Health),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn health(State(state): State<AppState>) -> AppResult<Json<Health>> {
     let db = sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.db)

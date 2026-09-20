@@ -22,7 +22,7 @@ use sqlx::PgPool;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FindingKind {
     Ok,
@@ -44,7 +44,7 @@ impl FindingKind {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
     pub kind: FindingKind,
@@ -61,7 +61,7 @@ pub struct Finding {
     pub consequence: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ServiceDiff {
     pub expected: Vec<String>,
@@ -70,7 +70,7 @@ pub struct ServiceDiff {
     pub extra: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Grade {
     pub findings: Vec<Finding>,

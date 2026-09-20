@@ -30,9 +30,11 @@ pub fn routes() -> Router<AppState> {
         .route("/api/admin/users/{id}/active", post(set_active))
         .route("/api/admin/classifier-versions", get(versions))
         .route("/api/admin/classifier-versions/{id}/activate", post(activate_version))
+        .route("/api/classifier/versions/{a}/diff/{b}", get(version_diff))
+        .route("/api/classifier/versions/{id}/impact", get(version_impact))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditQuery {
     pub from: Option<chrono::DateTime<chrono::Utc>>,
@@ -52,7 +54,7 @@ fn default_size() -> i64 {
     100
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditEntry {
     pub id: i64,
@@ -66,7 +68,7 @@ pub struct AuditEntry {
     pub ip: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuditPage {
     pub items: Vec<AuditEntry>,
@@ -80,6 +82,16 @@ pub struct AuditPage {
 /// Журнал действий. Преподавателю он тоже нужен: по нему разбирают
 /// занятие. Но своих записей это не касается — фильтровать по людям
 /// может только администратор.
+#[utoipa::path(
+    get,
+    path = "/api/admin/audit",
+    tag = "Администрирование",
+    responses(
+        (status = 200, description = "Журнал действий", body = AuditPage),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn audit_log(
     State(state): State<AppState>,
     user: AuthUser,
@@ -141,7 +153,7 @@ async fn audit_log(
     Ok(Json(AuditPage { items, total, page: q.page.max(0), size, actions }))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserRow {
     pub id: Uuid,
@@ -156,6 +168,16 @@ pub struct UserRow {
     pub sessions: i64,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/admin/users",
+    tag = "Администрирование",
+    responses(
+        (status = 200, description = "Учётные записи", body = Vec<UserRow>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn list_users(
     State(state): State<AppState>,
     user: AuthUser,
@@ -177,7 +199,7 @@ async fn list_users(
     Ok(Json(rows))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NewUser {
     pub login: String,
@@ -188,6 +210,16 @@ pub struct NewUser {
     pub workstation: Option<String>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/admin/users",
+    tag = "Администрирование",
+    responses(
+        (status = 200, description = "Завести учётную запись", body = UserRow),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn create_user(
     State(state): State<AppState>,
     user: AuthUser,
@@ -259,13 +291,26 @@ async fn create_user(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct Active {
     pub active: bool,
 }
 
 /// Учётные записи не удаляем, а отключаем: на них ссылаются занятия,
 /// карточки и записи аудита, и их история должна остаться читаемой.
+#[utoipa::path(
+    post,
+    path = "/api/admin/users/{id}/active",
+    tag = "Администрирование",
+    params(
+        ("id" = String, Path, description = "Идентификатор пользователя"),
+    ),
+    responses(
+        (status = 204, description = "Включить или отключить запись"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn set_active(
     State(state): State<AppState>,
     user: AuthUser,
@@ -301,7 +346,7 @@ async fn set_active(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VersionRow {
     pub id: Uuid,
@@ -312,28 +357,130 @@ pub struct VersionRow {
     pub imported_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Чем две версии классификатора отличаются.
+///
+/// Нужен не ради любопытства: по классификатору считается и список
+/// оповещения, и эталон при разборе. Прежде чем подменять справочник,
+/// по которому оценивают людей, надо знать, что именно меняется.
+#[utoipa::path(
+    get,
+    path = "/api/classifier/versions/{a}/diff/{b}",
+    tag = "Классификатор",
+    params(
+        ("a" = String, Path, description = "Версия, с которой сравниваем"),
+        ("b" = String, Path, description = "Версия, с которой сравниваем"),
+    ),
+    responses(
+        (status = 200, description = "Чем версии отличаются", body = crate::domain::version_diff::Diff),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn version_diff(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path((a, b)): Path<(Uuid, Uuid)>,
+) -> AppResult<Json<crate::domain::version_diff::Diff>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    crate::domain::version_diff::diff(&state.db, a, b)
+        .await
+        .map(Json)
+        .map_err(AppError::Other)
+}
+
+/// Кого задевает переход на эту версию.
+///
+/// Считается ДО переключения: преподаватель должен увидеть цену
+/// решения заранее, а не обнаружить потом, что часть сценариев
+/// оценивает не по тому справочнику.
+#[utoipa::path(
+    get,
+    path = "/api/classifier/versions/{id}/impact",
+    tag = "Классификатор",
+    params(
+        ("id" = String, Path, description = "Идентификатор версии"),
+    ),
+    responses(
+        (status = 200, description = "Кого задевает переход на версию", body = crate::domain::version_diff::Impact),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn version_impact(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<crate::domain::version_diff::Impact>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+
+    let active: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM classifier_versions WHERE is_active")
+            .fetch_optional(&state.db)
+            .await?;
+    let Some(active) = active else {
+        return Err(AppError::Conflict("нет активной версии классификатора".into()));
+    };
+
+    crate::domain::version_diff::impact(&state.db, active, id)
+        .await
+        .map(Json)
+        .map_err(AppError::Other)
+}
+
 /// Сделать версию активной.
 ///
 /// По ней считается и список оповещения, и эталон при разборе.
 /// Уже выставленные оценки не пересчитываются: они зафиксировали тот
 /// справочник, что действовал в момент сохранения.
+#[utoipa::path(
+    post,
+    path = "/api/admin/classifier-versions/{id}/activate",
+    tag = "Классификатор",
+    params(
+        ("id" = String, Path, description = "Идентификатор версии"),
+    ),
+    responses(
+        (status = 200, description = "Сделать версию активной", body = ActivateResult),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn activate_version(
     State(state): State<AppState>,
     user: AuthUser,
     Path(id): Path<Uuid>,
-) -> AppResult<StatusCode> {
+) -> AppResult<Json<ActivateResult>> {
     user.require(&[Role::Admin])?;
-
-    let mut tx = state.db.begin().await?;
 
     let name: Option<String> =
         sqlx::query_scalar("SELECT name FROM classifier_versions WHERE id = $1")
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&state.db)
             .await?;
     let Some(name) = name else {
         return Err(AppError::NotFound);
     };
+
+    // Цену считаем до переключения: после него «что изменилось»
+    // уже не восстановить
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT name FROM classifier_versions WHERE is_active")
+            .fetch_optional(&state.db)
+            .await?;
+    let active: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM classifier_versions WHERE is_active")
+            .fetch_optional(&state.db)
+            .await?;
+    let impact = match active {
+        Some(active) if active != id => {
+            Some(crate::domain::version_diff::impact(&state.db, active, id)
+                .await
+                .map_err(AppError::Other)?)
+        }
+        _ => None,
+    };
+
+    let mut tx = state.db.begin().await?;
 
     // Активная ровно одна: частичный индекс на is_active этого не
     // гарантирует, гарантируем порядком операций в транзакции
@@ -351,16 +498,50 @@ async fn activate_version(
         audit::Event::new("classifier.activate")
             .from_user(&user)
             .about("classifier_version", id)
-            .with(json!({ "name": name })),
+            .with(json!({
+                "name": name,
+                "previous": previous,
+                // Сколько сценариев перестало соответствовать эталону
+                // и сколько новых позиций осталось без тренировки —
+                // это и есть цена переключения
+                "scenariosDrifted": impact.as_ref().map(|i| i.scenarios_drifted.len()),
+                "positionsUntrained": impact.as_ref().map(|i| i.positions_untrained.len()),
+                "studentsUncovered": impact.as_ref().map(|i| i.students_uncovered.len()),
+            })),
     )
     .await;
 
     tracing::info!(%id, %name, "активная версия классификатора изменена");
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(ActivateResult {
+        activated: name,
+        impact: impact.unwrap_or(crate::domain::version_diff::Impact {
+            scenarios_drifted: Vec::new(),
+            students_uncovered: Vec::new(),
+            positions_untrained: Vec::new(),
+        }),
+    }))
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivateResult {
+    pub activated: String,
+    /// Кого это задело. Считается до переключения, по прежней активной
+    pub impact: crate::domain::version_diff::Impact,
 }
 
 /// Какие версии классификатора загружены. По ТЗ система должна
 /// переживать их смену, и видеть, что сейчас активно, обязательно.
+#[utoipa::path(
+    get,
+    path = "/api/admin/classifier-versions",
+    tag = "Классификатор",
+    responses(
+        (status = 200, description = "Загруженные версии", body = Vec<VersionRow>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn versions(
     State(state): State<AppState>,
     user: AuthUser,

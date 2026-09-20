@@ -11,7 +11,7 @@ use async_trait::async_trait;
 
 /// Фрагмент расшифровки с временными метками — нужен, чтобы
 /// показывать курсанту, из какой секунды разговора взято поле.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct Segment {
     pub text: String,
     pub start_ms: u32,
@@ -19,7 +19,7 @@ pub struct Segment {
     pub conf: f32,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct Transcript {
     pub text: String,
     pub segments: Vec<Segment>,
@@ -30,7 +30,7 @@ pub trait Asr: Send + Sync {
     async fn transcribe(&self, audio: &[u8]) -> Result<Transcript>;
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct Audio {
     pub audio_ref: String,
     pub duration_ms: u32,
@@ -41,7 +41,7 @@ pub trait Tts: Send + Sync {
     async fn synthesize(&self, text: &str, voice: &str) -> Result<Audio>;
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct Scored {
     pub label: String,
     pub prob: f32,
@@ -56,7 +56,7 @@ pub trait LabelScorer: Send + Sync {
     async fn score(&self, text: &str, candidates: &[String]) -> Result<Vec<Scored>>;
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct GrammarIssue {
     pub start: usize,
     pub end: usize,

@@ -2,8 +2,8 @@
 import { api, setToken } from './client';
 import type {
   AdminUser, AuditPage, Card, CardBrief, CardDetail, ClassifierVersion,
-  ClassifyResult, Grade, Health, IncidentType, ScenarioPublic, Service,
-  SurveyCard, TrainingSession, TranscriptLine, User,
+  ClassifyResult, Grade, GroupBrief, Health, IncidentType, JobView,
+  ScenarioPublic, Service, SurveyCard, TrainingSession, TranscriptLine, User,
 } from './types';
 
 export * from './types';
@@ -103,4 +103,34 @@ export const admin = {
   versions: () => api.get<ClassifierVersion[]>('/api/admin/classifier-versions'),
   activateVersion: (id: string) =>
     api.post<void>(`/api/admin/classifier-versions/${id}/activate`),
+};
+
+export const reports = {
+  groups: () => api.get<GroupBrief[]>('/api/groups'),
+
+  session: (id: string) => api.get<unknown>(`/api/reports/session/${id}`),
+  /** Ссылка на выгрузку: скачивание делает браузер, не мы. */
+  sessionCsvUrl: (id: string) => `/api/reports/session/${id}?format=csv`,
+
+  group: (id: string) => api.post<{ jobId: string }>(`/api/reports/group/${id}`),
+  insights: (id: string) => api.post<{ jobId: string }>(`/api/insights/group/${id}`),
+  job: (id: string) => api.get<JobView>(`/api/jobs/${id}`),
+
+  /**
+   * Дождаться результата задачи.
+   *
+   * Отчёт по группе считается в очереди — норматив ТЗ на подготовку
+   * 30 секунд, поэтому и предел ожидания вдвое больше: лучше честно
+   * сказать «не дождались», чем висеть бесконечно.
+   */
+  awaitJob: async (id: string, timeoutMs = 60_000): Promise<unknown> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const job = await reports.job(id);
+      if (job.status === 'done') return job.output;
+      if (job.status === 'failed') throw new Error(job.error ?? 'задача не выполнена');
+      if (Date.now() > deadline) throw new Error('отчёт не готов, попробуйте ещё раз');
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  },
 };

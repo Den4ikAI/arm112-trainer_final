@@ -22,7 +22,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/classifier/evaluate", axum::routing::post(evaluate))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct IncidentType {
     id: String,
@@ -33,6 +33,16 @@ struct IncidentType {
     group_no: Option<i32>,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/catalog/incident-types",
+    tag = "Справочники",
+    responses(
+        (status = 200, description = "Типы происшествия", body = Vec<IncidentType>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn incident_types(State(state): State<AppState>) -> AppResult<Json<Vec<IncidentType>>> {
     // Частые идут первыми — так же, как на кадре пустой карточки
     let rows = sqlx::query_as::<_, IncidentType>(
@@ -44,7 +54,7 @@ async fn incident_types(State(state): State<AppState>) -> AppResult<Json<Vec<Inc
     Ok(Json(rows))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct Service {
     id: String,
@@ -52,6 +62,16 @@ struct Service {
     is_primary: bool,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/catalog/services",
+    tag = "Справочники",
+    responses(
+        (status = 200, description = "Службы", body = Vec<Service>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn services(State(state): State<AppState>) -> AppResult<Json<Vec<Service>>> {
     let rows = sqlx::query_as::<_, Service>(
         "SELECT id, title, is_primary FROM services ORDER BY title",
@@ -61,7 +81,7 @@ async fn services(State(state): State<AppState>) -> AppResult<Json<Vec<Service>>
     Ok(Json(rows))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct Question {
     id: String,
@@ -73,7 +93,7 @@ struct Question {
     options: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 struct SurveyCard {
     type_id: String,
@@ -88,6 +108,19 @@ struct SurveyCard {
 /// из классификатора — это отдельная задача.
 const FROM_SCREENSHOT: [&str; 3] = ["101", "104", "explosion"];
 
+#[utoipa::path(
+    get,
+    path = "/api/catalog/survey-cards/{type_id}",
+    tag = "Справочники",
+    params(
+        ("type_id" = String, Path, description = "Идентификатор типа происшествия"),
+    ),
+    responses(
+        (status = 200, description = "Опросная карта типа", body = SurveyCard),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn survey_card(
     State(state): State<AppState>,
     Path(type_id): Path<String>,
@@ -146,6 +179,16 @@ const APPLICANT_STATUSES: [&str; 6] = [
     "очевидец", "пострадавший", "родственник", "знакомый", "ребенок", "участник",
 ];
 
+#[utoipa::path(
+    get,
+    path = "/api/catalog/applicant-statuses",
+    tag = "Справочники",
+    responses(
+        (status = 200, description = "Статусы заявителя", body = Vec<String>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn applicant_statuses() -> (HeaderMap, Json<[&'static str; 6]>) {
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, "public, max-age=86400".parse().unwrap());
@@ -159,7 +202,7 @@ use crate::domain::classify::{classify, ClassifyResult};
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct EvaluateRequest {
     pub type_ids: Vec<String>,
@@ -170,6 +213,16 @@ pub struct EvaluateRequest {
 
 /// Горячий путь: дёргается после каждого нажатия плашки признака.
 /// Бюджет p95 — 50 мс.
+#[utoipa::path(
+    post,
+    path = "/api/classifier/evaluate",
+    tag = "Классификатор",
+    responses(
+        (status = 200, description = "Подбор служб по признакам", body = ClassifyResult),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn evaluate(
     State(state): State<AppState>,
     Json(req): Json<EvaluateRequest>,

@@ -1,0 +1,101 @@
+@use '@styles/mixins' as m;
+
+.page {
+  min-height: 100%;
+  padding: var(--sp-4);
+  background: var(--c-shell);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.title { margin: 0; font-size: 20px; font-weight: 600; }
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+
+  select {
+    padding: 4px 8px;
+    border: 1px solid var(--c-border);
+    border-radius: 3px;
+    background: var(--c-surface);
+    font: inherit;
+  }
+}
+
+.plain { @include m.button; }
+
+.primary {
+  @include m.button;
+  border-color: var(--c-blue);
+  background: var(--c-blue);
+  color: #fff;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.metric {
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+}
+
+.metricDanger {
+  border-color: var(--c-danger);
+  background: #fdf2f1;
+}
+
+.metricLabel { @include m.field-label; }
+.metricValue { margin-top: 4px; font-size: 24px; font-weight: 600; }
+.metricNote { margin-top: 2px; color: var(--c-text-muted); font-size: 12px; }
+
+.block {
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+}
+
+.blockTitle { margin: 0; font-size: 15px; font-weight: 600; }
+
+.blockHint {
+  margin: 4px 0 var(--sp-3);
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.insights {
+  margin: 0;
+  padding: var(--sp-3);
+  border-left: 3px solid var(--c-blue);
+  background: #f4f8fd;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.note {
+  margin: var(--sp-3) 0 0;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.empty {
+  padding: var(--sp-6);
+  color: var(--c-text-muted);
+  text-align: center;
+}

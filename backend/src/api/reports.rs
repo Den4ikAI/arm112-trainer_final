@@ -28,7 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/jobs/{id}", get(job))
 }
 
-#[derive(Serialize, sqlx::FromRow)]
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GroupBrief {
     pub id: Uuid,
@@ -39,6 +39,16 @@ pub struct GroupBrief {
 
 /// Курсант видит только свои группы, преподаватель — свои,
 /// администратор — все.
+#[utoipa::path(
+    get,
+    path = "/api/groups",
+    tag = "Отчёты",
+    responses(
+        (status = 200, description = "Учебные группы", body = Vec<GroupBrief>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn list_groups(
     State(state): State<AppState>,
     user: AuthUser,
@@ -62,7 +72,7 @@ async fn list_groups(
     Ok(Json(rows))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct Format {
     /// `json` (по умолчанию) или `csv`
     #[serde(default)]
@@ -71,6 +81,19 @@ pub struct Format {
 
 /// Отчёт по занятию. Синхронно: он маленький и нужен сразу после
 /// сохранения карточки.
+#[utoipa::path(
+    get,
+    path = "/api/reports/session/{id}",
+    tag = "Отчёты",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Отчёт по занятию (json или csv)", body = crate::reports::session::SessionReport),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn session(
     State(state): State<AppState>,
     user: AuthUser,
@@ -111,19 +134,32 @@ async fn session(
     Ok(Json(report).into_response())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Period {
     pub from: Option<chrono::DateTime<chrono::Utc>>,
     pub to: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Accepted {
     pub job_id: Uuid,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/reports/group/{id}",
+    tag = "Отчёты",
+    params(
+        ("id" = String, Path, description = "Идентификатор группы"),
+    ),
+    responses(
+        (status = 200, description = "Заказать отчёт по группе", body = Accepted),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn group_report(
     State(state): State<AppState>,
     user: AuthUser,
@@ -133,6 +169,19 @@ async fn group_report(
     enqueue_group(&state, &user, id, period, "report.group").await
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/insights/group/{id}",
+    tag = "Отчёты",
+    params(
+        ("id" = String, Path, description = "Идентификатор группы"),
+    ),
+    responses(
+        (status = 200, description = "Заказать сводку по группе", body = Accepted),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn group_insights(
     State(state): State<AppState>,
     user: AuthUser,
@@ -191,7 +240,7 @@ async fn enqueue_group(
     Ok((StatusCode::ACCEPTED, Json(Accepted { job_id })))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct JobView {
     pub id: Uuid,
@@ -206,6 +255,19 @@ pub struct JobView {
 }
 
 /// Состояние задачи. Свои задачи видит автор, чужие — администратор.
+#[utoipa::path(
+    get,
+    path = "/api/jobs/{id}",
+    tag = "Отчёты",
+    params(
+        ("id" = String, Path, description = "Идентификатор задачи"),
+    ),
+    responses(
+        (status = 200, description = "Состояние фоновой задачи", body = JobView),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
 async fn job(
     State(state): State<AppState>,
     user: AuthUser,
