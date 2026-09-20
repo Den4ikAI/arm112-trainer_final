@@ -5,6 +5,7 @@
 //! **в конец** списка в `routes()`, соседние не переставляем. Git
 //! сливает добавления в разные места без конфликта, перестановки — нет.
 
+pub mod catalog;
 pub mod health;
 
 use crate::state::AppState;
@@ -13,6 +14,7 @@ use axum::Router;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .merge(health::routes())
+        .merge(catalog::routes())
     // сюда добавляются роутеры задач:
     // .merge(auth::routes())      — задача 4
     // .merge(catalog::routes())   — задача 5
