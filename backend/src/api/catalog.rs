@@ -3,7 +3,7 @@
 //! Фронтенд держит их в кэше и перезапрашивает, когда меняется активная
 //! версия классификатора. Отсюда заголовок `ETag`.
 
-use crate::{error::AppResult, state::AppState};
+use crate::{domain::applicant::STATUSES as APPLICANT_STATUSES, error::AppResult, state::AppState};
 use axum::{
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
@@ -172,12 +172,6 @@ async fn survey_card(
 
     Ok(Json(SurveyCard { type_id, title, questions: out, source }).into_response())
 }
-
-/// Статусы заявителя. Источник — инструкция по заведению карточки,
-/// раздел 5.3. Справочник неизменный, в базе держать незачем.
-const APPLICANT_STATUSES: [&str; 6] = [
-    "очевидец", "пострадавший", "родственник", "знакомый", "ребенок", "участник",
-];
 
 #[utoipa::path(
     get,

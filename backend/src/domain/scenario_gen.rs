@@ -156,6 +156,12 @@ async fn pick_signs(
                     call.situation, serde_json::to_string(&types)?) },
             ]),
             200,
+            Some(json!({
+                "type": "object",
+                "properties": { "typeIds": { "type": "array", "items": { "type": "string" } } },
+                "required": ["typeIds"],
+                "additionalProperties": false,
+            })),
         )
         .await?;
 
@@ -201,6 +207,12 @@ async fn pick_signs(
                             unwrap_or_default()) },
                 ]),
                 600,
+                Some(json!({
+                    "type": "object",
+                    "properties": { "answers": { "type": "object" } },
+                    "required": ["answers"],
+                    "additionalProperties": false,
+                })),
             )
             .await?;
 
@@ -325,6 +337,27 @@ async fn write_dialogue(llm: &HttpLlm, call: &TicketCall) -> Result<Written> {
                     example = EXAMPLE) },
             ]),
             800,
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "legend": { "type": "string", "minLength": 10 },
+                    "hidden": {
+                        "type": "array", "minItems": 3, "maxItems": 6,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key":      { "type": "string", "minLength": 2 },
+                                "question": { "type": "string", "minLength": 5 },
+                                "answer":   { "type": "string", "minLength": 2 },
+                            },
+                            "required": ["key", "question", "answer"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "required": ["legend", "hidden"],
+                "additionalProperties": false,
+            })),
         )
         .await?;
 

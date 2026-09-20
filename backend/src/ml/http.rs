@@ -57,12 +57,35 @@ impl HttpLlm {
     /// Один обмен репликами. История передаётся целиком: сервер
     /// держит кэш и повторно разбирает только новое.
     pub async fn chat(&self, messages: Value, max_tokens: u32, temperature: f32) -> Result<String> {
-        let body = json!({
+        self.chat_with(messages, max_tokens, temperature, None).await
+    }
+
+    async fn chat_with(
+        &self,
+        messages: Value,
+        max_tokens: u32,
+        temperature: f32,
+        schema: Option<Value>,
+    ) -> Result<String> {
+        let mut body = json!({
             "model": self.model,
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         });
+
+        // Ограничение вывода схемой: движок отбрасывает токены,
+        // нарушающие её, поэтому разбирать заведомо валидный ответ
+        // проще, чем чинить невалидный
+        if let (Some(schema), Some(obj)) = (schema, body.as_object_mut()) {
+            obj.insert(
+                "response_format".into(),
+                json!({
+                    "type": "json_schema",
+                    "json_schema": { "name": "answer", "strict": true, "schema": schema },
+                }),
+            );
+        }
 
         let resp = self
             .client
@@ -92,8 +115,13 @@ impl HttpLlm {
     /// Модель почти всегда оборачивает его в ```json … ``` или
     /// предваряет фразой, сколько ни проси не делать этого. Вырезаем
     /// сами, а не полагаемся на послушание.
-    pub async fn chat_json(&self, messages: Value, max_tokens: u32) -> Result<Value> {
-        let raw = self.chat(messages, max_tokens, 0.2).await?;
+    pub async fn chat_json(
+        &self,
+        messages: Value,
+        max_tokens: u32,
+        schema: Option<Value>,
+    ) -> Result<Value> {
+        let raw = self.chat_with(messages, max_tokens, 0.2, schema).await?;
         extract_json(&raw).with_context(|| {
             format!("в ответе модели нет JSON: {}", raw.chars().take(200).collect::<String>())
         })
@@ -151,15 +179,20 @@ pub fn extract_json(raw: &str) -> Option<Value> {
 #[async_trait]
 impl Llm for HttpLlm {
     async fn generate_scenario(&self, input: Value) -> Result<Value> {
-        self.chat_json(input, 900).await
+        self.chat_json(input, 900, None).await
     }
 
     async fn refine_scenario(&self, input: Value) -> Result<Value> {
-        self.chat_json(input, 900).await
+        self.chat_json(input, 900, None).await
     }
 
-    async fn chat_json(&self, messages: Value, max_tokens: u32) -> Result<Value> {
-        HttpLlm::chat_json(self, messages, max_tokens).await
+    async fn chat_json(
+        &self,
+        messages: Value,
+        max_tokens: u32,
+        schema: Option<Value>,
+    ) -> Result<Value> {
+        HttpLlm::chat_json(self, messages, max_tokens, schema).await
     }
 
     async fn group_insights(&self, stats: Value) -> Result<String> {

@@ -15,7 +15,7 @@
 //! Поэтому испортить оценку через диалог нельзя.
 
 use crate::{domain::classify::classify, ml::Llm};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -65,12 +65,81 @@ pub struct Patch {
     pub answers: Option<std::collections::HashMap<String, Vec<String>>>,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-struct ModelTurn {
-    /// Что сказать преподавателю
-    reply: String,
-    #[serde(default)]
-    patch: Option<Patch>,
+/// Разбор ответа модели.
+///
+/// Нарочно снисходительный. Модель на 10 миллиардов параметров
+/// регулярно кладёт ФИО в `hidden` или заворачивает факт в строку —
+/// и это не повод отвечать преподавателю «internal». Реплику
+/// показываем всегда, из патча берём то, что разобралось, остальное
+/// называем вслух.
+fn parse_turn(raw: &Value) -> (String, Option<Patch>, Vec<String>) {
+    let reply = raw
+        .get("reply")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Модель ответила не по форме.")
+        .to_string();
+
+    let Some(obj) = raw.get("patch").and_then(|v| v.as_object()) else {
+        return (reply, None, Vec::new());
+    };
+
+    let mut patch = Patch::default();
+    let mut ignored = Vec::new();
+
+    let text = |v: &Value| v.as_str().map(str::to_string);
+    patch.legend = obj.get("legend").and_then(text);
+    patch.applicant_name = obj.get("applicantName").and_then(text);
+    patch.applicant_status = obj.get("applicantStatus").and_then(text);
+    patch.norm_sec = obj.get("normSec").and_then(|v| v.as_i64()).map(|n| n as i32);
+
+    if let Some(answers) = obj.get("answers").and_then(|v| v.as_object()) {
+        let mut map = std::collections::HashMap::new();
+        for (k, v) in answers {
+            let values: Vec<String> = match v {
+                Value::Array(a) => a.iter().filter_map(text).collect(),
+                Value::String(one) => vec![one.clone()],
+                _ => continue,
+            };
+            if !values.is_empty() {
+                map.insert(k.clone(), values);
+            }
+        }
+        if !map.is_empty() {
+            patch.answers = Some(map);
+        }
+    }
+
+    if let Some(list) = obj.get("hidden").and_then(|v| v.as_array()) {
+        let mut facts = Vec::new();
+        for item in list {
+            // Иногда факт приезжает строкой с JSON внутри
+            let item = match item {
+                Value::String(inner) => serde_json::from_str::<Value>(inner)
+                    .unwrap_or_else(|_| item.clone()),
+                other => other.clone(),
+            };
+            match serde_json::from_value::<HiddenRow>(item.clone()) {
+                Ok(fact) if !fact.question.trim().is_empty()
+                         && !fact.answer.trim().is_empty() => facts.push(fact),
+                _ => ignored.push(
+                    serde_json::to_string(&item).unwrap_or_default().chars().take(60).collect()),
+            }
+        }
+        // Пустой список означал бы «удали все факты» — а это почти
+        // наверняка не то, чего просил преподаватель
+        if !facts.is_empty() {
+            patch.hidden = Some(facts);
+        }
+    }
+
+    let empty = patch.legend.is_none()
+        && patch.applicant_name.is_none()
+        && patch.applicant_status.is_none()
+        && patch.norm_sec.is_none()
+        && patch.answers.is_none()
+        && patch.hidden.is_none();
+
+    (reply, if empty { None } else { Some(patch) }, ignored)
 }
 
 pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
@@ -110,17 +179,34 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
     })
 }
 
-const SYSTEM: &str = "\
+const SYSTEM_TEMPLATE: &str = "\
 Ты помогаешь преподавателю учебного центра править учебные вызовы для \
 тренажёра операторов Системы-112.
 
 Вызов состоит из легенды (первая фраза заявителя) и скрытых фактов — \
 того, что заявитель сообщает только в ответ на вопрос оператора.
 
-Правь ровно то, о чём просят. Не переписывай остальное. Отвечай \
-только JSON вида {\"reply\": \"что ты сделал, одной фразой\", \
-\"patch\": {...}}. Если правка не нужна — patch не указывай. \
-В patch клади только изменившиеся поля.";
+Правь ровно то, о чём просят. Не переписывай остальное.
+
+Отвечай только JSON с двумя полями:
+  reply — одна фраза о том, что ты сделал. Своими словами, по делу.
+  patch — изменившиеся поля вызова.
+
+В patch допустимы только такие поля:
+  legend — строка, первая фраза заявителя
+  applicantName — строка, ФИО заявителя
+  applicantStatus — одно из: {СТАТУСЫ}
+  normSec — число, норматив в секундах
+  hidden — список объектов с полями key, question, answer
+
+hidden — это ПОЛНЫЙ новый список скрытых фактов, а не один изменённый. \
+ФИО заявителя кладётся в applicantName, а не в hidden. Если правка \
+не нужна — patch не указывай.";
+
+/// Подсказка с подставленным справочником статусов.
+fn system() -> String {
+    SYSTEM_TEMPLATE.replace("{СТАТУСЫ}", &crate::domain::applicant::listed())
+}
 
 /// Один ход переписки.
 pub async fn turn(
@@ -144,7 +230,7 @@ pub async fn turn(
     .fetch_all(pool)
     .await?;
 
-    let mut messages = vec![json!({ "role": "system", "content": SYSTEM })];
+    let mut messages = vec![json!({ "role": "system", "content": system() })];
     messages.push(json!({
         "role": "user",
         "content": format!(
@@ -161,11 +247,53 @@ pub async fn turn(
     }
     messages.push(json!({ "role": "user", "content": comment }));
 
-    let raw = llm.chat_json(Value::Array(messages), 900).await?;
-    let turn: ModelTurn = serde_json::from_value(raw.clone())
-        .with_context(|| format!("модель вернула не тот JSON: {raw}"))?;
+    // Схема ответа. Раньше модель клала ФИО в hidden, заворачивала
+    // факт в строку и роняла разбор — при ограничении вывода схемой
+    // это структурно невозможно
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "reply": { "type": "string", "minLength": 3 },
+            "patch": {
+                "type": "object",
+                "properties": {
+                    "legend":          { "type": "string", "minLength": 5 },
+                    "applicantName":   { "type": "string" },
+                    "applicantStatus": { "type": "string",
+                        "enum": crate::domain::applicant::STATUSES },
+                    "normSec":         { "type": "integer", "minimum": 15, "maximum": 600 },
+                    "hidden": {
+                        "type": "array", "minItems": 1, "maxItems": 8,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "key":      { "type": "string", "minLength": 2 },
+                                "question": { "type": "string", "minLength": 5 },
+                                "answer":   { "type": "string", "minLength": 2 },
+                            },
+                            "required": ["key", "question", "answer"],
+                            "additionalProperties": false,
+                        },
+                    },
+                },
+                "additionalProperties": false,
+            },
+        },
+        "required": ["reply"],
+        "additionalProperties": false,
+    });
 
-    Ok((turn.reply, turn.patch, raw))
+    let raw = llm.chat_json(Value::Array(messages), 900, Some(schema)).await?;
+    let (mut reply, patch, ignored) = parse_turn(&raw);
+
+    if !ignored.is_empty() {
+        tracing::info!(?ignored, "часть правки не разобралась, пропускаю");
+        reply.push_str(&format!(
+            "\n\n(часть правки не удалось применить: {})",
+            ignored.join("; ")));
+    }
+
+    Ok((reply, patch, raw))
 }
 
 /// Применить правку и пересчитать эталон.

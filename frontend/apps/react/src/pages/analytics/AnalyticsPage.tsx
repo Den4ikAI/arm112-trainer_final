@@ -57,7 +57,9 @@ export const AnalyticsPage = () => {
     setInsights('считаю…');
     try {
       const { jobId } = await reports.insights(groupId);
-      const r = await reports.awaitJob(jobId) as { text?: string };
+      // Сводку формулирует модель на процессоре — это около минуты,
+      // а не секунды, как у остального
+      const r = await reports.awaitJob(jobId, 180_000) as { text?: string };
       setInsights(r.text ?? 'нет данных');
     } catch {
       setInsights('не удалось получить сводку');

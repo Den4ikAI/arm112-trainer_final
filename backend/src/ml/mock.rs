@@ -155,8 +155,12 @@ impl Llm for MockLlm {
     /// до первой фразы. Это детерминированно, проверяемо и не
     /// притворяется пониманием. На остальные замечания честно
     /// отвечает, что нужна настоящая модель.
-    async fn chat_json(&self, messages: serde_json::Value, _max_tokens: u32)
-        -> Result<serde_json::Value> {
+    async fn chat_json(
+        &self,
+        messages: serde_json::Value,
+        _max_tokens: u32,
+        _schema: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value> {
         let last = messages
             .as_array()
             .and_then(|a| a.last())
