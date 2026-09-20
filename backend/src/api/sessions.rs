@@ -7,6 +7,7 @@
 
 use crate::{
     domain::classify::{classify, ClassifyResult},
+    domain::grade::{self, Grade},
     error::{AppError, AppResult},
     state::AppState,
     api::auth::AuthUser,
@@ -29,6 +30,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/sessions/{id}/card", patch(patch_card))
         .route("/api/sessions/{id}/save", post(save))
         .route("/api/sessions/{id}/transcript", get(transcript))
+        .route("/api/sessions/{id}/grade", get(grade_view))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -413,13 +415,12 @@ async fn patch_card(
 #[serde(rename_all = "camelCase")]
 pub struct SaveResponse {
     pub card: CardView,
-    pub elapsed_sec: i32,
-    pub norm_sec: i32,
-    pub over_norm: bool,
+    pub grade: Grade,
 }
 
-/// Сохранение карточки завершает занятие. Разбор считается отдельно
-/// (задача 9) — здесь только фиксируется факт и время.
+/// Сохранение карточки завершает занятие и сразу считает разбор.
+/// Считается один раз: пересчёт задним числом после смены версии
+/// классификатора менял бы уже выставленные отметки.
 async fn save(
     State(state): State<AppState>,
     user: AuthUser,
@@ -449,12 +450,42 @@ async fn save(
         .await?;
     tx.commit().await?;
 
-    Ok(Json(SaveResponse {
-        card: load_card(&state.db, card_id).await?,
+    let Some(scenario_id) = session.scenario_id else {
+        // Занятие без сценария — свободная тренировка, сравнивать не с чем
+        return Err(AppError::Conflict("у занятия нет сценария, разбор невозможен".into()));
+    };
+
+    let g = grade::grade(grade::GradeInput {
+        session_id: id,
+        card_id,
+        scenario_id,
         elapsed_sec: elapsed,
         norm_sec: session.norm_sec,
-        over_norm: elapsed > session.norm_sec,
+        version_id: active_version(&state.db).await?,
+        pool: &state.db,
+    })
+    .await?;
+    grade::store(&state.db, id, &g).await?;
+
+    Ok(Json(SaveResponse {
+        card: load_card(&state.db, card_id).await?,
+        grade: g,
     }))
+}
+
+/// Разбор доступен только после сохранения: пока курсант не закончил,
+/// показывать ему эталон нельзя.
+async fn grade_view(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Grade>> {
+    own_session(&state.db, id, &user).await?;
+    grade::load(&state.db, id)
+        .await
+        .map_err(AppError::Other)?
+        .map(Json)
+        .ok_or(AppError::NotFound)
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -489,24 +520,34 @@ struct SessionRow {
     started_at: chrono::DateTime<chrono::Utc>,
     finished_at: Option<chrono::DateTime<chrono::Utc>>,
     norm_sec: i32,
+    scenario_id: Option<Uuid>,
 }
 
 /// Чужое занятие курсанту недоступно; преподаватель видит любое.
 async fn own_session(pool: &sqlx::PgPool, id: Uuid, user: &AuthUser) -> AppResult<SessionRow> {
-    let row: Option<(Uuid, chrono::DateTime<chrono::Utc>, Option<chrono::DateTime<chrono::Utc>>, i32)> =
-        sqlx::query_as("SELECT user_id, started_at, finished_at, norm_sec FROM sessions WHERE id = $1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?;
+    #[allow(clippy::type_complexity)]
+    let row: Option<(
+        Uuid,
+        chrono::DateTime<chrono::Utc>,
+        Option<chrono::DateTime<chrono::Utc>>,
+        i32,
+        Option<Uuid>,
+    )> = sqlx::query_as(
+        "SELECT user_id, started_at, finished_at, norm_sec, scenario_id
+           FROM sessions WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
 
-    let Some((owner, started_at, finished_at, norm_sec)) = row else {
+    let Some((owner, started_at, finished_at, norm_sec, scenario_id)) = row else {
         return Err(AppError::NotFound);
     };
     if owner != user.id && user.role == crate::api::auth::Role::Student {
         // Не Forbidden: иначе по коду ответа можно перебирать чужие занятия
         return Err(AppError::NotFound);
     }
-    Ok(SessionRow { started_at, finished_at, norm_sec })
+    Ok(SessionRow { started_at, finished_at, norm_sec, scenario_id })
 }
 
 fn elapsed_sec(started_at: chrono::DateTime<chrono::Utc>) -> i32 {
@@ -600,6 +641,17 @@ async fn load_card(pool: &sqlx::PgPool, card_id: Uuid) -> AppResult<CardView> {
     })
 }
 
+/// Активная версия классификатора. Одна на всю установку: курсанты
+/// и эталон должны считаться по одному и тому же справочнику.
+async fn active_version(pool: &sqlx::PgPool) -> AppResult<Uuid> {
+    sqlx::query_scalar(
+        "SELECT id FROM classifier_versions ORDER BY is_active DESC, imported_at DESC LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::Conflict("в базе нет ни одной версии классификатора".into()))
+}
+
 /// Пересчёт списка оповещения после изменения признаков.
 /// Строки source = 'auto' полностью переписываются: классификатор —
 /// единственный их источник. Ручные и пришедшие из ВИС не трогаем.
@@ -610,15 +662,7 @@ async fn reclassify(pool: &sqlx::PgPool, card_id: Uuid) -> AppResult<ClassifyRes
             .fetch_one(pool)
             .await?;
 
-    let version_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM classifier_versions ORDER BY is_active DESC, imported_at DESC LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await?;
-
-    let Some(version_id) = version_id else {
-        return Err(AppError::Conflict("в базе нет ни одной версии классификатора".into()));
-    };
+    let version_id = active_version(pool).await?;
 
     let result = classify(pool, version_id, &type_ids, &answers_to_map(&answers)).await?;
 
