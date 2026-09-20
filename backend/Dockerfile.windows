@@ -1,0 +1,22 @@
+# Кросс-сборка Windows-бинарника с Linux.
+# Отдельный образ нужен ради mingw: иначе линковщик под windows-gnu
+# просто отсутствует в системе.
+#
+#   docker build -f Dockerfile.windows -t arm112-winbuild .
+#   docker run --rm -v "$PWD/out:/out" arm112-winbuild
+#
+# Результат: out/arm112.exe
+FROM rust:1-bookworm
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends mingw-w64 \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN rustup target add x86_64-pc-windows-gnu
+
+WORKDIR /src
+COPY . .
+
+CMD cargo build --release --target x86_64-pc-windows-gnu \
+ && cp target/x86_64-pc-windows-gnu/release/arm112.exe /out/ \
+ && ls -lh /out/arm112.exe
