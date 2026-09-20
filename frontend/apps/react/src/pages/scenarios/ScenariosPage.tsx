@@ -26,6 +26,7 @@ export const ScenariosPage = () => {
   const [list, setList] = useState<ScenarioBrief[]>([]);
   const [current, setCurrent] = useState<ScenarioFull | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const user = useSession((st) => st.user);
   const serviceTitle = useCatalog((st) => st.serviceTitle);
@@ -62,10 +63,23 @@ export const ScenariosPage = () => {
   const generate = async () => {
     setWorking(true);
     setError(null);
+    setNote(null);
     try {
       const { jobId } = await scenarios.generate([], 3);
-      await reports.awaitJob(jobId, 600_000);
+      const out = await reports.awaitJob(jobId, 600_000) as {
+        created?: unknown[]; failed?: unknown[]; ужеЗаведены?: number;
+      };
       await reload();
+
+      // Об итоге говорим всегда. Молчаливое завершение при нуле
+      // созданных неотличимо от зависшей кнопки
+      const создано = out.created?.length ?? 0;
+      const неудач = out.failed?.length ?? 0;
+      const заведены = out.ужеЗаведены ?? 0;
+      const части = [`подготовлено: ${создано}`];
+      if (неудач) части.push(`не получилось: ${неудач}`);
+      if (заведены) части.push(`уже были заведены: ${заведены}`);
+      setNote(части.join(', '));
     } catch (e) {
       setError(e instanceof ApiError ? (e.detail ?? e.message) : 'Подготовка не удалась');
     } finally {
@@ -98,6 +112,7 @@ export const ScenariosPage = () => {
       </header>
 
       {error && <div className={s.error} role="alert">{error}</div>}
+      {note && <div className={s.note} data-testid="generate-note">{note}</div>}
 
       <div className={s.body}>
         <aside className={s.list} aria-label="Список вызовов">

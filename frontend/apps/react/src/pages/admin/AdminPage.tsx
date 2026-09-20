@@ -315,9 +315,11 @@ const NewUserForm = ({ onDone }: { onDone: () => void }) => {
         <>
           <label className={s.field}>
             <span>Служба (ДДС)</span>
-            <select value={form.serviceId} aria-label="Служба"
+            {/* Обязательна: по службе отбирается лента курсанта,
+                без неё главный экран у него пустой */}
+            <select value={form.serviceId} aria-label="Служба" required
                     onChange={(e) => set('serviceId')(e.target.value)}>
-              <option value="">не задана</option>
+              <option value="">выберите службу</option>
               {services.map((sv) => (
                 <option key={sv.id} value={sv.id}>{sv.title}</option>
               ))}

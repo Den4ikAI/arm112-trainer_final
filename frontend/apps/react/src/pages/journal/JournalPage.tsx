@@ -3,7 +3,7 @@ import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTa
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
-import { cards, channel, scenarios as scenariosApi,
+import { ApiError, cards, channel, scenarios as scenariosApi,
          type CardBrief, type ScenarioBrief } from '@/shared/api';
 import { useNavigate } from 'react-router-dom';
 import { useClock } from '@/shared/lib/useClock';
@@ -54,20 +54,34 @@ export const JournalPage = () => {
   // попадают только профильные события»
   useEffect(() => {
     let alive = true;
+    // Две половины экрана грузятся врозь. Раньше это был один
+    // Promise.all с одним catch: у курсанта без службы лента
+    // отвечает отказом — и вместе с ней пропадали учебные вызовы,
+    // а на экране было «Нет связи с сервером», хотя связь есть
     const load = async () => {
-      try {
-        const scope = user?.role === 'student' ? 'service' : 'all';
-        const [feed, list] = await Promise.all([
-          cards.list({ scope, q: query || undefined }),
-          scenariosApi.list(),
-        ]);
-        if (!alive) return;
-        setRows(feed.items.map(toRow));
-        setScenarios(list);
-        setError(null);
-      } catch {
-        if (alive) setError('Нет связи с сервером');
-      }
+      const scope = user?.role === 'student' ? 'service' : 'all';
+
+      const [feed, list] = await Promise.allSettled([
+        cards.list({ scope, q: query || undefined }),
+        scenariosApi.list(),
+      ]);
+      if (!alive) return;
+
+      if (feed.status === 'fulfilled') setRows(feed.value.items.map(toRow));
+      if (list.status === 'fulfilled') setScenarios(list.value);
+
+      // Говорим, что именно не открылось, а не «что-то сломалось»
+      const беда = (r: PromiseSettledResult<unknown>) =>
+        r.status === 'rejected'
+          ? (r.reason instanceof ApiError ? (r.reason.detail ?? r.reason.message) : 'нет связи с сервером')
+          : null;
+      const лента = беда(feed);
+      const вызовы = беда(list);
+
+      if (лента && вызовы) setError('Нет связи с сервером');
+      else if (лента) setError(`Лента происшествий недоступна: ${лента}`);
+      else if (вызовы) setError(`Учебные вызовы недоступны: ${вызовы}`);
+      else setError(null);
     };
     void load();
 

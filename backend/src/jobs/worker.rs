@@ -132,7 +132,7 @@ async fn group_insights(
 /// Каждый вызов сохраняется сразу, а не в конце: если задача упадёт
 /// на сороковом билете, тридцать девять уже готовых останутся.
 async fn generate_scenarios(state: &AppState, input: &Value) -> anyhow::Result<Value> {
-    use crate::{domain::scenario_gen, ingest::tickets, ml::http::HttpLlm};
+    use crate::{domain::scenario_gen, ingest::tickets};
 
     let wanted: Vec<i32> = input
         .get("tickets")
@@ -147,10 +147,17 @@ async fn generate_scenarios(state: &AppState, input: &Value) -> anyhow::Result<V
         .with_context(|| format!("не найден файл билетов {path}"))?;
     let calls = tickets::parse(&text)?;
 
-    let llm = HttpLlm::new(
-        std::env::var("ML_BASE_URL").unwrap_or_else(|_| "http://127.0.0.1:8090".into()),
-        std::env::var("ML_MODEL").unwrap_or_else(|_| "local".into()),
-    )?;
+    // Берём настроенный адаптер, а не свой поверх ML_BASE_URL: иначе
+    // ML_PROVIDER ничего не значит, и на стенде без модели задача
+    // стучится в порт, который может принадлежать чему угодно
+    let llm = state.ml.llm.as_ref();
+    if state.config.ml_provider != crate::config::MlProvider::Http {
+        anyhow::bail!(
+            "подготовка вызовов работает только с сервером модели, \
+             а сейчас ML_PROVIDER={:?}",
+            state.config.ml_provider
+        );
+    }
 
     let version_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM classifier_versions ORDER BY is_active DESC, imported_at DESC LIMIT 1",
@@ -158,16 +165,30 @@ async fn generate_scenarios(state: &AppState, input: &Value) -> anyhow::Result<V
     .fetch_one(&state.db)
     .await?;
 
+    // Отбираем без ограничения количеством: нужное число отсчитываем
+    // по уже подготовленным. Раньше `take(count)` стоял здесь, до
+    // проверки «такой вызов уже заведён», — и когда первые билеты
+    // были заведены, задача пропускала их все и завершалась успехом,
+    // не создав ничего и ни на что не пожаловавшись
     let selected: Vec<_> = calls
         .iter()
         .filter(|c| wanted.is_empty() || wanted.contains(&c.ticket))
-        .take(count)
         .collect();
 
     let mut made = Vec::new();
     let mut failed = Vec::new();
+    let mut skipped = 0usize;
 
     for call in selected {
+        if made.len() >= count {
+            break;
+        }
+        // Столько же неудач подряд, сколько просили вызовов, — значит
+        // дело не в билете, а в модели, и перебирать все 96 незачем
+        if failed.len() >= count {
+            break;
+        }
+
         // Дважды один билет не заводим: задачу можно запустить повторно
         let exists: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM scenarios
@@ -178,10 +199,11 @@ async fn generate_scenarios(state: &AppState, input: &Value) -> anyhow::Result<V
         .fetch_one(&state.db)
         .await?;
         if exists {
+            skipped += 1;
             continue;
         }
 
-        match scenario_gen::generate(&llm, &state.db, version_id, call).await {
+        match scenario_gen::generate(llm, &state.db, version_id, call).await {
             Ok(g) => {
                 let id = save_generated(&state.db, &g).await?;
                 made.push(json!({
@@ -199,7 +221,9 @@ async fn generate_scenarios(state: &AppState, input: &Value) -> anyhow::Result<V
         }
     }
 
-    Ok(json!({ "created": made, "failed": failed }))
+    // Пропущенные называем вслух: «создано 0, ошибок 0» выглядит
+    // поломкой, хотя означает, что заводить больше нечего
+    Ok(json!({ "created": made, "failed": failed, "ужеЗаведены": skipped }))
 }
 
 /// Сохранить подготовленный вызов черновиком.

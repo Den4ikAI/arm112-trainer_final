@@ -163,6 +163,15 @@
   font-size: 13px;
 }
 
+/* Итог подготовки: сообщение о сделанном, не об ошибке */
+.note {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
 .empty { color: var(--c-text-muted); font-size: 13px; }
 
 @media (max-width: 1200px) {

@@ -251,6 +251,14 @@ async fn create_user(
             "служба задаётся только обучающемуся".into(),
         ));
     }
+    // …и наоборот: курсанту она обязательна. Без неё лента по службе
+    // отвечает отказом, и главный экран у такого курсанта пуст —
+    // он не может даже начать учебный вызов
+    if req.role == "student" && req.service_id.as_deref().unwrap_or("").is_empty() {
+        return Err(AppError::Validation(
+            "обучающемуся нужно указать службу: по ней отбирается его лента".into(),
+        ));
+    }
 
     let hash = Argon2::default()
         .hash_password(req.password.as_bytes())

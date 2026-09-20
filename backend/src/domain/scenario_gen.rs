@@ -20,7 +20,7 @@
 use crate::{
     domain::classify::classify,
     ingest::tickets::TicketCall,
-    ml::http::HttpLlm,
+    ml::Llm,
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -137,7 +137,7 @@ const SYSTEM: &str = "\
 
 /// Шаг 1: выбрать тип происшествия и признаки из закрытых словарей.
 async fn pick_signs(
-    llm: &HttpLlm,
+    llm: &dyn Llm,
     pool: &PgPool,
     call: &TicketCall,
     complaint: Option<&str>,
@@ -301,7 +301,7 @@ const EXAMPLE: &str = r#"{
 ///
 /// Единственное место, где модель пишет свободно. Всё остальное она
 /// выбирает из готовых списков.
-async fn write_dialogue(llm: &HttpLlm, call: &TicketCall) -> Result<Written> {
+async fn write_dialogue(llm: &dyn Llm, call: &TicketCall) -> Result<Written> {
     let hidden_hint = match &call.address_hidden {
         Some(h) => format!(
             "\n\nВАЖНО: настоящий адрес — «{h}». Заявитель его сам НЕ называет: \
@@ -378,7 +378,7 @@ async fn write_dialogue(llm: &HttpLlm, call: &TicketCall) -> Result<Written> {
 
 /// Собрать вызов целиком.
 pub async fn generate(
-    llm: &HttpLlm,
+    llm: &dyn Llm,
     pool: &PgPool,
     version_id: Uuid,
     call: &TicketCall,

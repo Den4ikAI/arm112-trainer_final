@@ -258,6 +258,9 @@ async fn негодные_учётные_записи_отклоняются() {
         json!({ "login": "c", "password": "длинныйПароль", "fio": "Иванов",
                 "role": "teacher", "serviceId": "mchs" }),
         json!({ "login": "", "password": "длинныйПароль", "fio": "Иванов", "role": "student" }),
+        // Курсант без службы: лента отбирается по ней, и без неё
+        // у него пустой главный экран вместо занятия
+        json!({ "login": "d", "password": "длинныйПароль", "fio": "Иванов", "role": "student" }),
     ];
 
     for body in bad {
@@ -313,7 +316,8 @@ async fn отключённая_запись_не_пускает_в_систем
 
     let (_, created) = call(&app, Method::POST, "/api/admin/users", Some(&admin),
         Some(json!({ "login": login, "password": "длинныйПароль",
-                     "fio": "Петров П.П.", "role": "student" }))).await;
+                     "fio": "Петров П.П.", "role": "student",
+                     "serviceId": "mchs" }))).await;
     let id = created["id"].as_str().unwrap();
 
     let (status, _) = call(&app, Method::POST, &format!("/api/admin/users/{id}/active"),
