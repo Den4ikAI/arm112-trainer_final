@@ -18,6 +18,7 @@ pub mod ws;
 pub mod config;
 pub mod error;
 pub mod ingest;
+pub mod reports;
 pub mod ml;
 pub mod state;
 pub mod store;

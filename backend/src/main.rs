@@ -1,7 +1,7 @@
 //! Точка входа HTTP-сервера.
 
 use anyhow::{Context, Result};
-use arm112::{api, config::Config, ml::MlSuite, state::AppState, store};
+use arm112::{api, config::Config, jobs, ml::MlSuite, state::AppState, store};
 use axum::Router;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
@@ -20,6 +20,14 @@ async fn main() -> Result<()> {
 
     let bind_addr = config.bind_addr.clone();
     let state = AppState::new(db, config, ml);
+
+    // Сторож нормативов: 30 секунд на подтверждение карточки,
+    // 48 часов на завершение работ (памятка ДДС)
+    tokio::spawn(jobs::watchdog::run(state.db.clone()));
+    // Очередь отчётов и сводок: норматив ТЗ на отчёт по группе
+    // 30 секунд, в HTTP-запросе его держать незачем
+    tokio::spawn(jobs::worker::run(state.clone()));
+    tracing::info!("фоновые задачи запущены");
 
     let app = Router::new()
         .merge(api::routes())

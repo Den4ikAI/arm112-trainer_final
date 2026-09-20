@@ -71,3 +71,23 @@
 }
 
 .table { min-width: 900px; }
+
+/* Карточка ждёт подтверждения дольше норматива (30 секунд). */
+.row.overdue {
+  background: #fdecea;
+
+  &:hover { background: #fbdcd8; }
+}
+
+.status { white-space: nowrap; }
+
+.overdueBadge {
+  display: inline-block;
+  margin-left: var(--sp-2);
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--c-danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+}

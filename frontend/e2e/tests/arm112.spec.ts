@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { go, login, launchTicket3, fillFireCard, USERS, PASSWORD } from './helpers';
+import { go, login, launchTicket3, fillFireCard, ageCard, USERS } from './helpers';
 
 /**
  * Прогон против живого сервера: классификатор, оценка и машина статусов
@@ -215,6 +215,26 @@ test.describe('Режим ДДС', () => {
     // Карандаш есть только у своей службы
     await expect(page.getByTestId('pencil-mchs')).toBeVisible();
     await expect(page.getByTestId('pencil-codd')).toHaveCount(0);
+  });
+
+  /**
+   * Норматив памятки ДДС: 30 секунд на подтверждение. Ждать их
+   * в тесте нельзя, поэтому сдвигаем время сохранения карточки
+   * в прошлое прямо в базе — тем же приёмом, что и серверные тесты.
+   */
+  test('непринятая карточка краснеет после норматива', async ({ page }, info) => {
+    const number = await createFireCard(page, info);
+    await login(page, info, USERS.mchs);
+
+    const row = page.getByTestId(`journal-row-${number}`);
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute('data-overdue', 'false');
+
+    await ageCard(number, 40);
+
+    // Журнал сам опрашивает сервер раз в пять секунд
+    await expect(row).toHaveAttribute('data-overdue', 'true', { timeout: 20_000 });
+    await expect(row).toContainText('Не оповещено');
   });
 
   test('история статусов раскрывается', async ({ page }, info) => {

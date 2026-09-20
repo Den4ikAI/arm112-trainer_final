@@ -151,16 +151,58 @@ impl Llm for MockLlm {
 
     async fn group_insights(&self, stats: serde_json::Value) -> Result<String> {
         // Принципиально: заглушка НЕ выдумывает цифры, а пересказывает
-        // настоящую агрегацию. Демо выглядит честно, а при замене
-        // на реальную модель контракт не меняется.
-        let total = stats.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-        let mut lines = vec![format!("Занятий в выборке: {total}.")];
+        // настоящую агрегацию (reports::group::GroupStats). Демо выглядит
+        // честно, а при замене на реальную модель контракт не меняется.
+        let num = |key: &str| stats.get(key).and_then(|v| v.as_u64()).unwrap_or(0);
+        let real = |key: &str| stats.get(key).and_then(|v| v.as_f64());
 
-        if let Some(items) = stats.get("topFindings").and_then(|v| v.as_array()) {
-            for item in items.iter().take(3) {
-                let label = item.get("label").and_then(|v| v.as_str()).unwrap_or("поле");
-                let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
-                lines.push(format!("{count} из {total} ошиблись в «{label}»."));
+        let sessions = num("sessions");
+        if sessions == 0 {
+            return Ok("За выбранный период занятий не было.".into());
+        }
+
+        let mut lines = vec![format!(
+            "Занятий: {sessions}, участников: {}.",
+            num("members")
+        )];
+
+        if let Some(score) = real("avgScore") {
+            lines.push(format!("Средний балл {score:.0}."));
+        }
+
+        let over = num("overNorm");
+        if over > 0 {
+            lines.push(format!(
+                "Норматив превышен в {over} занятиях из {sessions} ({:.0}%).",
+                real("overNormShare").unwrap_or(0.0) * 100.0
+            ));
+        } else {
+            lines.push("Норматив выдержан во всех занятиях.".into());
+        }
+
+        // Главное, ради чего тренажёр и делался: совпало с эталоном,
+        // но выяснено не было
+        let guessed = num("guessed");
+        if guessed > 0 {
+            lines.push(format!(
+                "Угадано, а не выяснено: {guessed} значений — {:.0}% от совпавших с эталоном. \
+                 Это поля, которые курсанты заполнили, не спросив заявителя.",
+                real("guessedShare").unwrap_or(0.0) * 100.0
+            ));
+        }
+
+        if let Some(items) = stats.get("topProblems").and_then(|v| v.as_array()) {
+            let top: Vec<String> = items
+                .iter()
+                .take(3)
+                .map(|item| {
+                    let label = item.get("label").and_then(|v| v.as_str()).unwrap_or("поле");
+                    let count = item.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+                    format!("«{label}» — {count}")
+                })
+                .collect();
+            if !top.is_empty() {
+                lines.push(format!("Чаще всего замечания вызывали: {}.", top.join(", ")));
             }
         }
 

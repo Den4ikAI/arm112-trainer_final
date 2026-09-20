@@ -1,4 +1,5 @@
 import type { Page, TestInfo } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 
 /** Приложение на HashRouter — префикс уже в baseURL. */
 export const go = async (page: Page, _info: TestInfo, path: string): Promise<void> => {
@@ -67,4 +68,19 @@ export const fillFireCard = async (page: Page): Promise<void> => {
   await pick('Внутридомовые объекты (пламя, дым)', 'Крыша');
   await pick('Угроза людям', 'Нет');
   await pick('Проведена ли газификация', 'Нет');
+};
+
+/**
+ * Сдвинуть момент сохранения карточки в прошлое.
+ *
+ * Норматив подтверждения — 30 секунд, норматив завершения — 48 часов.
+ * Ждать их в тесте нельзя, поэтому двигаем время в базе. Тот же приём
+ * используют серверные тесты (backend/tests/watchdog.rs).
+ */
+export const ageCard = (number: string, seconds: number): void => {
+  execFileSync('docker', [
+    'exec', 'arm112-db',
+    'psql', '-U', 'arm112', '-d', 'arm112', '-qAtc',
+    `UPDATE cards SET saved_at = now() - interval '${seconds} seconds' WHERE number = '${number}'`,
+  ]);
 };

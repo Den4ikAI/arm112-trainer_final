@@ -1,6 +1,14 @@
 import { Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
+import clsx from '@/shared/lib/clsx';
 import s from './JournalTable.module.scss';
+
+/**
+ * Норматив подтверждения карточки диспетчером ДДС, секунды.
+ * Памятка ДДС, раздел «Проставление статусов реагирования».
+ * Сервер по этому же нормативу переводит карточку в «Не оповещено».
+ */
+const ACK_NORM_SEC = 30;
 
 export interface JournalRow {
   id: string;
@@ -11,12 +19,31 @@ export interface JournalRow {
   victims: string;
   address: string;
   serviceStatus: string;
+  /** Сколько секунд карточка ждёт подтверждения службой. */
+  waitingSec: number | null;
   description: string;
   operator: string;
   workstation: string;
   /** Куда ведёт строка: карточка 112 или карточка ДДС. */
   to: string;
 }
+
+/**
+ * Карточка просрочена: служба не подтвердила приём за норматив.
+ * Статус «Не оповещено» ставит сервер, а секунды показываем по
+ * времени сохранения — чтобы между тактами сторожа (5 с) счётчик
+ * не замирал.
+ */
+const overdue = (r: JournalRow): boolean =>
+  r.serviceStatus === 'Не оповещено'
+  || (r.waitingSec != null && r.waitingSec > ACK_NORM_SEC && r.serviceStatus === 'Зарегистрирована');
+
+const fmtWait = (sec: number | null): string => {
+  if (sec == null) return '';
+  if (sec < 60) return `${sec} с`;
+  if (sec < 3600) return `${Math.floor(sec / 60)} мин`;
+  return `${Math.floor(sec / 3600)} ч`;
+};
 
 /** Список происшествий — главный экран, снятый со скриншота журнала. */
 export const JournalTable = ({ rows }: { rows: JournalRow[] }) => {
@@ -51,8 +78,12 @@ export const JournalTable = ({ rows }: { rows: JournalRow[] }) => {
 
           {rows.map((r) => (
             <Fragment key={r.id}>
-              <tr className={s.row} data-testid={`journal-row-${r.number}`}
-                  onClick={() => nav(r.to)}>
+              <tr
+                className={clsx(s.row, overdue(r) && s.overdue)}
+                data-testid={`journal-row-${r.number}`}
+                data-overdue={overdue(r) ? 'true' : 'false'}
+                onClick={() => nav(r.to)}
+              >
                 <td><span className={s.chev}>˅</span></td>
                 <td />
                 <td className={s.oper}>{r.operator}</td>
@@ -63,7 +94,14 @@ export const JournalTable = ({ rows }: { rows: JournalRow[] }) => {
                 <td className={s.type}>{r.type}</td>
                 <td className={s.victims}>{r.victims}</td>
                 <td className={s.addr}>{r.address}</td>
-                <td>{r.serviceStatus}</td>
+                <td className={s.status}>
+                  {r.serviceStatus}
+                  {overdue(r) && (
+                    <span className={s.overdueBadge} title="Норматив подтверждения — 30 секунд">
+                      {fmtWait(r.waitingSec)}
+                    </span>
+                  )}
+                </td>
               </tr>
               <tr className={s.descRow}>
                 <td colSpan={11}>

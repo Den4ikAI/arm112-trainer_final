@@ -27,6 +27,7 @@ const toRow = (c: CardBrief): JournalRow => {
     victims: 'Нет',
     address,
     serviceStatus: c.status,
+    waitingSec: c.waitingSec,
     operator: c.operator,
     workstation: '',
     description: c.description,
@@ -65,7 +66,11 @@ export const JournalPage = () => {
       }
     };
     void load();
-    return () => { alive = false; };
+    // Статусы меняет сторож нормативов на сервере, а не наше действие:
+    // без опроса карточка покраснеет только после перезагрузки.
+    // Живое обновление придёт с WebSocket (задача 12).
+    const timer = setInterval(() => void load(), 5000);
+    return () => { alive = false; clearInterval(timer); };
   }, [query, user?.role]);
 
   const launch = async (scenarioId: string) => {
