@@ -1,0 +1,55 @@
+--- src/models/deepseek2.cpp.orig	2026-09-21 05:31:44.588890263 +0800
++++ src/models/deepseek2.cpp	2026-09-21 05:31:44.612891199 +0800
+@@ -190,10 +190,20 @@
+     const int64_t kv_lora_rank        = hparams.n_lora_kv;
+ 
+     GGML_ASSERT(n_embd_head_qk_nope >= 1);
+-    GGML_ASSERT(hparams.n_lora_q > 0);
+-    GGML_ASSERT(layer.wq_a);
+-    GGML_ASSERT(layer.attn_q_a_norm);
+-    GGML_ASSERT(layer.wq_b);
++
++    // Сжатие Q через LoRA есть не у всех моделей семейства: DeepSeek V3
++    // его использует, GigaChat 3 — нет, у него полная матрица wq
++    // ("lite"-вариант). Основной граф это различает, MTP-граф раньше
++    // требовал LoRA безусловно и падал на ассерте.
++    const bool is_lite = layer.wq != nullptr;
++    if (is_lite) {
++        GGML_ASSERT(layer.wq);
++    } else {
++        GGML_ASSERT(hparams.n_lora_q > 0);
++        GGML_ASSERT(layer.wq_a);
++        GGML_ASSERT(layer.attn_q_a_norm);
++        GGML_ASSERT(layer.wq_b);
++    }
+     GGML_ASSERT(layer.wkv_a_mqa);
+     GGML_ASSERT(layer.attn_kv_a_norm);
+     GGML_ASSERT(layer.wk_b);
+@@ -262,14 +272,21 @@
+     cur = build_norm(cur, layer.attn_norm, nullptr, LLM_NORM_RMS, il);
+     cb(cur, "mtp_attn_norm", il);
+ 
+-    ggml_tensor * q = ggml_mul_mat(ctx0, layer.wq_a, cur);
+-    cb(q, "mtp_q_a", il);
++    ggml_tensor * q = nullptr;
++    if (is_lite) {
++        // Полная матрица: ни сжатия, ни промежуточной нормировки
++        q = ggml_mul_mat(ctx0, layer.wq, cur);
++        cb(q, "mtp_q", il);
++    } else {
++        q = ggml_mul_mat(ctx0, layer.wq_a, cur);
++        cb(q, "mtp_q_a", il);
+ 
+-    q = build_norm(q, layer.attn_q_a_norm, nullptr, LLM_NORM_RMS, il);
+-    cb(q, "mtp_q_a_norm", il);
++        q = build_norm(q, layer.attn_q_a_norm, nullptr, LLM_NORM_RMS, il);
++        cb(q, "mtp_q_a_norm", il);
+ 
+-    q = ggml_mul_mat(ctx0, layer.wq_b, q);
+-    cb(q, "mtp_q_b", il);
++        q = ggml_mul_mat(ctx0, layer.wq_b, q);
++        cb(q, "mtp_q_b", il);
++    }
+ 
+     ggml_tensor * q_nope =
+         ggml_view_3d(ctx0, q, n_embd_head_qk_nope, n_head, n_tokens,

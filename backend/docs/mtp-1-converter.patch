@@ -1,0 +1,95 @@
+--- conversion/deepseek.py.orig	2026-09-21 05:08:13.957802951 +0800
++++ conversion/deepseek.py	2026-09-21 05:10:07.398232982 +0800
+@@ -236,8 +236,22 @@
+ class DeepseekV2Model(TextModel):
+     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
+ 
+-    # TODO @ngxson : remove this when we support MTP for deepseek models
++    # Экспорт MTP (NextN) для моделей, которые его объявляют.
++    #
++    # Машинерия в llama.cpp уже написана и включена для DeepSeek V3.2,
++    # но не для V3 — хотя тензоры NEXTN размечены для самой архитектуры
++    # deepseek2 и код разбора один и тот же.
++    #
++    # GigaChat 3.1 объявляет num_nextn_predict_layers = 1: одна голова
++    # предсказания следующего токена. Выгруженная отдельным GGUF, она
++    # работает как черновик для спекулятивного декодирования — на
++    # процессоре это единственный способ ускориться без смены модели.
++    supports_mtp_export = True
++
++    # Ставится по конфигу в __init__: у моделей без слоёв NextN
++    # пропускать нечего, у объявивших — пропускать нельзя
+     skip_mtp = True
++    _n_main_layers: int | None = None
+ 
+     merge_expert = True
+ 
+@@ -246,6 +260,16 @@
+         hparams: dict = ModelBase.load_hparams(self.dir_model, is_mistral_format=False)
+         self.origin_hf_arch = hparams.get('architectures', [None])[0]
+ 
++        # Слой MTP идёт следом за основными и в num_hidden_layers
++        # не входит: у 26-слойной модели это блок с индексом 26
++        nextn = int(self.hparams.get("num_nextn_predict_layers", 0) or 0)
++        if nextn > 0 and not self.no_mtp:
++            type(self).skip_mtp = False
++            self.block_count = self.hparams["num_hidden_layers"] + nextn
++            self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
++        else:
++            type(self).skip_mtp = True
++
+         # special handling for Deepseek OCR
+         if self.origin_hf_arch in ("DeepseekOCRForCausalLM", "DeepseekOCR2ForCausalLM", "UnlimitedOCRForCausalLM"):
+             self.model_arch = gguf.MODEL_ARCH.DEEPSEEK2OCR
+@@ -254,13 +278,37 @@
+             # default jinja template
+             self.gguf_writer.add_chat_template("{% for m in messages %}{{m['content']}}{% endfor %}")
+ 
++    def index_tensors(self, remote_hf_model_id: str | None = None):
++        type(self)._n_main_layers = self.hparams["num_hidden_layers"]
++        return super().index_tensors(remote_hf_model_id=remote_hf_model_id)
++
+     @classmethod
+     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+         name, _ = item
+         # DeepSeek-OCR vision encoder (SAM + DeepSeek-OCR-2 qwen2 tower)
+         if "sam_model" in name or "qwen2_model" in name:
+             return None
+-        return super().filter_tensors(item)
++
++        if (titem := super().filter_tensors(item)) is None:
++            return None
++        name, gen = titem
++
++        # Блок NextN приписан после основных слоёв
++        if cls._n_main_layers is not None:
++            is_mtp = (m := re.match(r"model\.layers\.(\d+)\.", name)) is not None \
++                and int(m.group(1)) >= cls._n_main_layers
++
++            # --no-mtp: выбросить блок целиком
++            if is_mtp and cls.no_mtp:
++                return None
++            # --mtp: оставить ТОЛЬКО блок NextN плюс общие эмбеддинги,
++            # норму и голову — выйдет маленький GGUF-черновик
++            if cls.mtp_only and not is_mtp and name not in (
++                "model.embed_tokens.weight", "model.norm.weight", "lm_head.weight",
++            ):
++                return None
++
++        return name, gen
+ 
+     def set_vocab(self):
+         try:
+@@ -317,6 +365,12 @@
+             raise NotImplementedError(f"Deepseek pre-tokenizer {tokpre!r} is not supported yet!")
+ 
+     def set_gguf_parameters(self):
++        # Сколько слоёв NextN в файле. Без этой записи llama.cpp
++        # не узнает, что в GGUF есть черновая голова
++        if not self.no_mtp:
++            if (nextn := self.hparams.get("num_nextn_predict_layers")):
++                self.gguf_writer.add_nextn_predict_layers(nextn)
++
+         is_ocr = (self.model_arch == gguf.MODEL_ARCH.DEEPSEEK2OCR)
+ 
+         if is_ocr:
