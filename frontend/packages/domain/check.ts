@@ -17,12 +17,10 @@ check('пожар в МКД → МЧС', r1.services.includes('s101'));
 check('угроза людям → медицина', r1.services.includes('s103') && r1.services.includes('cemp'));
 check('итоговый тип определён', r1.outcome === 'пожар: квартира', r1.outcome);
 
-const bpla = emptyCard('2');
-bpla.typeIds = ['bpla'];
-bpla.answers = { 'bpla-area': ['Регион'] };
-const r2 = classify(bpla);
-check('БПЛА → ЦУКБ Минобороны', r2.services.includes('cukb-bpla'));
-check('БПЛА регион → «БВС Регион»', r2.outcome === 'БВС Регион', r2.outcome);
+// Проверок на БПЛА и ДТП здесь нет намеренно: опросные карты для них
+// со скриншотов не снимались, а сочинённые убраны. Настоящая позиция
+// 24120200 «БПЛА» проверяется на бэкенде против импортированного
+// классификатора — backend/tests/classifier_import.rs.
 
 // --- машина статусов ---
 check('первичные только Принята/Не принята',
