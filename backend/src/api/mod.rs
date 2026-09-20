@@ -7,6 +7,7 @@
 
 pub mod auth;
 pub mod catalog;
+pub mod cards;
 pub mod sessions;
 pub mod health;
 
@@ -19,11 +20,11 @@ pub fn routes() -> Router<AppState> {
         .merge(catalog::routes())
         .merge(auth::routes())
         .merge(sessions::routes())
+        .merge(cards::routes())
     // сюда добавляются роутеры задач:
     // .merge(catalog::routes())   — задача 5
     // .merge(classifier::routes())— задачи 2, 3, 6
     // .merge(sessions::routes())  — задачи 7, 8, 9
-    // .merge(cards::routes())     — задачи 10, 11
     // .merge(scenarios::routes()) — задача 15
     // .merge(reports::routes())   — задача 16
     // .merge(admin::routes())     — задача 17
