@@ -98,6 +98,8 @@ fn field_label(field: &str) -> Option<&'static str> {
         "address.area" => "Район",
         "address.object" => "Объект",
         "address.descriptive" => "Описательный адрес",
+        "address.raw" => "Единая адресная строка",
+        "address.country" => "Страна",
         "victims" => "Пострадавшие",
         _ => return None,
     })
@@ -220,7 +222,14 @@ pub async fn grade(input: GradeInput<'_>) -> Result<Grade> {
             .or_else(|| {
                 field.strip_prefix("answers.").and_then(|q| labels.get(q).cloned())
             })
-            .unwrap_or_else(|| field.clone());
+            // Технический ключ вместо подписи курсант видеть не должен:
+            // «address.raw» в разборе выглядит поломкой, а не замечанием.
+            // Совсем убрать запасной вариант нельзя — подписи вопросов
+            // приходят из базы, — но о пропаже надо знать
+            .unwrap_or_else(|| {
+                tracing::warn!(field = %field, "в разборе поле без подписи");
+                field.clone()
+            });
 
         let kind = if actual_value.trim().is_empty() {
             FindingKind::Missing
@@ -447,4 +456,33 @@ pub async fn load(pool: &PgPool, session_id: Uuid) -> Result<Option<Grade>> {
         services: serde_json::from_value(services)?,
         score,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::field_label;
+
+    /// Поля адреса из карточки 112. Список снят с виджета адреса:
+    /// ровно то, что оператор может заполнить.
+    const ПОЛЯ_АДРЕСА: [&str; 16] = [
+        "area", "building", "code", "country", "descriptive", "district",
+        "entrance", "flat", "floor", "house", "object", "raw", "region",
+        "settlement", "street", "structure",
+    ];
+
+    /// У каждого поля карточки есть человеческая подпись.
+    ///
+    /// Без неё в разбор попадает технический ключ: курсант читал
+    /// «address.raw — поле не заполнено» и понимал это как поломку,
+    /// а не как замечание.
+    #[test]
+    fn у_каждого_поля_адреса_есть_подпись() {
+        for поле in ПОЛЯ_АДРЕСА {
+            let ключ = format!("address.{поле}");
+            assert!(
+                field_label(&ключ).is_some(),
+                "нет подписи для {ключ} — в разборе появится технический ключ"
+            );
+        }
+    }
 }
