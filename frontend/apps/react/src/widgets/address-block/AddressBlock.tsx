@@ -1,5 +1,6 @@
 import { Field } from '@/shared/ui/Field';
 import s from './AddressBlock.module.scss';
+import { stubProps } from '@/shared/ui/Stub';
 
 interface Props {
   /** Адрес приходит с сервера разреженным: заполненные поля и только. */
@@ -24,7 +25,8 @@ export const AddressBlock = ({ value, readOnly, onChange, onOpenMap }: Props) =>
     <section className={s.wrap} aria-label="Адрес происшествия">
       <div className={s.head}>
         <span className={s.headLabel}>Адрес:</span>
-        <button className={s.mapBtn} onClick={onOpenMap} aria-label="Показать на карте">🗺</button>
+        <button className={s.mapBtn} aria-label="Показать на карте"
+                {...(onOpenMap ? { onClick: onOpenMap } : stubProps('Карта'))}>🗺</button>
       </div>
 
       <div className={s.rawRow}>
@@ -65,7 +67,7 @@ export const AddressBlock = ({ value, readOnly, onChange, onOpenMap }: Props) =>
       </div>
 
       <div className={s.actions}>
-        <button className={s.clearBtn}>очистить адрес</button>
+        <button {...stubProps('Очистка адреса')} className={s.clearBtn}>очистить адрес</button>
       </div>
     </section>
   );

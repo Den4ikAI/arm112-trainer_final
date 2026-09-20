@@ -4,6 +4,14 @@ import { fileURLToPath, URL } from 'node:url';
 
 const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
+// Доступ снаружи (например, через обратный SSH-туннель при удалённой
+// работе). По умолчанию ничего не меняется: dev-сервер как был доступен
+// только с localhost, так и остаётся.
+//   VITE_ALLOWED_HOSTS=87.242.101.125  — чей Host принимать
+//   VITE_HMR_PORT=25565                — на какой порт стучится HMR
+const allowedHosts = process.env.VITE_ALLOWED_HOSTS?.split(',').filter(Boolean);
+const hmrPort = process.env.VITE_HMR_PORT ? Number(process.env.VITE_HMR_PORT) : undefined;
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -17,6 +25,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    ...(allowedHosts ? { allowedHosts } : {}),
+    // Через туннель порт снаружи другой, и живая перезагрузка
+    // стучалась бы не туда
+    ...(hmrPort ? { hmr: { clientPort: hmrPort } } : {}),
     // Фронтенд и сервер живут на одном происхождении: так не нужен
     // CORS, а токен в заголовке уходит без предварительных CORS-запросов
     proxy: {

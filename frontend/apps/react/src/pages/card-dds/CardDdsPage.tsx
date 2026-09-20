@@ -8,6 +8,7 @@ import { CardHeader } from '@/widgets/card-header/CardHeader';
 import { ServiceTab } from '@/widgets/status-history/ServiceTab';
 import { SurveyCardView } from '@/widgets/survey-card/SurveyCardView';
 import s from './CardDdsPage.module.scss';
+import { stubProps } from '@/shared/ui/Stub';
 
 /**
  * Карточка в режиме ДДС: поля только для чтения, работа идёт через статусы.
@@ -100,8 +101,8 @@ export const CardDdsPage = () => {
             <span>Пострадавшие: {card.victims == null ? 'нет' : card.victims}</span>
             <span>Нет контакта: {card.noContact ? 'да' : 'нет'}</span>
             <span>Срыв звонка: {card.callDropped ? 'да' : 'нет'}</span>
-            <button className={s.chs}>ЧС ⚡</button>
-            <button className={s.chp}>ЧП ⚠</button>
+            <button {...stubProps('Отметка ЧС')} className={s.chs}>ЧС ⚡</button>
+            <button {...stubProps('Отметка ЧП')} className={s.chp}>ЧП ⚠</button>
           </div>
 
           {card.typeIds.map((t) => (

@@ -1,5 +1,6 @@
 import { Field } from '@/shared/ui/Field';
 import s from './CallBar.module.scss';
+import { stubProps } from '@/shared/ui/Stub';
 
 interface Props {
   aon: string; provided: string; onSite: string;
@@ -10,15 +11,15 @@ interface Props {
 /** Верхняя полоса: сброс вызова, записи, три блока телефонов заявителя. */
 export const CallBar = ({ aon, provided, onSite, readOnly, onChange }: Props) => (
   <section className={s.bar} aria-label="Телефоны заявителя">
-    <button className={s.hangup} aria-label="Отключить вызов">
+    <button {...stubProps('Отключение звонка')} className={s.hangup} aria-label="Отключить вызов">
       <span className={s.hangupIcon} aria-hidden>&#9742;</span>
     </button>
 
     <div className={s.calls}>
       <div className={s.callsTitle}>Отключение</div>
       <div className={s.callsBtns}>
-        <button className={s.smallBtn}>записи звонков</button>
-        <button className={s.smallBtn}>список SMS</button>
+        <button {...stubProps('Записи звонков и SMS')} className={s.smallBtn}>записи звонков</button>
+        <button {...stubProps('Записи звонков и SMS')} className={s.smallBtn}>список SMS</button>
       </div>
     </div>
 
@@ -42,6 +43,6 @@ const PhoneBlock = ({ label, value, readOnly, copyAon, onChange }: {
       <Field label={label} value={value} onChange={readOnly ? undefined : onChange}
         placeholder="+7 (   )   -  -" />
     </div>
-    {copyAon && <button className={s.aonBtn}>АОН</button>}
+    {copyAon && <button {...stubProps('Подстановка номера из АОН')} className={s.aonBtn}>АОН</button>}
   </div>
 );

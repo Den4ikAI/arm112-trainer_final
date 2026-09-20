@@ -16,3 +16,9 @@ body {
 button { font: inherit; cursor: pointer; }
 input, select, textarea { font: inherit; }
 [hidden] { display: none !important; }
+
+/* Элементы боевого интерфейса, которых в тренажёре нет.
+   Выглядят как настоящие — экран должен совпадать со скриншотами
+   боевой ПОВ-112, — но курсор честно говорит, что нажимать нечего.
+   Подсказка со словом «не реализовано» висит в title. */
+[data-stub] { cursor: not-allowed; }

@@ -120,8 +120,12 @@ export const Card112Page = () => {
                   onClick={() => edit({ victims: card.victims == null ? 1 : null })}>
               Пострадавшие
             </Chip>
-            <Chip>Нет на месте/<br />Отказ от скорой</Chip>
-            <Chip>Нет доступа/<br />Заблокированные</Chip>
+            <Chip stub="Отметка «нет на месте / отказ от скорой»">
+              Нет на месте/<br />Отказ от скорой
+            </Chip>
+            <Chip stub="Отметка «нет доступа / заблокированные»">
+              Нет доступа/<br />Заблокированные
+            </Chip>
             <div className={s.spacer} />
             <Chip tone="danger" selected={card.noContact}
                   onClick={() => edit({ noContact: !card.noContact })}>нет контакта</Chip>

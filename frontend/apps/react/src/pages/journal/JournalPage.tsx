@@ -5,7 +5,9 @@ import { useSession } from '@/entities/session/model';
 import { cards, channel, scenarios as scenariosApi,
          type CardBrief, type ScenarioBrief } from '@/shared/api';
 import { useNavigate } from 'react-router-dom';
+import { useClock } from '@/shared/lib/useClock';
 import s from './JournalPage.module.scss';
+import { stubProps } from '@/shared/ui/Stub';
 
 /**
  * Строка журнала из карточки, пришедшей с сервера.
@@ -45,7 +47,7 @@ export const JournalPage = () => {
   const start = useTraining((st) => st.start);
   const user = useSession((st) => st.user);
   const nav = useNavigate();
-  const now = new Date();
+  const now = useClock();
 
   // Лента фильтруется сервером по службе пользователя: «в их ленту
   // попадают только профильные события»
@@ -110,7 +112,7 @@ export const JournalPage = () => {
             <span className={s.loupe} aria-hidden>⌕</span>
           </div>
           <div className={s.searchSub}>
-            <button className={s.link}>расширенный по параметрам ⌄</button>
+            <button {...stubProps('Расширенный поиск')} className={s.link}>расширенный по параметрам ⌄</button>
             <button className={s.reset} onClick={() => setQuery('')}>сбросить</button>
           </div>
         </div>

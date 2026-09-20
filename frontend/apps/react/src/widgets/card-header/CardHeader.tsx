@@ -1,6 +1,7 @@
 import clsx from '@/shared/lib/clsx';
 import { fmt } from '@/shared/lib/useTimer';
 import s from './CardHeader.module.scss';
+import { stubProps } from '@/shared/ui/Stub';
 
 interface Props {
   number: string;
@@ -37,8 +38,8 @@ export const CardHeader = ({ number, savedAt, operator, workstation, mode, elaps
         </div>
       ) : (
         <div className={s.ddsActions}>
-          <button className={s.ddsBtn}>просмотр</button>
-          <button className={s.ddsBtn}>дополнение</button>
+          <button {...stubProps('Просмотр')} className={s.ddsBtn}>просмотр</button>
+          <button {...stubProps('Дополнение карточки')} className={s.ddsBtn}>дополнение</button>
         </div>
       )}
     </section>
