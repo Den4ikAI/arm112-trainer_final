@@ -1,0 +1,24 @@
+# Только база. Бэкенд запускается локально через `cargo run` —
+# так цикл правка-проверка остаётся быстрым.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: arm112-db
+    environment:
+      POSTGRES_USER: arm112
+      POSTGRES_PASSWORD: arm112
+      POSTGRES_DB: arm112
+      # Русские тексты в карточках, сортировка должна быть предсказуемой
+      LANG: ru_RU.utf8
+    ports:
+      - "5432:5432"
+    volumes:
+      - arm112-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arm112 -d arm112"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  arm112-pgdata:
