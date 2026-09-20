@@ -19,6 +19,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/catalog/services", get(services))
         .route("/api/catalog/survey-cards/{type_id}", get(survey_card))
         .route("/api/catalog/applicant-statuses", get(applicant_statuses))
+        .route("/api/classifier/evaluate", axum::routing::post(evaluate))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -147,4 +148,43 @@ async fn applicant_statuses() -> (HeaderMap, Json<[&'static str; 6]>) {
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, "public, max-age=86400".parse().unwrap());
     (headers, Json(APPLICANT_STATUSES))
+}
+
+
+// ─── Движок эталона ──────────────────────────────────────────────────
+
+use crate::domain::classify::{classify, ClassifyResult};
+use serde::Deserialize;
+use std::collections::HashMap;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluateRequest {
+    pub type_ids: Vec<String>,
+    /// questionId → выбранные варианты
+    #[serde(default)]
+    pub answers: HashMap<String, Vec<String>>,
+}
+
+/// Горячий путь: дёргается после каждого нажатия плашки признака.
+/// Бюджет p95 — 50 мс.
+async fn evaluate(
+    State(state): State<AppState>,
+    Json(req): Json<EvaluateRequest>,
+) -> AppResult<Json<ClassifyResult>> {
+    let version_id: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT id FROM classifier_versions
+          ORDER BY is_active DESC, imported_at DESC LIMIT 1",
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(version_id) = version_id else {
+        return Err(crate::error::AppError::Conflict(
+            "в базе нет ни одной версии классификатора".into(),
+        ));
+    };
+
+    let result = classify(&state.db, version_id, &req.type_ids, &req.answers).await?;
+    Ok(Json(result))
 }
