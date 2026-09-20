@@ -10,6 +10,7 @@ use crate::{
     domain::response,
     error::{AppError, AppResult},
     state::AppState,
+    ws,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -324,6 +325,29 @@ async fn add_response(
     .bind(req.comment.as_ref().map(|c| c.trim()))
     .fetch_one(&state.db)
     .await?;
+
+    // Другие диспетчеры той же карточки и преподаватель видят
+    // движение сразу, без обновления страницы
+    let (session_id, services): (Option<Uuid>, Vec<String>) = sqlx::query_as(
+        "SELECT c.session_id,
+                array(SELECT service_id FROM card_services WHERE card_id = c.id)
+           FROM cards c WHERE c.id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+
+    state.ws.publish(ws::routes::card_event(
+        "response.recorded",
+        serde_json::json!({
+            "cardId": id,
+            "serviceId": entry.service_id,
+            "status": entry.status,
+            "at": entry.at,
+            "operator": entry.operator,
+        }),
+        ws::routes::card_topics(&services, session_id),
+    ));
 
     // Карточка считается отработанной, когда хотя бы одна служба
     // довела работы до конца

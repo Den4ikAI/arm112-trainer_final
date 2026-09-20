@@ -17,6 +17,7 @@
 use crate::{
     audit,
     domain::card_status::{derive, is_manual, ServiceOutcome},
+    ws::{self, Hub},
 };
 use serde_json::json;
 use sqlx::PgPool;
@@ -27,14 +28,14 @@ use uuid::Uuid;
 /// с точностью до пяти секунд.
 const TICK: Duration = Duration::from_secs(5);
 
-pub async fn run(pool: PgPool) {
+pub async fn run(pool: PgPool, hub: Hub) {
     let mut ticker = tokio::time::interval(TICK);
     // Если тик пропущен (сервер был занят), догонять пачкой незачем
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         ticker.tick().await;
-        if let Err(e) = sweep(&pool).await {
+        if let Err(e) = sweep(&pool, &hub).await {
             tracing::error!(error = %e, "сторож нормативов не отработал такт");
         }
     }
@@ -42,7 +43,7 @@ pub async fn run(pool: PgPool) {
 
 /// Один проход. Вынесен отдельно, чтобы его можно было вызвать
 /// из теста, не поднимая фоновую задачу.
-pub async fn sweep(pool: &PgPool) -> anyhow::Result<usize> {
+pub async fn sweep(pool: &PgPool, hub: &Hub) -> anyhow::Result<usize> {
     // Незавершённые карточки: завершённые и проверенные пересчитывать
     // незачем, а их со временем станет большинство
     let cards: Vec<(Uuid, String, i64)> = sqlx::query_as(
@@ -124,6 +125,32 @@ pub async fn sweep(pool: &PgPool) -> anyhow::Result<usize> {
                 })),
         )
         .await;
+
+        // Диспетчер узнаёт о просрочке, не обновляя страницу, — и
+        // видит, чьё именно молчание её вызвало
+        let session_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT session_id FROM cards WHERE id = $1")
+                .bind(card_id)
+                .fetch_one(pool)
+                .await?;
+        let services: Vec<String> = chains.iter().map(|(id, _)| id.clone()).collect();
+        let silent: Vec<&String> = chains
+            .iter()
+            .filter(|(_, chain)| ServiceOutcome::from_chain(chain).last.is_none())
+            .map(|(id, _)| id)
+            .collect();
+
+        hub.publish(ws::routes::card_event(
+            if next == "Не оповещено" { "ack.timeout" } else { "card.status" },
+            json!({
+                "cardId": card_id,
+                "status": next,
+                "previous": status,
+                "elapsedSec": elapsed_sec,
+                "silentServices": silent,
+            }),
+            ws::routes::card_topics(&services, session_id),
+        ));
 
         tracing::info!(%card_id, from = %status, to = next, elapsed_sec, "статус карточки изменён сторожем");
         changed += 1;

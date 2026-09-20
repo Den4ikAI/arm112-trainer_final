@@ -8,6 +8,7 @@
 use crate::{
     domain::classify::{classify, ClassifyResult},
     domain::grade::{self, Grade},
+    ws,
     error::{AppError, AppResult},
     state::AppState,
     api::auth::AuthUser,
@@ -233,6 +234,21 @@ async fn create(
 
     let session: SessionView = load_session_view(&state.db, session_id).await?;
     let card = load_card(&state.db, card_id).await?;
+
+    // Преподаватель видит, что курсант взял вызов, сразу — не дожидаясь
+    // сохранения карточки
+    state.ws.publish(ws::Event::new(
+        "session.started",
+        serde_json::json!({
+            "sessionId": session_id,
+            "userId": user.id,
+            "scenarioId": sid,
+            "ticket": ticket,
+            "callNo": call_no,
+        }),
+    )
+    .to(format!("user:{}", user.id))
+    .to_all(ws::routes::group_topics(&state.db, user.id).await));
 
     Ok((
         StatusCode::CREATED,
@@ -504,10 +520,32 @@ async fn save(
     .await?;
     grade::store(&state.db, id, &g).await?;
 
-    Ok(Json(SaveResponse {
-        card: load_card(&state.db, card_id).await?,
-        grade: g,
-    }))
+    let card = load_card(&state.db, card_id).await?;
+
+    // Вот ради чего канал и нужен: карточка уходит диспетчерам
+    // профильных ДДС, и у них начинают тикать 30 секунд
+    state.ws.publish(ws::routes::card_event(
+        "card.dispatched",
+        serde_json::json!({
+            "cardId": card.id,
+            "number": card.number,
+            "outcomeType": card.outcome_type,
+            "services": card.service_ids,
+            "operator": card.operator,
+        }),
+        ws::routes::card_topics(&card.service_ids, Some(id)),
+    ));
+
+    state.ws.publish(
+        ws::Event::new(
+            "session.finished",
+            serde_json::json!({ "sessionId": id, "userId": user.id, "score": g.score }),
+        )
+        .to(format!("user:{}", user.id))
+        .to_all(ws::routes::group_topics(&state.db, user.id).await),
+    );
+
+    Ok(Json(SaveResponse { card, grade: g }))
 }
 
 /// Разбор доступен только после сохранения: пока курсант не закончил,

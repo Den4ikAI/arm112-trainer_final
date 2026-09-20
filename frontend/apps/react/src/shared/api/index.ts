@@ -7,6 +7,7 @@ import type {
 
 export * from './types';
 export { ApiError, getToken, setToken } from './client';
+export { channel, type ServerEvent } from './ws';
 
 export const auth = {
   login: async (login: string, password: string, workstation?: string) => {

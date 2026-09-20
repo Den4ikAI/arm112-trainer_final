@@ -9,6 +9,8 @@ description = "Тренажёр оператора ДДС: серверная ч
 [dependencies]
 # HTTP
 axum = { version = "0.8", features = ["ws", "macros"] }
+# split() у сокета: axum отдаёт его через Stream/Sink из futures
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "compression-gzip"] }
 tokio = { version = "1", features = ["full"] }
@@ -45,3 +47,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # oneshot по роутеру: тесты API без поднятого сервера и свободного порта
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+# Канал класса проверяем настоящим клиентом на живом порту:
+# oneshot по роутеру апгрейд до WebSocket не выполняет
+tokio-tungstenite = "0.28"

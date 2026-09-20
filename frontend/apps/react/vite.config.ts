@@ -19,7 +19,12 @@ export default defineConfig({
     strictPort: true,
     // Фронтенд и сервер живут на одном происхождении: так не нужен
     // CORS, а токен в заголовке уходит без предварительных CORS-запросов
-    proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true } },
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true },
+      // Канал класса: ws: true, иначе Vite отдаст обычный HTTP
+      // и апгрейд соединения не произойдёт
+      '/ws': { target: 'ws://127.0.0.1:8080', ws: true },
+    },
   },
   preview: { port: 4173, strictPort: true },
 });

@@ -5,7 +5,7 @@
 //!
 //! Запуск: `cargo test --test watchdog`
 
-use arm112::{api, config::Config, jobs::watchdog, ml::MlSuite, state::AppState};
+use arm112::{api, config::Config, jobs::watchdog, ml::MlSuite, state::AppState, ws::Hub};
 use axum::{
     body::Body,
     http::{header, Method, Request, StatusCode},
@@ -99,12 +99,12 @@ async fn карточка_без_подтверждения_краснеет_ч�
     let Some(card) = saved_card(&app, &pool).await else { return };
 
     age(&pool, card, 29).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Зарегистрирована",
         "до истечения норматива молчание службы не нарушение");
 
     age(&pool, card, 31).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Не оповещено");
 }
 
@@ -116,7 +116,7 @@ async fn переход_попадает_в_аудит() {
     let Some(card) = saved_card(&app, &pool).await else { return };
 
     age(&pool, card, 31).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
 
     let entry: Option<(String, Value)> = sqlx::query_as(
         "SELECT action, payload FROM audit_log
@@ -141,7 +141,7 @@ async fn повторный_проход_не_плодит_записи() {
     let Some(card) = saved_card(&app, &pool).await else { return };
 
     age(&pool, card, 31).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
 
     let count = || async {
         sqlx::query_scalar::<_, i64>(
@@ -153,8 +153,8 @@ async fn повторный_проход_не_плодит_записи() {
     };
     let before = count().await;
 
-    watchdog::sweep(&pool).await.unwrap();
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
 
     assert_eq!(count().await, before, "статус не изменился — записи быть не должно");
 }
@@ -166,7 +166,7 @@ async fn подтверждение_службой_снимает_не_опов�
     let Some(card) = saved_card(&app, &pool).await else { return };
 
     age(&pool, card, 31).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Не оповещено");
 
     // Все службы карточки подтверждают приём
@@ -180,7 +180,7 @@ async fn подтверждение_службой_снимает_не_опов�
             .bind(card).bind(&s).execute(&pool).await.unwrap();
     }
 
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Отработана");
 }
 
@@ -201,11 +201,11 @@ async fn через_сорок_восемь_часов_карточка_не_з�
     }
 
     age(&pool, card, 47 * 3600).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Отработана");
 
     age(&pool, card, 49 * 3600).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Не завершено");
 }
 
@@ -229,7 +229,7 @@ async fn завершение_всеми_службами_закрывает_к�
     }
 
     age(&pool, card, 100 * 3600).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Завершена");
 }
 
@@ -244,6 +244,6 @@ async fn проверенную_карточку_сторож_не_переби�
         .bind(card).execute(&pool).await.unwrap();
 
     age(&pool, card, 3600).await;
-    watchdog::sweep(&pool).await.unwrap();
+    watchdog::sweep(&pool, &Hub::new()).await.unwrap();
     assert_eq!(status(&pool, card).await, "Проверена");
 }

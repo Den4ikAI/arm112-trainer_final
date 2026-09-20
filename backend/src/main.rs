@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 
     // Сторож нормативов: 30 секунд на подтверждение карточки,
     // 48 часов на завершение работ (памятка ДДС)
-    tokio::spawn(jobs::watchdog::run(state.db.clone()));
+    tokio::spawn(jobs::watchdog::run(state.db.clone(), state.ws.clone()));
     // Очередь отчётов и сводок: норматив ТЗ на отчёт по группе
     // 30 секунд, в HTTP-запросе его держать незачем
     tokio::spawn(jobs::worker::run(state.clone()));
@@ -31,6 +31,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .merge(api::routes())
+        .merge(arm112::ws::routes::routes())
         .layer(TraceLayer::new_for_http())
         .layer(CompressionLayer::new())
         // Dev-режим: фронтенд живёт на другом порту.

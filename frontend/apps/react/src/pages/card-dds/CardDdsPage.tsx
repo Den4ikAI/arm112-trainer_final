@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { cards, type CardDetail } from '@/shared/api';
+import { cards, channel, type CardDetail } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 import { CallBar } from '@/widgets/call-bar/CallBar';
@@ -33,6 +33,22 @@ export const CardDdsPage = () => {
   }, [id]);
 
   useEffect(() => { void reload(); }, [reload]);
+
+  // Одну карточку ведут несколько ДДС сразу: статус, проставленный
+  // соседней службой, должен появиться без обновления страницы
+  useEffect(() => {
+    const topics = user?.serviceId ? [`service:${user.serviceId}`] : [];
+    if (topics.length) channel.subscribe(topics);
+
+    const off = channel.on((e) => {
+      if (e.cardId === id || e.type === 'lagged') void reload();
+    });
+
+    return () => {
+      off();
+      if (topics.length) channel.unsubscribe(topics);
+    };
+  }, [id, reload, user?.serviceId]);
 
   if (error) return <div className={s.page}><p className={s.empty}>{error}</p></div>;
   if (!card) return <div className={s.page}><p className={s.empty}>Загрузка…</p></div>;

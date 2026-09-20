@@ -6,7 +6,7 @@
  * что рисовать.
  */
 import { create } from 'zustand';
-import { auth, getToken, setToken, type User } from '@/shared/api';
+import { auth, channel, getToken, setToken, type User } from '@/shared/api';
 
 interface SessionState {
   user: User | null;
@@ -38,6 +38,9 @@ export const useSession = create<SessionState>((set) => ({
   },
 
   signOut: async () => {
+    // Канал закрываем раньше токена: иначе он попробует
+    // переподключиться уже без него
+    channel.close();
     await auth.logout();
     set({ user: null });
   },

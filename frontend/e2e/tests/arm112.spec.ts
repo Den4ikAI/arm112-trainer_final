@@ -258,6 +258,75 @@ test.describe('Режим ДДС', () => {
   });
 });
 
+test.describe('Живой класс', () => {
+  /**
+   * То, ради чего канал и нужен: одно происшествие уходит сразу
+   * в несколько служб, значит один сценарий разворачивается
+   * в несколько учебных задач одновременно.
+   *
+   * Два окна: в одном оператор 112, в другом диспетчер МЧС. Карточка
+   * должна долететь без обновления страницы.
+   */
+  test('карточка от оператора появляется у диспетчера без перезагрузки',
+    async ({ browser }, info) => {
+      const operatorCtx = await browser.newContext();
+      const dispatcherCtx = await browser.newContext();
+      const operator = await operatorCtx.newPage();
+      const dispatcher = await dispatcherCtx.newPage();
+
+      try {
+        // Диспетчер уже сидит в журнале и ничего не делает
+        await login(dispatcher, info, USERS.mchs);
+
+        // Оператор заполняет и сохраняет карточку
+        await login(operator, info);
+        await launchTicket3(operator);
+        await fillFireCard(operator);
+        const number = (await operator.getByTestId('card-number').innerText()).trim();
+
+        // Номер выдан, но карточка ещё не сохранена — у диспетчера
+        // её быть не должно
+        const row = dispatcher.getByTestId(`journal-row-${number}`);
+        await expect(row).toHaveCount(0);
+
+        await operator.getByTestId('save-card').click();
+        await expect(operator.getByTestId('score')).toBeVisible();
+
+        // Диспетчер страницу не трогал — строка пришла каналом
+        await expect(row).toBeVisible({ timeout: 10_000 });
+      } finally {
+        await operatorCtx.close();
+        await dispatcherCtx.close();
+      }
+    });
+
+  /** Пожар в частном доме не профилен для Мослифта. */
+  test('чужая карточка в ленту не приходит', async ({ browser }, info) => {
+    const liftCtx = await browser.newContext();
+    const operatorCtx = await browser.newContext();
+    const lift = await liftCtx.newPage();
+    const operator = await operatorCtx.newPage();
+
+    try {
+      await login(lift, info, USERS.lift);
+
+      await login(operator, info);
+      await launchTicket3(operator);
+      await fillFireCard(operator);
+      const number = (await operator.getByTestId('card-number').innerText()).trim();
+      await operator.getByTestId('save-card').click();
+      await expect(operator.getByTestId('score')).toBeVisible();
+
+      // Даём каналу время доставить то, чего доставлять не должен
+      await lift.waitForTimeout(3000);
+      await expect(lift.getByTestId(`journal-row-${number}`)).toHaveCount(0);
+    } finally {
+      await liftCtx.close();
+      await operatorCtx.close();
+    }
+  });
+});
+
 test.describe('Адаптивность', () => {
   test('на узком экране нет горизонтальной прокрутки', async ({ page }, info) => {
     await page.setViewportSize({ width: 400, height: 900 });

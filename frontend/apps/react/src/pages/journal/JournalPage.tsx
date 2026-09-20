@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTable';
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
-import { cards, scenarios as scenariosApi, type CardBrief, type ScenarioBrief } from '@/shared/api';
+import { cards, channel, scenarios as scenariosApi,
+         type CardBrief, type ScenarioBrief } from '@/shared/api';
 import { useNavigate } from 'react-router-dom';
 import s from './JournalPage.module.scss';
 
@@ -66,12 +67,31 @@ export const JournalPage = () => {
       }
     };
     void load();
-    // Статусы меняет сторож нормативов на сервере, а не наше действие:
-    // без опроса карточка покраснеет только после перезагрузки.
-    // Живое обновление придёт с WebSocket (задача 12).
-    const timer = setInterval(() => void load(), 5000);
-    return () => { alive = false; clearInterval(timer); };
-  }, [query, user?.role]);
+
+    // Канал класса: карточка от оператора и статусы от других
+    // диспетчеров приходят сразу, без обновления страницы
+    const topics = user?.serviceId ? [`service:${user.serviceId}`] : [];
+    if (topics.length) channel.subscribe(topics);
+
+    const off = channel.on((e) => {
+      if (['card.dispatched', 'response.recorded', 'ack.timeout',
+           'card.status', 'lagged'].includes(e.type)) {
+        void load();
+      }
+    });
+
+    // Запасной опрос: канал мог не подняться, а счётчик ожидания
+    // всё равно должен идти. Реже, чем раньше — основную работу
+    // делает канал
+    const timer = setInterval(() => void load(), 15_000);
+
+    return () => {
+      alive = false;
+      off();
+      clearInterval(timer);
+      if (topics.length) channel.unsubscribe(topics);
+    };
+  }, [query, user?.role, user?.serviceId]);
 
   const launch = async (scenarioId: string) => {
     await start(scenarioId);
