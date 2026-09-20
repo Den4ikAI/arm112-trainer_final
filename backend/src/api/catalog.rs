@@ -67,7 +67,9 @@ struct Question {
     id: String,
     label: String,
     kind: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Всегда присутствует, у свободного ввода — пустой массив.
+    /// Пропускать поле нельзя: клиенту пришлось бы сторожить каждое
+    /// обращение, а забытая проверка роняет весь экран карточки.
     options: Vec<String>,
 }
 

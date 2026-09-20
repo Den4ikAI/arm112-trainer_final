@@ -1,4 +1,6 @@
-import { getSurveyCard, type SurveyQuestion } from '@arm112/domain';
+import { useEffect } from 'react';
+import { useCatalog } from '@/entities/catalog/model';
+import type { SurveyQuestion } from '@/shared/api';
 import { Chip } from '@/shared/ui/Chip';
 import s from './SurveyCardView.module.scss';
 
@@ -16,7 +18,12 @@ interface Props {
  * набору служб. Поэтому любое нажатие плашки пересчитывает список оповещения.
  */
 export const SurveyCardView = ({ typeId, answers, onAnswer, onClose, readOnly }: Props) => {
-  const card = getSurveyCard(typeId);
+  const card = useCatalog((st) => st.cards[typeId]);
+  const loadCard = useCatalog((st) => st.loadCard);
+
+  // Карт 1283, поэтому тянем ту, которую курсант действительно открыл
+  useEffect(() => { void loadCard(typeId); }, [typeId, loadCard]);
+
   if (!card) return null;
 
   return (
@@ -61,7 +68,7 @@ const Question = ({ q, value, onAnswer, readOnly }: {
     <div className={s.row}>
       <div className={s.label} id={`q-${q.id}`}>{q.label}</div>
       <div className={s.control} role="group" aria-labelledby={`q-${q.id}`}>
-        {q.options
+        {q.options.length > 0
           ? q.options.map((opt) => (
               <Chip key={opt} selected={selected.includes(opt)} disabled={readOnly}
                     onClick={() => toggle(opt)}>

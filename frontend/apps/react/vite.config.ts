@@ -12,10 +12,14 @@ export default defineConfig({
       '@': r('./src'),
       // Общие токены и примеси — один источник правды для React и Angular.
       '@styles': r('../../packages/styles'),
-      // Доменный пакет: типы, классификатор, машина статусов, оценка.
-      '@arm112/domain': r('../../packages/domain/src/index.ts'),
     },
   },
-  server: { port: 5173, strictPort: true },
+  server: {
+    port: 5173,
+    strictPort: true,
+    // Фронтенд и сервер живут на одном происхождении: так не нужен
+    // CORS, а токен в заголовке уходит без предварительных CORS-запросов
+    proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true } },
+  },
   preview: { port: 4173, strictPort: true },
 });

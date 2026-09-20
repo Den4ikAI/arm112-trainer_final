@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { INCIDENT_TYPES, getIncidentType } from '@arm112/domain';
+import { useCatalog } from '@/entities/catalog/model';
 import { Chip } from '@/shared/ui/Chip';
 import s from './IncidentPanel.module.scss';
 
@@ -15,16 +15,18 @@ interface Props {
  */
 export const IncidentPanel = ({ selected, onToggle }: Props) => {
   const [query, setQuery] = useState('');
+  const types = useCatalog((st) => st.types);
+  const typeTitle = useCatalog((st) => st.typeTitle);
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/[-,]/g, ' ');
     if (!q) return [];
     const words = q.split(/\s+/).filter(Boolean);
-    return INCIDENT_TYPES.filter((t) => {
+    return types.filter((t) => {
       const title = t.title.toLowerCase();
       return words.every((w) => title.includes(w));
     }).slice(0, 8);
-  }, [query]);
+  }, [query, types]);
 
   const hasSelection = selected.length > 0;
 
@@ -66,7 +68,7 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
         <div className={s.chosen}>
           {selected.map((id) => (
             <Chip key={id} onClick={() => onToggle(id)} title="Убрать тип">
-              {getIncidentType(id)?.title ?? id}
+              {typeTitle(id)}
             </Chip>
           ))}
         </div>
@@ -75,7 +77,7 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
       {!hasSelection && (
         <>
           <div className={s.frequent}>
-            {INCIDENT_TYPES.filter((t) => t.frequent).map((t) => (
+            {types.filter((t) => t.frequent).map((t) => (
               <Chip key={t.id} onClick={() => onToggle(t.id)}>{t.title}</Chip>
             ))}
           </div>

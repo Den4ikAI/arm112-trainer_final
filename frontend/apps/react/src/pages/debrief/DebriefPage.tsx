@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
-import { getService, type Finding } from '@arm112/domain';
 import { useTraining } from '@/entities/incident/model';
+import { useCatalog } from '@/entities/catalog/model';
+import type { Finding } from '@/shared/api';
 import { fmt } from '@/shared/lib/useTimer';
 import clsx from '@/shared/lib/clsx';
 import s from './DebriefPage.module.scss';
@@ -18,7 +19,8 @@ const KIND_LABEL: Record<Finding['kind'], string> = {
  * значение совпало с эталоном, но заявитель его не сообщал.
  */
 export const DebriefPage = () => {
-  const { result, scenario, transcript, reset } = useTraining();
+  const { grade: result, scenario, transcript, reset } = useTraining();
+  const serviceTitle = useCatalog((st) => st.serviceTitle);
   const nav = useNavigate();
 
   if (!result || !scenario) {
@@ -51,7 +53,7 @@ export const DebriefPage = () => {
         <Metric label="Время заполнения" value={fmt(result.elapsedSec)}
                 danger={result.overNorm} note={`норматив ${fmt(result.normSec)}`} />
         <Metric label="Выяснено у заявителя"
-                value={`${scenario.hidden.length - guessed.length} / ${scenario.hidden.length}`} />
+                value={`${scenario.questions.length - guessed.length} / ${scenario.questions.length}`} />
         <Metric label="Службы оповещены"
                 value={`${result.services.actual.length} / ${result.services.expected.length}`}
                 danger={result.services.missed.length > 0} />
@@ -88,7 +90,7 @@ export const DebriefPage = () => {
                   <span className={s.badge}>{KIND_LABEL[f.kind]}</span>
                   <span className={s.field}>
                     {f.field.startsWith('service.')
-                      ? getService(f.field.slice(8))?.title ?? f.label
+                      ? serviceTitle(f.field.slice(8))
                       : f.label}
                   </span>
                   <span className={s.value}>

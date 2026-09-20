@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { APPLICANT_STATUSES, classify, type AddressFields } from '@arm112/domain';
 import { useTraining } from '@/entities/incident/model';
+import { useCatalog } from '@/entities/catalog/model';
 import { CallBar } from '@/widgets/call-bar/CallBar';
 import { CardHeader } from '@/widgets/card-header/CardHeader';
 import { AddressBlock } from '@/widgets/address-block/AddressBlock';
@@ -16,19 +16,25 @@ import s from './Card112Page.module.scss';
 
 /** Карточка происшествия в режиме оператора 112 — основной учебный экран. */
 export const Card112Page = () => {
-  const { number = '36814851' } = useParams();
+  const { number = '' } = useParams();
   const nav = useNavigate();
   const {
-    card, scenario, revealed, transcript, saved,
-    patch, patchAddress, toggleType, setAnswer, setServices, ask, save,
+    card, scenario, classify, revealed, transcript, grade, error,
+    edit, editAddress, toggleType, setAnswer, setManualServices, ask, save, flush,
   } = useTraining();
+  const applicantStatuses = useCatalog((st) => st.applicantStatuses);
 
-  const elapsed = useTimer(!saved);
-  const auto = classify(card).services;
+  const elapsed = useTimer(!grade);
 
-  useEffect(() => { if (saved) nav('/debrief'); }, [saved, nav]);
+  // Список оповещения считает сервер: здесь только то, что он прислал
+  const auto = classify?.services.map((x) => x.serviceId) ?? [];
 
-  // Горячие клавиши боевой системы: Alt+T, Alt+A, Alt+S.
+  useEffect(() => { if (grade) nav('/debrief'); }, [grade, nav]);
+
+  // Уход со страницы не должен терять последние правки
+  useEffect(() => () => { void flush(); }, [flush]);
+
+  // Горячие клавиши боевой системы: Alt+T, Alt+A, Alt+O, Alt+S.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey) return;
@@ -37,26 +43,39 @@ export const Card112Page = () => {
       if (e.code === 'KeyT') { e.preventDefault(); go('#type-search'); }
       if (e.code === 'KeyA') { e.preventDefault(); go('[aria-label="Единая адресная строка"]'); }
       if (e.code === 'KeyO') { e.preventDefault(); go('[aria-label="Описание со слов заявителя"]'); }
-      if (e.code === 'KeyS') { e.preventDefault(); save(); }
+      if (e.code === 'KeyS') { e.preventDefault(); void save(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [save]);
+
+  if (!card) {
+    return (
+      <div className={s.page}>
+        <p className={s.empty} data-testid="no-session">
+          Занятие не запущено. Возьмите вызов в журнале.
+        </p>
+        <button onClick={() => nav('/journal')}>В журнал</button>
+      </div>
+    );
+  }
 
   return (
     <div className={s.page}>
       <div className={s.top}>
         <CallBar
           aon={card.phoneAon} provided={card.phoneProvided} onSite={card.phoneOnSite}
-          onChange={(f, v) => patch({ [f]: v })}
+          onChange={(f, v) => edit({ [f]: v })}
         />
         <CardHeader
-          number={number}
+          number={number || card.number}
           savedAt={new Date(card.createdAt).toLocaleString('ru-RU')}
-          operator={card.operator} workstation={card.workstation}
+          operator={card.operator} workstation={card.workstation ?? ''}
           mode="112" elapsedSec={elapsed} normSec={scenario?.normSec ?? 60}
         />
       </div>
+
+      {error && <div className={s.error} role="status">{error}</div>}
 
       <div className={clsx(s.main, scenario && s.withHud)}>
         <div className={s.left}>
@@ -66,23 +85,20 @@ export const Card112Page = () => {
               placeholder="Фамилия и имя заявителя"
               aria-label="ФИО заявителя"
               value={card.applicantName}
-              onChange={(e) => patch({ applicantName: e.target.value })}
+              onChange={(e) => edit({ applicantName: e.target.value })}
             />
             <select
               className={s.status}
               aria-label="Статус заявителя"
               value={card.applicantStatus}
-              onChange={(e) => patch({ applicantStatus: e.target.value as never })}
+              onChange={(e) => edit({ applicantStatus: e.target.value })}
             >
               <option value="">выберите статус</option>
-              {APPLICANT_STATUSES.map((st) => <option key={st} value={st}>{st}</option>)}
+              {applicantStatuses.map((st) => <option key={st} value={st}>{st}</option>)}
             </select>
           </div>
 
-          <AddressBlock
-            value={card.address}
-            onChange={(f, v) => patchAddress(f as keyof AddressFields, v)}
-          />
+          <AddressBlock value={card.address} onChange={editAddress} />
 
           <div className={s.description}>
             <div className={s.descLabel}>Описание со слов заявителя</div>
@@ -92,7 +108,7 @@ export const Card112Page = () => {
               aria-label="Описание со слов заявителя"
               maxLength={1999}
               value={card.description}
-              onChange={(e) => patch({ description: e.target.value })}
+              onChange={(e) => edit({ description: e.target.value })}
             />
             <div className={s.counter}>{card.description.length} / 1999</div>
           </div>
@@ -101,16 +117,16 @@ export const Card112Page = () => {
         <div className={s.right}>
           <div className={s.flags}>
             <Chip selected={card.victims != null}
-                  onClick={() => patch({ victims: card.victims == null ? 1 : null })}>
+                  onClick={() => edit({ victims: card.victims == null ? 1 : null })}>
               Пострадавшие
             </Chip>
             <Chip>Нет на месте/<br />Отказ от скорой</Chip>
             <Chip>Нет доступа/<br />Заблокированные</Chip>
             <div className={s.spacer} />
             <Chip tone="danger" selected={card.noContact}
-                  onClick={() => patch({ noContact: !card.noContact })}>нет контакта</Chip>
+                  onClick={() => edit({ noContact: !card.noContact })}>нет контакта</Chip>
             <Chip tone="danger" selected={card.callDropped}
-                  onClick={() => patch({ callDropped: !card.callDropped })}>срыв звонка</Chip>
+                  onClick={() => edit({ callDropped: !card.callDropped })}>срыв звонка</Chip>
           </div>
 
           <IncidentPanel selected={card.typeIds} onToggle={toggleType} />
@@ -121,21 +137,25 @@ export const Card112Page = () => {
               onAnswer={setAnswer} onClose={() => toggleType(t)}
             />
           ))}
+
+          {/* Классификатор не смог определить позицию — говорим чего не хватает */}
+          {classify?.reason && (
+            <div className={s.hint} data-testid="classify-reason">{classify.reason}</div>
+          )}
         </div>
 
         {scenario && (
           <TrainerHud
             scenario={scenario} revealed={revealed} transcript={transcript}
-            elapsedSec={elapsed} onAsk={ask}
+            elapsedSec={elapsed} onAsk={(id) => void ask(id)}
           />
         )}
       </div>
 
       <ServicesBar
         mode="112" serviceIds={card.serviceIds} autoIds={auto}
-        onChange={setServices} onSave={save}
+        onChange={setManualServices} onSave={() => void save()}
       />
-
     </div>
   );
 };

@@ -1,21 +1,47 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { LoginPage } from '@/pages/login/LoginPage';
 import { JournalPage } from '@/pages/journal/JournalPage';
 import { Card112Page } from '@/pages/card112/Card112Page';
 import { CardDdsPage } from '@/pages/card-dds/CardDdsPage';
 import { DebriefPage } from '@/pages/debrief/DebriefPage';
+import { useSession } from '@/entities/session/model';
+import { useCatalog } from '@/entities/catalog/model';
 
 /**
  * Маршруты повторяют пути боевой ПОВ-112 (/#!/incident/<номер>),
  * плюс учебный экран разбора, которого в боевой системе нет.
  */
-export const App = () => (
-  <Routes>
-    <Route path="/" element={<Navigate to="/login" replace />} />
-    <Route path="/login" element={<LoginPage />} />
-    <Route path="/journal" element={<JournalPage />} />
-    <Route path="/card/:number" element={<Card112Page />} />
-    <Route path="/card-dds/:number" element={<CardDdsPage />} />
-    <Route path="/debrief" element={<DebriefPage />} />
-  </Routes>
-);
+export const App = () => {
+  const { user, checking, restore } = useSession();
+  const loadCatalog = useCatalog((st) => st.load);
+
+  // Сохранённый токен проверяем один раз при запуске: перезагрузка
+  // страницы посреди занятия не должна выкидывать на экран входа
+  useEffect(() => { void restore(); }, [restore]);
+
+  // Справочники нужны всем экранам, кроме входа
+  useEffect(() => { if (user) void loadCatalog(); }, [user, loadCatalog]);
+
+  if (checking) return <div data-testid="app-loading" />;
+
+  return (
+    <Routes>
+      <Route path="/" element={<Navigate to={user ? '/journal' : '/login'} replace />} />
+      <Route path="/login" element={user ? <Navigate to="/journal" replace /> : <LoginPage />} />
+      <Route path="/journal" element={<Private><JournalPage /></Private>} />
+      <Route path="/card/:number" element={<Private><Card112Page /></Private>} />
+      <Route path="/card-dds/:id" element={<Private><CardDdsPage /></Private>} />
+      <Route path="/debrief" element={<Private><DebriefPage /></Private>} />
+    </Routes>
+  );
+};
+
+/** Без входа внутрь не пускаем. Сервер всё равно ответит 401, но
+ *  показывать пустые экраны вместо формы входа незачем. */
+const Private = ({ children }: { children: React.ReactNode }) => {
+  const user = useSession((st) => st.user);
+  const { pathname } = useLocation();
+  if (!user) return <Navigate to="/login" state={{ from: pathname }} replace />;
+  return <>{children}</>;
+};

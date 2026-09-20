@@ -5,16 +5,20 @@ import s from './LoginPage.module.scss';
 
 /** Экран входа. Композиция повторяет боевой: иллюстрация города и форма справа. */
 export const LoginPage = () => {
-  const [login, setLogin] = useState('umc_operdds1');
+  const [login, setLogin] = useState('student1');
   const [password, setPassword] = useState('');
   const [workstation, setWorkstation] = useState('4');
+  const [busy, setBusy] = useState(false);
   const signIn = useSession((st) => st.signIn);
+  const error = useSession((st) => st.error);
   const nav = useNavigate();
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    signIn(login, workstation);
-    nav('/journal');
+    setBusy(true);
+    const ok = await signIn(login, password, workstation);
+    setBusy(false);
+    if (ok) nav('/journal');
   };
 
   return (
@@ -28,7 +32,7 @@ export const LoginPage = () => {
         </div>
       </div>
 
-      <form className={s.form} onSubmit={submit}>
+      <form className={s.form} onSubmit={(e) => void submit(e)}>
         <h1 className={s.title}>
           <span className={s.logo}>112</span>
           <span className={s.subtitle}>ВХОД В СИСТЕМУ</span>
@@ -53,7 +57,10 @@ export const LoginPage = () => {
                  name="workstation" inputMode="numeric" />
         </label>
 
-        <button className={s.submit} type="submit" data-testid="login-submit">ВОЙТИ</button>
+        {error && <div className={s.error} role="alert" data-testid="login-error">{error}</div>}
+
+        <button className={s.submit} type="submit" disabled={busy}
+                data-testid="login-submit">{busy ? '…' : 'ВОЙТИ'}</button>
 
         <div className={s.support}>
           <div className={s.supportTitle}>Техподдержка</div>

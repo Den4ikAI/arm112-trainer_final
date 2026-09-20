@@ -23,7 +23,7 @@ export const CardHeader = ({ number, savedAt, operator, workstation, mode, elaps
   return (
     <section className={s.wrap} aria-label="Сведения о происшествии">
       <div className={s.meta}>
-        <div className={s.number}>Происшествие {number}</div>
+        <div className={s.number}>Происшествие <span data-testid="card-number">{number}</span></div>
         <div className={s.line}>Сохр. {savedAt}</div>
         <div className={s.line}>Опер. , АРМ {workstation}, {operator}</div>
       </div>

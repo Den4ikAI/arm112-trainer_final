@@ -1,78 +1,101 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { getService, type ResponseEntry, type ServiceResponse } from '@arm112/domain';
+import { cards, type CardDetail } from '@/shared/api';
+import { useSession } from '@/entities/session/model';
+import { useCatalog } from '@/entities/catalog/model';
 import { CallBar } from '@/widgets/call-bar/CallBar';
 import { CardHeader } from '@/widgets/card-header/CardHeader';
 import { ServiceTab } from '@/widgets/status-history/ServiceTab';
+import { SurveyCardView } from '@/widgets/survey-card/SurveyCardView';
 import s from './CardDdsPage.module.scss';
 
 /**
  * Карточка в режиме ДДС: поля только для чтения, работа идёт через статусы.
  * Норматив подтверждения — 30 секунд с момента направления карточки в службу.
+ *
+ * Карандаш есть только у своей службы: диспетчер отвечает за неё и ни за
+ * чью больше. Сервер это тоже проверяет — кнопку мало спрятать.
  */
-const SERVICES_ON_CARD = ['s101', 's104', 's102', 'dep-jkh', 'cemp', 'codd', 'mosbez', 'moslift'];
-const OWN_SERVICE = 'dep-jkh';
-
-const baseAt = (minutesAgo: number) =>
-  new Date(Date.now() - minutesAgo * 60_000).toISOString();
-
 export const CardDdsPage = () => {
-  const { number = '36814845' } = useParams();
+  const { id = '' } = useParams();
+  const [card, setCard] = useState<CardDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const user = useSession((st) => st.user);
+  const serviceTitle = useCatalog((st) => st.serviceTitle);
 
-  const [responses, setResponses] = useState<ServiceResponse[]>(
-    SERVICES_ON_CARD.map((id) => ({
-      serviceId: id,
-      entries: [{ status: 'Добавлена', at: baseAt(12), operator: 'оп. 0' } as ResponseEntry],
-    })),
-  );
+  const reload = useCallback(async () => {
+    try {
+      setCard(await cards.one(id));
+      setError(null);
+    } catch {
+      setError('Карточка недоступна');
+    }
+  }, [id]);
 
-  const add = (serviceId: string, entry: ResponseEntry) =>
-    setResponses((prev) => prev.map((r) =>
-      r.serviceId === serviceId ? { ...r, entries: [...r.entries, entry] } : r));
+  useEffect(() => { void reload(); }, [reload]);
+
+  if (error) return <div className={s.page}><p className={s.empty}>{error}</p></div>;
+  if (!card) return <div className={s.page}><p className={s.empty}>Загрузка…</p></div>;
+
+  const addr = ['country', 'region', 'settlement', 'district', 'street', 'house', 'building']
+    .map((f) => card.address[f])
+    .filter(Boolean)
+    .join(', ');
+
+  const own = user?.serviceId ?? '';
 
   return (
     <div className={s.page}>
       <div className={s.top}>
-        <CallBar aon="" provided="" onSite="" readOnly />
-        <CardHeader number={number} savedAt={new Date().toLocaleString('ru-RU')}
-                    operator="УМЦ O n" workstation="4" mode="dds" />
+        <CallBar aon={card.phoneAon} provided={card.phoneProvided}
+                 onSite={card.phoneOnSite} readOnly />
+        <CardHeader number={card.number}
+                    savedAt={new Date(card.savedAt ?? card.createdAt).toLocaleString('ru-RU')}
+                    operator={card.operator} workstation={card.workstation ?? ''} mode="dds" />
       </div>
 
       <div className={s.main}>
         <div className={s.left}>
-          <div className={s.applicantRow}>ФИО заявителя</div>
+          <div className={s.applicantRow}>
+            {card.applicantName || 'ФИО заявителя'}
+            {card.applicantStatus && ` (${card.applicantStatus})`}
+          </div>
 
           <div className={s.addr}>
-            <div className={s.addrMain}>Россия, Москва, (ТАО, Вороновское)</div>
-            <div className={s.addrSub}>Троицкий административный округ</div>
+            <div className={s.addrMain}>{addr || 'Адрес не заполнен'}</div>
+            {card.address.descriptive && (
+              <div className={s.addrSub}>{card.address.descriptive}</div>
+            )}
           </div>
 
           <div className={s.feed}>
             <div className={s.feedRow}>
               <div className={s.feedMeta}>
-                {new Date().toLocaleDateString('ru-RU')} 11:13:19 &nbsp; 0 УМЦ O.n.
+                {new Date(card.savedAt ?? card.createdAt).toLocaleString('ru-RU')}
+                &nbsp; {card.operator}
               </div>
-              <div className={s.feedText}>Пожар в квартире</div>
+              <div className={s.feedText}>{card.description}</div>
             </div>
           </div>
         </div>
 
         <div className={s.right}>
           <div className={s.flagsRow}>
-            <span>Пострадавшие: нет</span>
-            <span>Отказ от скорой: нет</span>
-            <span>Заблокированные: нет</span>
+            <span>Пострадавшие: {card.victims == null ? 'нет' : card.victims}</span>
+            <span>Нет контакта: {card.noContact ? 'да' : 'нет'}</span>
+            <span>Срыв звонка: {card.callDropped ? 'да' : 'нет'}</span>
             <button className={s.chs}>ЧС ⚡</button>
             <button className={s.chp}>ЧП ⚠</button>
-            <button className={s.pencil} aria-label="Редактировать">✎</button>
           </div>
 
-          <div className={s.typeHead}>Происшествие 101</div>
-          <div className={s.signs}>
-            Дом . Открытое пламя / Дым (дом), Запах гари (дом) . Дом многоквартирный .
-            квартира . Есть угроза людям . Есть газификация .
+          {card.typeIds.map((t) => (
+            <SurveyCardView key={t} typeId={t} answers={card.answers}
+                            onAnswer={() => {}} onClose={() => {}} readOnly />
+          ))}
+
+          <div className={s.klass} data-testid="card-class">
+            Класс.: <strong>{card.outcomeType ?? '—'}</strong>
           </div>
-          <div className={s.klass} data-testid="card-class">Класс.: <strong>пожар: квартира ;</strong></div>
           <div className={s.klassVis}>[ВИС] Класс.:</div>
         </div>
       </div>
@@ -80,18 +103,23 @@ export const CardDdsPage = () => {
       <footer className={s.serviceBar} aria-label="Службы и статусы реагирования">
         <span className={s.caption}>Службы:</span>
         <div className={s.tabs}>
-          {SERVICES_ON_CARD.map((id) => (
+          {card.services.map((sv) => (
             <ServiceTab
-              key={id} serviceId={id}
-              response={responses.find((r) => r.serviceId === id)}
-              own={id === OWN_SERVICE}
-              onAdd={(entry) => add(id, entry)}
+              key={sv.serviceId}
+              service={sv}
+              own={sv.serviceId === own}
+              onAdd={async (body) => {
+                await cards.addResponse(card.id, { serviceId: sv.serviceId, ...body });
+                await reload();
+              }}
             />
           ))}
         </div>
-        <div className={s.hint}>
-          Ваша служба — {getService(OWN_SERVICE)?.title}. Норматив подтверждения 30 секунд.
-        </div>
+        {own && (
+          <div className={s.hint}>
+            Ваша служба — {serviceTitle(own)}. Норматив подтверждения 30 секунд.
+          </div>
+        )}
       </footer>
     </div>
   );

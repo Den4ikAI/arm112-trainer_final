@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import type { Scenario } from '@arm112/domain';
+import type { ScenarioPublic } from '@/shared/api';
 import clsx from '@/shared/lib/clsx';
 import { fmt } from '@/shared/lib/useTimer';
 import s from './TrainerHud.module.scss';
 
 interface Props {
-  scenario: Scenario;
+  scenario: ScenarioPublic;
   revealed: string[];
-  transcript: Array<{ who: 'оператор' | 'заявитель'; text: string; at: number }>;
+  transcript: Array<{ who: string; text: string; atSec: number }>;
   elapsedSec: number;
   onAsk: (factId: string) => void;
 }
@@ -25,7 +25,7 @@ export const TrainerHud = ({ scenario, revealed, transcript, elapsedSec, onAsk }
   const [collapsed, setCollapsed] = useState(false);
   const over = elapsedSec > scenario.normSec;
   const asked = revealed.length;
-  const total = scenario.hidden.length;
+  const total = scenario.questions.length;
 
   return (
     <aside className={clsx(s.hud, collapsed && s.collapsed)} aria-label="Панель обучающегося">
@@ -61,15 +61,15 @@ export const TrainerHud = ({ scenario, revealed, transcript, elapsedSec, onAsk }
             Задать вопрос <span className={s.counter}>{asked} / {total}</span>
           </div>
           <div className={s.questions}>
-            {scenario.hidden.map((h) => (
+            {scenario.questions.map((q) => (
               <button
-                key={h.id}
-                className={clsx(s.question, revealed.includes(h.id) && s.asked)}
-                disabled={revealed.includes(h.id)}
-                data-testid={`ask-${h.id}`}
-                onClick={() => onAsk(h.id)}
+                key={q.factId}
+                className={clsx(s.question, revealed.includes(q.factId) && s.asked)}
+                disabled={revealed.includes(q.factId)}
+                data-testid={`ask-${q.key}`}
+                onClick={() => onAsk(q.factId)}
               >
-                {h.question}
+                {q.question}
               </button>
             ))}
           </div>

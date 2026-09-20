@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { SERVICES, getService } from '@arm112/domain';
+import { useCatalog } from '@/entities/catalog/model';
 import { Modal } from '@/shared/ui/Modal';
 import clsx from '@/shared/lib/clsx';
 import s from './ServicesBar.module.scss';
@@ -22,14 +22,21 @@ interface Props {
 export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, children }: Props) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const services = useCatalog((st) => st.services);
+  const serviceTitle = useCatalog((st) => st.serviceTitle);
+
+  // Автоподобранную службу снять нельзя (инструкция, раздел 6),
+  // поэтому наружу отдаём только добавленные вручную
+  const manual = serviceIds.filter((id) => !autoIds.includes(id));
 
   const toggle = (id: string) => {
-    onChange(serviceIds.includes(id)
-      ? serviceIds.filter((x) => x !== id)
-      : [...serviceIds, id]);
+    if (autoIds.includes(id)) return;
+    onChange(manual.includes(id)
+      ? manual.filter((x) => x !== id)
+      : [...manual, id]);
   };
 
-  const shown = SERVICES.filter((sv) =>
+  const shown = services.filter((sv) =>
     sv.title.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
@@ -41,9 +48,9 @@ export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, child
           {serviceIds.map((id) => (
             <span key={id} className={clsx(s.tag, autoIds.includes(id) && s.auto)}
                   data-testid={`service-${id}`}>
-              {getService(id)?.title ?? id}
-              {mode === '112' && (
-                <button className={s.tagX} aria-label={`Убрать ${getService(id)?.title}`}
+              {serviceTitle(id)}
+              {mode === '112' && !autoIds.includes(id) && (
+                <button className={s.tagX} aria-label={`Убрать ${serviceTitle(id)}`}
                         onClick={() => toggle(id)}>×</button>
               )}
             </span>
@@ -72,6 +79,8 @@ export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, child
               <li key={sv.id}>
                 <button
                   className={clsx(s.option, serviceIds.includes(sv.id) && s.optionOn)}
+                  disabled={autoIds.includes(sv.id)}
+                  title={autoIds.includes(sv.id) ? 'Подобрана классификатором, снять нельзя' : undefined}
                   onClick={() => toggle(sv.id)}
                 >
                   {sv.title}

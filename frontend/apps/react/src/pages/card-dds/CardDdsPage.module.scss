@@ -97,3 +97,9 @@
 }
 
 .hint { font-size: var(--fs-xs); color: #b9c8d4; }
+
+.empty {
+  padding: var(--sp-6);
+  color: var(--c-text-muted);
+  font-size: 15px;
+}

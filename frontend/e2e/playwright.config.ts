@@ -30,6 +30,16 @@ export default defineConfig({
 
   webServer: [
     {
+      // Классификатор, оценка и статусы живут на сервере: без него
+      // прогонять эти сценарии бессмысленно. Нужна поднятая база
+      // (docker compose up -d) с применёнными миграциями.
+      command: 'cargo run --quiet',
+      cwd: '../../backend',
+      url: 'http://127.0.0.1:8080/api/admin/health',
+      reuseExistingServer: true,
+      timeout: 180_000,
+    },
+    {
       command: 'npm run dev -- --host 127.0.0.1',
       cwd: '../apps/react',
       url: 'http://localhost:5173',

@@ -80,3 +80,28 @@
 }
 
 .spacer { flex: 1; }
+
+/* Занятие не запущено: карточка без сессии на сервере не существует. */
+.empty {
+  padding: var(--sp-6);
+  color: var(--c-text-muted);
+  font-size: 15px;
+}
+
+/* Связь с сервером потеряна. Правки не пропадают — они в очереди. */
+.error {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  font-size: 13px;
+}
+
+/* Классификатор не смог определить позицию и сказал, чего не хватает. */
+.hint {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--c-warn);
+  background: #fff8ec;
+  color: var(--c-text);
+  font-size: 13px;
+}

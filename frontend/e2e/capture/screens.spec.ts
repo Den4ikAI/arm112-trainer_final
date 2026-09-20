@@ -23,10 +23,52 @@ const go = async (page: Page, _info: TestInfo, p: string) => {
   await page.goto(p);
 };
 
-const login = async (page: Page, info: TestInfo) => {
+/** Учебные пользователи из миграции 20260921120000, пароль у всех один. */
+const OPERATOR = 'student1';
+const MCHS = 'student3';
+
+const login = async (page: Page, info: TestInfo, user = OPERATOR) => {
   await go(page, info, '/login');
+  // Гасим сохранённый токен: в сценарии съёмки мы меняем пользователя,
+  // а вошедшего приложение уводит с формы входа обратно в журнал
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.locator('input[name="login"]').fill(user);
+  await page.locator('input[name="password"]').fill('arm112');
   await page.getByTestId('login-submit').click();
   await page.getByRole('heading', { name: 'Учебные вызовы' }).waitFor();
+};
+
+const pickFireType = async (page: Page) => {
+  await page.locator('#type-search').fill('101');
+  await page.getByRole('option', { name: '101', exact: true }).click();
+};
+
+/** Признаки пожара в частном доме — «пожар: частный дом» по ЕКП. */
+const pickFireSigns = async (page: Page) => {
+  const pick = async (group: string, option: string) =>
+    page.getByRole('group', { name: group })
+      .getByRole('button', { name: option, exact: true }).click();
+  await pick('Где', 'Дом');
+  await pick('Признак пожара (дом)', 'Открытое пламя / Дым');
+  await pick('Дом (пламя, дым)', 'Дом частный');
+  await pick('Внутридомовые объекты (пламя, дым)', 'Крыша');
+  await pick('Угроза людям', 'Нет');
+  await pick('Проведена ли газификация', 'Нет');
+};
+
+/** Оператор заполняет и сохраняет карточку; возвращает её номер. */
+const createFireCard = async (page: Page, info: TestInfo): Promise<string> => {
+  await login(page, info);
+  await page.getByTestId('launch-t3-c1').click();
+  await page.getByTestId('card-timer').waitFor();
+  await pickFireType(page);
+  await pickFireSigns(page);
+  await fillCardProperly(page);
+  const number = (await page.getByTestId('card-number').innerText()).trim();
+  await page.getByTestId('save-card').click();
+  await page.getByTestId('score').waitFor();
+  return number;
 };
 
 /** Заполняет карточку так, как это сделал бы грамотный курсант. */
@@ -43,14 +85,13 @@ const fillCardProperly = async (page: Page) => {
     .fill('Горит крыша частного дома, открытое пламя, пострадавших нет, дом не газифицирован.');
 };
 
-const pickFireType = async (page: Page) => {
-  await page.locator('#type-search').fill('101');
-  await page.getByRole('option', { name: '101', exact: true }).click();
-};
-
 test.describe('Съёмка экранов', () => {
   test('вход и журнал', async ({ page }, info) => {
     await go(page, info, '/login');
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await page.locator('input[name="login"]').fill(OPERATOR);
+    await page.locator('input[name="password"]').fill('arm112');
     await shot(page, info, '01-login');
 
     await page.getByTestId('login-submit').click();
@@ -77,14 +118,7 @@ test.describe('Съёмка экранов', () => {
     }
     await shot(page, info, '06-card112-dialogue');
 
-    await page.getByRole('group', { name: 'Где' })
-      .getByRole('button', { name: 'Дом' }).click();
-    await page.getByRole('group', { name: 'Признак пожара (дом)' })
-      .getByRole('button', { name: 'Открытое пламя / Дым' }).click();
-    await page.getByRole('group', { name: 'Дом (пламя, дым)' })
-      .getByRole('button', { name: 'Дом частный' }).click();
-    await page.getByRole('group', { name: 'Угроза людям' })
-      .getByRole('button', { name: 'Да' }).click();
+    await pickFireSigns(page);
     await fillCardProperly(page);
     await shot(page, info, '07-card112-filled');
 
@@ -116,12 +150,7 @@ test.describe('Съёмка экранов', () => {
     await page.getByTestId('ask-flame').click();
     await page.getByTestId('ask-house').click();
 
-    await page.getByRole('group', { name: 'Где' })
-      .getByRole('button', { name: 'Дом' }).click();
-    await page.getByRole('group', { name: 'Признак пожара (дом)' })
-      .getByRole('button', { name: 'Открытое пламя / Дым' }).click();
-    await page.getByRole('group', { name: 'Дом (пламя, дым)' })
-      .getByRole('button', { name: 'Дом частный' }).click();
+    await pickFireSigns(page);
     await fillCardProperly(page);
 
     // Playwright заполняет карточку за доли секунды, и на кадре разбора
@@ -136,38 +165,49 @@ test.describe('Съёмка экранов', () => {
     await shot(page, info, '11-debrief-bottom');
   });
 
+  // Карточку снимает уже диспетчер МЧС: пожар профилен для него,
+  // в ленту Деп. ЖКХ он не попадает
   test('карточка ДДС', async ({ page }, info) => {
-    await login(page, info);
-    await page.getByTestId('journal-row-36814845').click();
+    const number = await createFireCard(page, info);
+
+    await login(page, info, MCHS);
+    await page.getByTestId(`journal-row-${number}`).click();
     await page.getByTestId('card-class').waitFor();
     await shot(page, info, '12-card-dds');
 
-    await page.getByTestId('pencil-dep-jkh').click();
+    await page.getByTestId('pencil-mchs').click();
     await shot(page, info, '13-card-dds-status-editor');
 
     await page.getByRole('combobox', { name: 'Статус' }).selectOption('Принята');
     await page.getByRole('textbox', { name: 'Комментарий' })
-      .fill('Направлена аварийная бригада');
+      .fill('Направлен расчёт');
     await page.getByRole('button', { name: 'Сохранить статус' }).click();
 
-    await page.getByTestId('pencil-dep-jkh').click();
+    // Ждём, пока статус вернётся с сервера: иначе следующий клик
+    // по карандашу придётся на ещё открытый редактор и закроет его
+    await page.getByTestId('service-tab-mchs').getByText('Принята').waitFor();
+
+    await page.getByTestId('pencil-mchs').click();
     await shot(page, info, '14-card-dds-next-statuses');
     await page.getByRole('combobox', { name: 'Статус' }).selectOption('Начало реагирования');
     await page.getByRole('textbox', { name: 'Комментарий' })
-      .fill('Бригада выехала на место');
+      .fill('Расчёт выехал на место');
     await page.getByRole('button', { name: 'Сохранить статус' }).click();
+    await page.getByTestId('service-tab-mchs').getByText('Начало реагирования').waitFor();
 
-    await page.getByTestId('service-tab-dep-jkh')
+    await page.getByTestId('service-tab-mchs')
       .getByRole('button', { name: 'История статусов' }).click();
     await shot(page, info, '15-card-dds-history');
   });
 
   test('отказ без комментария', async ({ page }, info) => {
-    await login(page, info);
-    await page.getByTestId('journal-row-36814845').click();
+    const number = await createFireCard(page, info);
+
+    await login(page, info, MCHS);
+    await page.getByTestId(`journal-row-${number}`).click();
     await page.getByTestId('card-class').waitFor();
 
-    await page.getByTestId('pencil-dep-jkh').click();
+    await page.getByTestId('pencil-mchs').click();
     await page.getByRole('combobox', { name: 'Статус' }).selectOption('Не принята');
     await page.getByRole('button', { name: 'Сохранить статус' }).click();
     await page.getByRole('alert').waitFor();

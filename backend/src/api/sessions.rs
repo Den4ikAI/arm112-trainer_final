@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route("/api/scenarios", get(list_scenarios))
         .route("/api/sessions", post(create))
         .route("/api/sessions/{id}/ask", post(ask))
         .route("/api/sessions/{id}/card", patch(patch_card))
@@ -105,6 +106,42 @@ pub struct CardView {
     pub status: String,
     /// Список оповещения: службы, подобранные классификатором и добавленные руками
     pub service_ids: Vec<String>,
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ScenarioBrief {
+    pub id: Uuid,
+    pub ticket: Option<i32>,
+    pub call_no: Option<i32>,
+    /// Первая фраза заявителя — по ней курсант узнаёт вызов в списке
+    pub legend: String,
+    pub norm_sec: i32,
+    pub questions_count: i64,
+}
+
+/// Список вызовов, которые можно взять в работу. Эталон не отдаётся
+/// и здесь: в списке его тем более незачем показывать.
+async fn list_scenarios(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> AppResult<Json<Vec<ScenarioBrief>>> {
+    // Черновики видит только тот, кто их выверяет
+    let drafts = user.role != crate::api::auth::Role::Student;
+
+    let items: Vec<ScenarioBrief> = sqlx::query_as(
+        "SELECT s.id, s.ticket, s.call_no, s.legend, s.norm_sec,
+                (SELECT count(*) FROM scenario_hidden_facts f
+                  WHERE f.scenario_id = s.id) AS questions_count
+           FROM scenarios s
+          WHERE s.status = 'approved' OR $1
+          ORDER BY s.ticket NULLS LAST, s.call_no NULLS LAST",
+    )
+    .bind(drafts)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(items))
 }
 
 #[derive(Deserialize)]
