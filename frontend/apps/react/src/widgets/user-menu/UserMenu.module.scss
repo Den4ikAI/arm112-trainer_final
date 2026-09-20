@@ -1,0 +1,30 @@
+.wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.who { font-weight: 600; }
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  opacity: .8;
+
+  &:hover { opacity: 1; }
+
+  /* Разделитель точкой, чтобы ссылки не слипались, но без лишней
+     разметки в самом виджете */
+  & + &::before {
+    content: '·';
+    margin-right: var(--sp-2);
+    text-decoration: none;
+    display: inline-block;
+  }
+}

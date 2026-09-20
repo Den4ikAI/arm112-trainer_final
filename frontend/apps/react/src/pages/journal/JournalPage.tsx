@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTable';
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
+import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { cards, channel, scenarios as scenariosApi,
          type CardBrief, type ScenarioBrief } from '@/shared/api';
 import { useNavigate } from 'react-router-dom';
@@ -128,24 +129,8 @@ export const JournalPage = () => {
               :{String(now.getSeconds()).padStart(2, '0')}
             </span>
           </div>
-          <div className={s.clockUser}>
-            , {user?.fio ?? ''}
-            {/* Курсанту раздел не нужен и сервер его туда не пустит */}
-            {user && user.role !== 'student' && (
-              <>
-                {' · '}
-                <button className={s.adminLink} data-testid="analytics-link"
-                        onClick={() => nav('/analytics')}>
-                  аналитика
-                </button>
-                {' · '}
-                <button className={s.adminLink} data-testid="admin-link"
-                        onClick={() => nav('/admin')}>
-                  администрирование
-                </button>
-              </>
-            )}
-          </div>
+          {/* Курсанту разделы не нужны, и сервер его туда не пустит */}
+          <div className={s.clockUser}><UserMenu /></div>
         </div>
       </div>
 

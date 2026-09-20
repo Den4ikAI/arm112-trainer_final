@@ -6,6 +6,7 @@ import {
 } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
+import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import clsx from '@/shared/lib/clsx';
 import s from './AdminPage.module.scss';
 
@@ -47,7 +48,10 @@ export const AdminPage = () => {
     <div className={s.page}>
       <header className={s.head}>
         <h1 className={s.title}>Администрирование</h1>
-        <button className={s.back} onClick={() => nav('/journal')}>← В журнал</button>
+        <div className={s.tools}>
+          <UserMenu compact />
+          <button className={s.back} onClick={() => nav('/journal')}>← В журнал</button>
+        </div>
       </header>
 
       <nav className={s.tabs} role="tablist">

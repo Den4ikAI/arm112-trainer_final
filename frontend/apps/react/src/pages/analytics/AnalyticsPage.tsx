@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { reports, type GroupBrief, type GroupStats } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { FunnelChart, Heatmap, KindsChart, TimeChart } from '@/widgets/charts';
+import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import clsx from '@/shared/lib/clsx';
 import s from './AnalyticsPage.module.scss';
 
@@ -82,6 +83,7 @@ export const AnalyticsPage = () => {
             {groups.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
           </select>
           <button className={s.plain} onClick={() => void load(groupId)}>обновить</button>
+          <UserMenu compact />
           <button className={s.plain} onClick={() => nav('/journal')}>← В журнал</button>
         </div>
       </header>

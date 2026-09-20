@@ -251,3 +251,11 @@
 
 /* Действующая версия классификатора — по ней считается всё. */
 .activeRow { background: #eef6ff; }
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: 13px;
+}

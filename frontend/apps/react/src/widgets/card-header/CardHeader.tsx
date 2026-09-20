@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import clsx from '@/shared/lib/clsx';
 import { fmt } from '@/shared/lib/useTimer';
 import s from './CardHeader.module.scss';
@@ -21,10 +22,25 @@ interface Props {
  */
 export const CardHeader = ({ number, savedAt, operator, workstation, mode, elapsedSec = 0, normSec = 60 }: Props) => {
   const over = elapsedSec > normSec;
+  const nav = useNavigate();
   return (
     <section className={s.wrap} aria-label="Сведения о происшествии">
       <div className={s.meta}>
-        <div className={s.number}>Происшествие <span data-testid="card-number">{number}</span></div>
+        <div className={s.number}>
+          Происшествие <span data-testid="card-number">{number}</span>
+          {/* Выход в журнал: без него с открытой карточки не уйти,
+              а бросить недозаполненную иногда надо */}
+          <button
+            className={s.leave}
+            data-testid="leave-card"
+            title={mode === '112'
+              ? 'Вернуться в журнал. Незаполненная карточка не сохранится'
+              : 'Вернуться в журнал'}
+            onClick={() => nav('/journal')}
+          >
+            ↩ в журнал
+          </button>
+        </div>
         <div className={s.line}>Сохр. {savedAt}</div>
         <div className={s.line}>Опер. , АРМ {workstation}, {operator}</div>
       </div>

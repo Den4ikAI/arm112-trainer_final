@@ -30,6 +30,25 @@ test.describe('Вход', () => {
     await expect(page.getByText('ВХОД В СИСТЕМУ')).toBeVisible();
   });
 
+  test('из системы можно выйти', async ({ page }, info) => {
+    await login(page, info);
+    await page.getByTestId('logout').click();
+
+    await expect(page.getByText('ВХОД В СИСТЕМУ')).toBeVisible();
+
+    // Токен забыт: возврат назад не пускает обратно внутрь
+    await go(page, info, '/journal');
+    await expect(page.getByText('ВХОД В СИСТЕМУ')).toBeVisible();
+  });
+
+  test('с открытой карточки можно вернуться в журнал', async ({ page }, info) => {
+    await login(page, info);
+    await launchTicket3(page);
+
+    await page.getByTestId('leave-card').click();
+    await expect(page.getByRole('heading', { name: 'Учебные вызовы' })).toBeVisible();
+  });
+
   test('перезагрузка страницы не выкидывает на вход', async ({ page }, info) => {
     await login(page, info);
     await page.reload();
