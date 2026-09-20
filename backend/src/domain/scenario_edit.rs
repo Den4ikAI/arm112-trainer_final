@@ -164,7 +164,7 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
 
     let hidden: Vec<HiddenRow> = sqlx::query_as::<_, (String, String, String, Vec<String>)>(
         "SELECT key, question, answer, unlocks FROM scenario_hidden_facts
-          WHERE scenario_id = $1 ORDER BY sort_order",
+          WHERE scenario_id = $1 AND NOT retired ORDER BY sort_order",
     )
     .bind(id)
     .fetch_all(pool)
@@ -329,10 +329,31 @@ pub async fn apply(
         // Сопоставлять по ключам надёжнее было бы, но модель их
         // переименовывает, и правка «убери второй вопрос» тогда не
         // работает
-        sqlx::query("DELETE FROM scenario_hidden_facts WHERE scenario_id = $1")
-            .bind(id)
-            .execute(pool)
-            .await?;
+        let keys: Vec<String> = hidden.iter().map(|f| f.key.clone()).collect();
+
+        // Выбывшие снимаем с учёта, а не удаляем: на них может
+        // ссылаться история занятия, из которой считается «выяснил».
+        // Удаление роняло правку отыгранного вызова целиком
+        sqlx::query(
+            "UPDATE scenario_hidden_facts SET retired = true
+              WHERE scenario_id = $1 AND NOT retired AND key <> ALL($2)",
+        )
+        .bind(id)
+        .bind(&keys)
+        .execute(pool)
+        .await?;
+
+        // Те, на которые так никто и не сослался, убираем совсем —
+        // иначе таблица копила бы мусор от каждой правки черновика
+        sqlx::query(
+            "DELETE FROM scenario_hidden_facts f
+              WHERE f.scenario_id = $1 AND f.retired
+                AND NOT EXISTS (
+                    SELECT 1 FROM revealed_facts r WHERE r.fact_id = f.id)",
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
         for (i, fact) in hidden.iter().enumerate() {
             sqlx::query(
                 "INSERT INTO scenario_hidden_facts
@@ -342,7 +363,9 @@ pub async fn apply(
                      SET question = EXCLUDED.question,
                          answer = EXCLUDED.answer,
                          unlocks = EXCLUDED.unlocks,
-                         sort_order = EXCLUDED.sort_order",
+                         sort_order = EXCLUDED.sort_order,
+                         -- ключ мог быть снят с учёта прошлой правкой
+                         retired = false",
             )
             .bind(id)
             .bind(&fact.key)
@@ -389,4 +412,54 @@ pub async fn apply(
         .await?;
 
     load(pool, id).await
+}
+
+/// Что в вызове изменилось на самом деле.
+///
+/// Модель охотно отчитывается о правке, которой не сделала: на просьбу
+/// «убери вопрос про подъезд» возвращает тот же список из четырёх
+/// вопросов и пишет «убрал». Если верить ей на слово, преподаватель
+/// видит «изменено: hidden», смотрит на вызов — а там всё по-старому,
+/// и выглядит это как незакрывшееся окно, а не как упрямство модели.
+///
+/// Поэтому в переписку пишем не то, что прислала модель, а разницу
+/// между вызовом до и после.
+pub fn changed_fields(before: &ScenarioFull, after: &ScenarioFull) -> Value {
+    let mut out = serde_json::Map::new();
+
+    if before.legend != after.legend {
+        out.insert("legend".into(), json!(after.legend));
+    }
+    if before.applicant_name != after.applicant_name {
+        out.insert("applicantName".into(), json!(after.applicant_name));
+    }
+    if before.applicant_status != after.applicant_status {
+        out.insert("applicantStatus".into(), json!(after.applicant_status));
+    }
+    if before.norm_sec != after.norm_sec {
+        out.insert("normSec".into(), json!(after.norm_sec));
+    }
+
+    // Факты сравниваем по содержимому, а не по порядку следования:
+    // модель иногда переставляет их местами, ничего не меняя по сути
+    let свод = |s: &ScenarioFull| -> Vec<(String, String, String)> {
+        let mut v: Vec<_> = s
+            .hidden
+            .iter()
+            .map(|f| (f.key.clone(), f.question.clone(), f.answer.clone()))
+            .collect();
+        v.sort();
+        v
+    };
+    if свод(before) != свод(after) {
+        out.insert("hidden".into(), json!(after.hidden));
+    }
+
+    // Эталон пересчитывается классификатором и меняется сам,
+    // когда правка задела признаки
+    if before.expected.get("outcome") != after.expected.get("outcome") {
+        out.insert("outcome".into(), after.expected.get("outcome").cloned().unwrap_or(Value::Null));
+    }
+
+    Value::Object(out)
 }

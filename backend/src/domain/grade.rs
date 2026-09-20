@@ -172,6 +172,10 @@ pub async fn grade(input: GradeInput<'_>) -> Result<Grade> {
 
     // Слой 2. Какие поля курсант действительно выяснил, а какие вообще
     // можно было выяснить только вопросом.
+    //
+    // Снятые правкой факты берём тоже: если курсант выяснил факт, а
+    // преподаватель потом убрал вопрос, выясненное не должно задним
+    // числом превратиться в угаданное.
     let facts: Vec<(Uuid, Vec<String>)> = sqlx::query_as(
         "SELECT id, unlocks FROM scenario_hidden_facts WHERE scenario_id = $1",
     )

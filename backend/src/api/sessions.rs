@@ -144,7 +144,7 @@ async fn list_scenarios(
     let items: Vec<ScenarioBrief> = sqlx::query_as(
         "SELECT s.id, s.ticket, s.call_no, s.legend, s.norm_sec,
                 (SELECT count(*) FROM scenario_hidden_facts f
-                  WHERE f.scenario_id = s.id) AS questions_count
+                  WHERE f.scenario_id = s.id AND NOT f.retired) AS questions_count
            FROM scenarios s
           WHERE s.status = 'approved' OR $1
           ORDER BY s.ticket NULLS LAST, s.call_no NULLS LAST",
@@ -243,9 +243,10 @@ async fn create(
     .execute(&mut *tx)
     .await?;
 
+    // Снятые правкой факты в новое занятие не попадают
     let questions: Vec<(Uuid, String, String)> = sqlx::query_as(
         "SELECT id, key, question FROM scenario_hidden_facts
-          WHERE scenario_id = $1 ORDER BY sort_order",
+          WHERE scenario_id = $1 AND NOT retired ORDER BY sort_order",
     )
     .bind(sid)
     .fetch_all(&mut *tx)
@@ -345,6 +346,9 @@ async fn ask(
 ) -> AppResult<Json<AskResponse>> {
     let session = own_session(&state.db, id, &user).await?;
 
+    // Снятые с учёта факты здесь не отсеиваем: занятие могло начаться
+    // до правки, вопрос у курсанта уже на экране, и отказ отвечать на
+    // него выглядел бы поломкой
     let fact: Option<(String, String, String, Vec<String>)> = sqlx::query_as(
         "SELECT f.key, f.question, f.answer, f.unlocks
            FROM scenario_hidden_facts f

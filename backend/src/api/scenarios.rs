@@ -129,6 +129,18 @@ pub struct TurnResult {
 /// заставила бы каждый ход заново разбирать весь контекст, а это
 /// полминуты на процессоре. Здесь же сервер моделей держит KV-кэш,
 /// и второй ход стоит секунды.
+/// Служебная реплика в переписке: то, что сказала система, а не модель.
+async fn chat_note(pool: &sqlx::PgPool, id: Uuid, text: &str) -> AppResult<()> {
+    sqlx::query(
+        "INSERT INTO scenario_chat (scenario_id, role, content) VALUES ($1, 'system', $2)",
+    )
+    .bind(id)
+    .bind(text)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 #[utoipa::path(
     post,
     path = "/api/scenarios/{id}/chat",
@@ -163,9 +175,39 @@ async fn chat_turn(
     .execute(&state.db)
     .await?;
 
-    let (reply, patch, raw) = scenario_edit::turn(state.ml.llm.as_ref(), &state.db, id, req.comment.trim())
+    let before = scenario_edit::load(&state.db, id).await.map_err(AppError::Other)?;
+
+    let (reply, patch, _raw) = scenario_edit::turn(state.ml.llm.as_ref(), &state.db, id, req.comment.trim())
         .await
         .map_err(AppError::Other)?;
+
+    // Правку применяем до записи реплики: иначе в переписке остаётся
+    // «изменено: hidden» от хода, который сорвался на полпути.
+    //
+    // Сорвавшаяся правка не роняет весь ход — реплику модели
+    // преподаватель увидит в любом случае, а рядом прочитает, что
+    // именно не получилось. Пятисотый показывал ему «internal»
+    let mut applied = false;
+    let mut trouble: Option<String> = None;
+    if let (Some(patch), true) = (&patch, req.apply) {
+        let version_id = active_version(&state.db).await?;
+        match scenario_edit::apply(&state.db, version_id, id, patch).await {
+            Ok(_) => applied = true,
+            Err(e) => {
+                tracing::error!(scenario = %id, error = %e, "правка не применилась");
+                trouble = Some(e.to_string());
+            }
+        }
+    }
+
+    let scenario = scenario_edit::load(&state.db, id).await.map_err(AppError::Other)?;
+
+    // В переписку пишем разницу между «до» и «после», а не то, что
+    // прислала модель: она отчитывается о правках, которых не сделала
+    let changed = scenario_edit::changed_fields(&before, &scenario);
+    let ничего_не_изменилось = changed.as_object().is_some_and(|m| m.is_empty());
+    // «Применено» означает, что вызов изменился, а не что запрос прошёл
+    let applied = applied && !ничего_не_изменилось;
 
     sqlx::query(
         "INSERT INTO scenario_chat (scenario_id, role, content, patch)
@@ -173,17 +215,16 @@ async fn chat_turn(
     )
     .bind(id)
     .bind(&reply)
-    .bind(raw.get("patch").cloned())
+    .bind(&changed)
     .execute(&state.db)
     .await?;
 
-    let mut applied = false;
-    if let (Some(patch), true) = (&patch, req.apply) {
-        let version_id = active_version(&state.db).await?;
-        scenario_edit::apply(&state.db, version_id, id, patch)
-            .await
-            .map_err(AppError::Other)?;
-        applied = true;
+    if let Some(e) = trouble {
+        chat_note(&state.db, id, &format!("Правку не удалось применить: {e}. Вызов остался прежним.")).await?;
+    } else if !applied && patch.is_some() && req.apply {
+        chat_note(&state.db, id,
+            "Модель отчиталась о правке, но вызов не изменился. \
+             Попробуйте сказать конкретнее — например, назвать вопрос дословно.").await?;
     }
 
     audit::log(
@@ -195,7 +236,6 @@ async fn chat_turn(
     )
     .await;
 
-    let scenario = scenario_edit::load(&state.db, id).await.map_err(AppError::Other)?;
     Ok(Json(TurnResult { reply, applied, scenario }))
 }
 
@@ -334,10 +374,16 @@ async fn remove(
 ) -> AppResult<StatusCode> {
     user.require(&[Role::Teacher, Role::Admin])?;
 
-    let used: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE scenario_id = $1")
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
+    // Считаем не только отыгранные занятия, но и выданные задания:
+    // вызов, назначенный группе и ещё никем не начатый, занятий не
+    // имеет, а ссылку на себя — имеет, и удаление упиралось бы в неё
+    let used: i64 = sqlx::query_scalar(
+        "SELECT (SELECT count(*) FROM sessions    WHERE scenario_id = $1)
+              + (SELECT count(*) FROM assignments WHERE scenario_id = $1)",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
     if used > 0 {
         // Архивируем: курсанту не показываем, историю сохраняем
         sqlx::query("UPDATE scenarios SET status = 'archived' WHERE id = $1")
@@ -347,7 +393,7 @@ async fn remove(
         audit::log(
             &state.db,
             audit::Event::new("scenario.archive").from_user(&user).about("scenario", id)
-                .with(json!({ "sessions": used })),
+                .with(json!({ "занятий_и_заданий": used })),
         )
         .await;
         return Ok(StatusCode::NO_CONTENT);
