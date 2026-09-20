@@ -27,13 +27,17 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
     <span className={s.wrap}>
       <span className={s.who} title={roleTitle(user.role)}>{user.fio}</span>
 
+      {/* Аналитика по группе — учебный процесс, это преподавателю.
+          Администрирование — системные журналы и учётные записи,
+          по ТЗ это функции администратора, и сервер туда
+          преподавателя не пустит */}
       {!compact && user.role !== 'student' && (
-        <>
-          <button className={s.link} data-testid="analytics-link"
-                  onClick={() => nav('/analytics')}>аналитика</button>
-          <button className={s.link} data-testid="admin-link"
-                  onClick={() => nav('/admin')}>администрирование</button>
-        </>
+        <button className={s.link} data-testid="analytics-link"
+                onClick={() => nav('/analytics')}>аналитика</button>
+      )}
+      {!compact && user.role === 'admin' && (
+        <button className={s.link} data-testid="admin-link"
+                onClick={() => nav('/admin')}>администрирование</button>
       )}
 
       <button className={s.link} data-testid="logout" onClick={() => void leave()}>

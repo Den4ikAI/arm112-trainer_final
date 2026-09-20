@@ -79,9 +79,13 @@ pub struct AuditPage {
     pub actions: Vec<String>,
 }
 
-/// Журнал действий. Преподавателю он тоже нужен: по нему разбирают
-/// занятие. Но своих записей это не касается — фильтровать по людям
-/// может только администратор.
+/// Журнал действий.
+///
+/// Только администратору. ТЗ относит «просматривать системные
+/// журналы» к его функциям мониторинга, а преподавателю даёт другой
+/// инструмент — отчёты по занятию и по группе. Журнал действий
+/// показывает, кто когда входил и с какого адреса; преподавателю для
+/// разбора занятия это не нужно.
 #[utoipa::path(
     get,
     path = "/api/admin/audit",
@@ -97,7 +101,7 @@ async fn audit_log(
     user: AuthUser,
     Query(q): Query<AuditQuery>,
 ) -> AppResult<Json<AuditPage>> {
-    user.require(&[Role::Teacher, Role::Admin])?;
+    user.require(&[Role::Admin])?;
 
     let size = q.size.clamp(1, 500);
     let offset = q.page.max(0) * size;
@@ -178,11 +182,13 @@ pub struct UserRow {
         (status = 403, description = "Недостаточно прав"),
     ),
 )]
+/// Учётные записи — целиком администраторское: ТЗ отдаёт ему
+/// и создание, и назначение ролей, и блокировку.
 async fn list_users(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<UserRow>>> {
-    user.require(&[Role::Teacher, Role::Admin])?;
+    user.require(&[Role::Admin])?;
 
     let rows: Vec<UserRow> = sqlx::query_as(
         "SELECT u.id, u.login, u.fio, u.role::text AS role,
@@ -359,9 +365,11 @@ pub struct VersionRow {
 
 /// Чем две версии классификатора отличаются.
 ///
-/// Нужен не ради любопытства: по классификатору считается и список
-/// оповещения, и эталон при разборе. Прежде чем подменять справочник,
-/// по которому оценивают людей, надо знать, что именно меняется.
+/// Здесь преподаватель нужен: смена справочника означает, что часть
+/// сценариев перестала соответствовать эталону, а курсантам нужна
+/// переаттестация по новым позициям. Это его учебный процесс, а не
+/// конфигурация системы — в отличие от самого переключения версии,
+/// которое остаётся за администратором.
 #[utoipa::path(
     get,
     path = "/api/classifier/versions/{a}/diff/{b}",
@@ -546,7 +554,7 @@ async fn versions(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<VersionRow>>> {
-    user.require(&[Role::Teacher, Role::Admin])?;
+    user.require(&[Role::Admin])?;
 
     let rows: Vec<VersionRow> = sqlx::query_as(
         "SELECT id, name, source_file, positions_count, is_active, imported_at

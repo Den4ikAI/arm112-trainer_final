@@ -200,18 +200,25 @@ async fn журнал_фильтруется_по_действию() {
     assert!(page["actions"].as_array().unwrap().iter().any(|a| a == "auth.login"));
 }
 
-/// Журнал действий курсанту недоступен: в нём видно, кто чем занят.
+/// Журнал действий — только администратору.
+///
+/// ТЗ относит «просматривать системные журналы» к функциям
+/// мониторинга администратора. Преподавателю для разбора занятия
+/// дан другой инструмент — отчёты; кто когда входил и с какого
+/// адреса, ему знать незачем.
 #[tokio::test]
-async fn курсант_журнала_действий_не_видит() {
+async fn журнал_действий_только_администратору() {
     let Some((app, _)) = app().await else { return };
 
-    let student = token(&app, "student1").await;
-    let (status, _) = call(&app, Method::GET, "/api/admin/audit", Some(&student), None).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    for who in ["student1", "teacher1"] {
+        let tok = token(&app, who).await;
+        let (status, _) = call(&app, Method::GET, "/api/admin/audit", Some(&tok), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{who} не должен видеть журнал действий");
+    }
 
-    let teacher = token(&app, "teacher1").await;
-    let (status, _) = call(&app, Method::GET, "/api/admin/audit", Some(&teacher), None).await;
-    assert_eq!(status, StatusCode::OK, "преподаватель разбирает занятия по журналу");
+    let admin = token(&app, "admin").await;
+    let (status, _) = call(&app, Method::GET, "/api/admin/audit", Some(&admin), None).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -260,21 +267,41 @@ async fn негодные_учётные_записи_отклоняются() {
     }
 }
 
-/// Заводить людей может только администратор.
+/// Учётные записи — целиком администраторские. ТЗ отдаёт ему
+/// и создание, и назначение ролей, и блокировку; преподавателя
+/// в этом списке нет.
 #[tokio::test]
-async fn преподаватель_людей_не_заводит() {
+async fn учётные_записи_только_администратору() {
     let Some((app, _)) = app().await else { return };
     let teacher = token(&app, "teacher1").await;
 
-    // Список видит
     let (status, _) = call(&app, Method::GET, "/api/admin/users", Some(&teacher), None).await;
-    assert_eq!(status, StatusCode::OK);
+    assert_eq!(status, StatusCode::FORBIDDEN, "преподаватель не видит список людей");
 
-    // А завести не может
     let (status, _) = call(&app, Method::POST, "/api/admin/users", Some(&teacher),
         Some(json!({ "login": "x", "password": "длинныйПароль",
                      "fio": "Иванов", "role": "student" }))).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _) = call(&app, Method::GET, "/api/admin/classifier-versions",
+        Some(&teacher), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "версии классификатора — конфигурация системы");
+}
+
+/// Но переаттестация — его: смена справочника означает, что часть
+/// сценариев перестала соответствовать эталону.
+#[tokio::test]
+async fn последствия_смены_версии_преподаватель_видит() {
+    let Some((app, pool)) = app().await else { return };
+    let teacher = token(&app, "teacher1").await;
+
+    let Some(id) = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM classifier_versions WHERE name LIKE 'v046_11%' LIMIT 1")
+        .fetch_optional(&pool).await.unwrap() else { return };
+
+    let (status, _) = call(&app, Method::GET,
+        &format!("/api/classifier/versions/{id}/impact"), Some(&teacher), None).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 /// Отключённый человек в систему не входит, но его история остаётся.

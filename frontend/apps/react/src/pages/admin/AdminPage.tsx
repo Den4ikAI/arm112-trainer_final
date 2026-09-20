@@ -28,10 +28,13 @@ export const AdminPage = () => {
   const user = useSession((st) => st.user);
   const nav = useNavigate();
 
-  if (!user || user.role === 'student') {
+  // ТЗ отдаёт администратору управление учётными записями, системные
+  // журналы и конфигурацию. Преподавателю сюда не нужно — у него
+  // отчёты и аналитика по группе
+  if (!user || user.role !== 'admin') {
     return (
       <div className={s.page}>
-        <p className={s.empty}>Раздел доступен преподавателю и администратору.</p>
+        <p className={s.empty}>Раздел доступен администратору системы.</p>
         <button className={s.back} onClick={() => nav('/journal')}>В журнал</button>
       </div>
     );
@@ -70,8 +73,8 @@ export const AdminPage = () => {
       </nav>
 
       {tab === 'audit' && <AuditTab />}
-      {tab === 'users' && <UsersTab canEdit={user.role === 'admin'} />}
-      {tab === 'classifier' && <ClassifierTab canEdit={user.role === 'admin'} />}
+      {tab === 'users' && <UsersTab />}
+      {tab === 'classifier' && <ClassifierTab />}
       {tab === 'health' && <HealthTab />}
     </div>
   );
@@ -165,7 +168,7 @@ const AuditTab = () => {
 
 // ─── Пользователи ─────────────────────────────────────────────────
 
-const UsersTab = ({ canEdit }: { canEdit: boolean }) => {
+const UsersTab = () => {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -194,14 +197,12 @@ const UsersTab = ({ canEdit }: { canEdit: boolean }) => {
     <section className={s.panel}>
       {error && <div className={s.error} role="alert">{error}</div>}
 
-      {canEdit && (
-        <div className={s.toolbar}>
-          <button className={s.primary} data-testid="add-user"
-                  onClick={() => setAdding((v) => !v)}>
-            {adding ? 'Отмена' : 'Завести пользователя'}
-          </button>
-        </div>
-      )}
+      <div className={s.toolbar}>
+        <button className={s.primary} data-testid="add-user"
+                onClick={() => setAdding((v) => !v)}>
+          {adding ? 'Отмена' : 'Завести пользователя'}
+        </button>
+      </div>
 
       {adding && <NewUserForm onDone={() => { setAdding(false); void reload(); }} />}
 
@@ -224,13 +225,9 @@ const UsersTab = ({ canEdit }: { canEdit: boolean }) => {
                 <td>{u.workstation ?? '—'}</td>
                 <td className={s.num}>{u.sessions}</td>
                 <td>
-                  {canEdit ? (
-                    <button className={s.link} onClick={() => void toggle(u)}>
-                      {u.isActive ? 'отключить' : 'включить'}
-                    </button>
-                  ) : (
-                    u.isActive ? 'активен' : 'отключён'
-                  )}
+                  <button className={s.link} onClick={() => void toggle(u)}>
+                    {u.isActive ? 'отключить' : 'включить'}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -346,7 +343,7 @@ const NewUserForm = ({ onDone }: { onDone: () => void }) => {
 
 // ─── Классификатор ────────────────────────────────────────────────
 
-const ClassifierTab = ({ canEdit }: { canEdit: boolean }) => {
+const ClassifierTab = () => {
   const [versions, setVersions] = useState<ClassifierVersion[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -390,7 +387,7 @@ const ClassifierTab = ({ canEdit }: { canEdit: boolean }) => {
                 <td>
                   {v.isActive
                     ? <span className={s.badge} data-testid="version-active">активна</span>
-                    : canEdit && (
+                    : (
                         <button className={s.link} onClick={() => void activate(v)}>
                           сделать активной
                         </button>

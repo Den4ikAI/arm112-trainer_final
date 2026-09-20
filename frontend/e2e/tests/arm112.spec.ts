@@ -347,14 +347,23 @@ test.describe('Живой класс', () => {
 });
 
 test.describe('Администрирование', () => {
-  test('курсанту раздел не показывается и не открывается',
-    async ({ page }, info) => {
-      await login(page, info);
+  /**
+   * ТЗ отдаёт администратору управление учётными записями, системные
+   * журналы и конфигурацию. Преподавателю сюда не нужно — у него
+   * отчёты и аналитика по группе.
+   */
+  test('раздел доступен только администратору', async ({ page }, info) => {
+    for (const who of [USERS.operator, 'teacher1']) {
+      await login(page, info, who);
       await expect(page.getByTestId('admin-link')).toHaveCount(0);
 
       await go(page, info, '/admin');
-      await expect(page.getByText('доступен преподавателю и администратору')).toBeVisible();
-    });
+      await expect(page.getByText('доступен администратору системы')).toBeVisible();
+    }
+
+    await login(page, info, 'admin');
+    await expect(page.getByTestId('admin-link')).toBeVisible();
+  });
 
   /**
    * Раздел «Аудит» инструкции требует, чтобы было видно, кто, что и
@@ -369,7 +378,7 @@ test.describe('Администрирование', () => {
       await page.getByTestId('save-card').click();
       await expect(page.getByTestId('score')).toBeVisible();
 
-      await login(page, info, 'teacher1');
+      await login(page, info, 'admin');
       await page.getByTestId('admin-link').click();
 
       await expect(page.getByTestId('audit-total')).toBeVisible();
@@ -384,14 +393,15 @@ test.describe('Администрирование', () => {
       expect(number).toMatch(/^\d+$/);
     });
 
-  test('преподаватель видит людей, но завести не может', async ({ page }, info) => {
-    await login(page, info, 'teacher1');
-    await page.getByTestId('admin-link').click();
-    await page.getByTestId('admin-tab-users').click();
+  test('журнал действий показывает, кто с какого адреса входил',
+    async ({ page }, info) => {
+      await login(page, info, 'admin');
+      await page.getByTestId('admin-link').click();
 
-    await expect(page.getByTestId('user-student1')).toBeVisible();
-    await expect(page.getByTestId('add-user')).toHaveCount(0);
-  });
+      await page.getByRole('combobox', { name: 'Фильтр по действию' })
+        .selectOption('auth.login');
+      await expect(page.getByTestId('audit-row').first()).toContainText('auth.login');
+    });
 
   test('администратор заводит и отключает учётную запись', async ({ page }, info) => {
     await login(page, info, 'admin');
