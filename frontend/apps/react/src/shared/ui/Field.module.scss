@@ -1,0 +1,5 @@
+@use '@styles/mixins' as m;
+
+.wrap { display: block; min-width: 0; }
+.label { @include m.field-label; display: block; }
+.input { @include m.underline-input; }

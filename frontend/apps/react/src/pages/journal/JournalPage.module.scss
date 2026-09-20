@@ -1,0 +1,77 @@
+@use '@styles/mixins' as m;
+
+.page { min-height: 100%; background: var(--c-shell); }
+
+.top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  gap: var(--sp-3);
+  background: #d6d6d6;
+}
+
+@media (max-width: 760px) {
+  .top { grid-template-columns: 1fr; }
+}
+
+.searchArea { padding: var(--sp-3); }
+.searchRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+
+.search {
+  @include m.underline-input;
+  font-size: clamp(20px, 3vw, 30px);
+  color: #3a3a3a;
+  &::placeholder { color: #6e6e6e; }
+}
+
+.loupe { font-size: 26px; color: #4a4a4a; }
+
+.searchSub {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: var(--sp-2);
+}
+
+.link { border: 0; background: transparent; font-size: var(--fs-sm); color: #3a3a3a; }
+
+.reset {
+  border: 1px solid #b5b5b5;
+  background: #e2e2e2;
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+}
+
+.clock {
+  background: var(--c-panel);
+  color: var(--c-text-invert);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.clockDate { font-size: var(--fs-sm); font-weight: 700; text-transform: capitalize; }
+.clockTime { font-size: 40px; font-weight: 300; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.clockSec { font-size: var(--fs-sm); vertical-align: super; }
+.clockUser { font-size: var(--fs-xs); color: #b9b9b9; }
+
+.launcher { padding: var(--sp-3) var(--sp-3) 0; }
+
+.launcherTitle {
+  margin: 0 0 var(--sp-2);
+  color: var(--c-text-invert);
+  font-size: var(--fs-md);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.launcherList { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+.launchBtn {
+  display: grid; gap: 2px;
+  flex: 1 1 260px;
+  text-align: start;
+  border: 1px solid #8c9094;
+  background: #7d8184;
+  color: #fff;
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sm);
+
+  &:hover { background: #8a8e92; }
+  > span { color: #dcdcdc; font-size: var(--fs-xs); line-height: 1.3; }
+}

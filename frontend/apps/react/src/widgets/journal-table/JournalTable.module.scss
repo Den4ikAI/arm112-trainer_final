@@ -1,0 +1,73 @@
+@use '@styles/mixins' as m;
+
+.wrap { padding: var(--sp-3); }
+
+.caption {
+  color: var(--c-text-invert);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  margin-bottom: var(--sp-2);
+}
+
+.chev { opacity: .7; }
+
+.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+
+.table th {
+  text-align: start;
+  font-weight: 400;
+  color: var(--c-text-on-shell);
+  padding: var(--sp-1) var(--sp-2);
+  white-space: nowrap;
+}
+
+.thNarrow { width: 44px; }
+.thWide { width: 24%; }
+
+.row {
+  background: var(--c-row);
+  cursor: pointer;
+
+  &:hover { background: #f2f2f2; }
+
+  > td {
+    padding: var(--sp-2);
+    border-bottom: 1px solid var(--c-shell);
+    white-space: nowrap;
+  }
+}
+
+.oper { background: #6d2230; color: #fff; text-align: center; }
+.time { font-weight: 700; }
+.type { font-weight: 700; }
+.victims { text-align: center; }
+.addr { font-weight: 700; white-space: normal; }
+
+.descRow > td {
+  background: var(--c-row-alt);
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 2px solid var(--c-shell);
+  font-size: var(--fs-xs);
+}
+
+.descLabel { color: var(--c-text-muted); margin-right: var(--sp-2); }
+.descMeta { color: var(--c-text-muted); }
+.descText { font-weight: 700; }
+
+.empty { padding: var(--sp-5); text-align: center; color: var(--c-text-on-shell); }
+
+.pager {
+  display: flex; justify-content: flex-end; gap: var(--sp-4);
+  color: var(--c-text-on-shell);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3) 0;
+}
+
+/// Таблица журнала — 11 колонок, она физически шире телефона.
+/// Прокручивается она сама, а не страница целиком.
+.scroll {
+  overflow-x: auto;
+  @include m.thin-scroll;
+}
+
+.table { min-width: 900px; }

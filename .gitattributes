@@ -1,0 +1,20 @@
+# Нормализация переводов строк: в репозитории всегда LF.
+# Важно, потому что по ТЗ работа идёт и на Windows, и на Linux.
+* text=auto eol=lf
+
+# Скрипты должны оставаться с LF даже на Windows
+*.sh text eol=lf
+
+# Бинарные файлы не трогать и не diff-ить
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.pdf  binary
+*.docx binary
+*.xlsx binary
+*.zip  binary
+*.mp3  binary
+*.wav  binary
+
+# Сгенерированное — не подсвечивать в статистике языков
+frontend/packages/domain/src/catalog.ts linguist-generated=false

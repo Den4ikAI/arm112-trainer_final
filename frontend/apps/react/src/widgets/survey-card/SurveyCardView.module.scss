@@ -1,0 +1,30 @@
+@use '@styles/mixins' as m;
+
+.wrap { background: var(--c-surface); margin-top: var(--sp-2); }
+
+.head {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #3a3d40;
+  color: var(--c-text-invert);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.title { margin: 0; font-size: var(--fs-md); font-weight: 600; text-decoration: underline; }
+.close { border: 0; background: transparent; color: var(--c-text-invert); font-size: 18px; }
+
+.body { padding: var(--sp-3); display: grid; gap: var(--sp-3); }
+
+.row {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .row { grid-template-columns: 1fr; gap: var(--sp-1); }
+}
+
+.label { font-size: var(--fs-md); color: #4a4a4a; padding-top: 6px; }
+.control { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.free { @include m.underline-input; max-width: 420px; }

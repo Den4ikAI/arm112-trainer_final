@@ -1,0 +1,82 @@
+@use '@styles/mixins' as m;
+
+.page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  background: #9a9c9e;
+}
+
+.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 330px); }
+
+@media (max-width: 900px) {
+  .top { grid-template-columns: 1fr; }
+}
+
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 1px;
+  overflow: hidden;
+}
+
+/// В учебном режиме появляется третья колонка — панель обучающегося.
+.withHud { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(280px, 340px); }
+
+/// Ниже 1400px панель уезжает под карточку на всю ширину,
+/// а не сжимает рабочие колонки.
+@media (max-width: 1400px) {
+  .withHud { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); }
+  .withHud > :last-child { grid-column: 1 / -1; max-height: 40vh; }
+}
+
+@media (max-width: 1000px) {
+  .main, .withHud { grid-template-columns: 1fr; overflow-y: auto; }
+}
+
+.left, .right {
+  overflow-y: auto;
+  padding: var(--sp-2);
+  display: grid;
+  align-content: start;
+  gap: var(--sp-2);
+  @include m.thin-scroll;
+}
+
+.left { background: var(--c-surface); }
+
+.applicant {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+}
+
+.name { @include m.underline-input; font-size: var(--fs-lg); }
+.status { @include m.underline-input; font-size: var(--fs-md); }
+
+.description { border: 1px solid var(--c-border); padding: var(--sp-2); }
+.descLabel { @include m.field-label; }
+
+.descInput {
+  width: 100%;
+  min-height: 160px;
+  border: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: var(--fs-md);
+  outline: none;
+  &::placeholder { color: var(--c-label); }
+}
+
+.counter { text-align: end; font-size: var(--fs-xs); color: var(--c-text-muted); }
+
+.flags {
+  display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  align-items: stretch;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  padding: var(--sp-2);
+}
+
+.spacer { flex: 1; }

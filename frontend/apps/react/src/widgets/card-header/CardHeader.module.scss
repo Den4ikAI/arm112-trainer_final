@@ -1,0 +1,44 @@
+.wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--c-panel);
+  color: var(--c-text-invert);
+  min-height: var(--h-topbar);
+}
+
+.meta { padding: var(--sp-2) var(--sp-3); align-self: center; }
+.number { font-size: var(--fs-lg); font-weight: 700; }
+.line { font-size: var(--fs-xs); color: #c5c5c5; }
+
+.timer {
+  display: grid; place-content: center;
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--c-panel-2);
+  transition: background-color .2s;
+}
+
+.over { background: var(--c-danger); }
+
+.timerValue {
+  font-size: var(--fs-timer);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.timerUnits {
+  display: flex; justify-content: space-between; gap: var(--sp-3);
+  font-size: 9px; text-transform: lowercase; color: #d8d8d8;
+}
+
+.ddsActions { display: grid; align-content: center; gap: 2px; padding: var(--sp-2); }
+
+.ddsBtn {
+  border: 0;
+  background: #1e6fb5;
+  color: var(--c-text-invert);
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) var(--sp-4);
+  min-width: 110px;
+}

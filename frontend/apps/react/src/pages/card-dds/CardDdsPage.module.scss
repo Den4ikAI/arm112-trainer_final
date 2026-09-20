@@ -1,0 +1,99 @@
+@use '@styles/mixins' as m;
+
+.page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  background: var(--c-shell-dark);
+}
+
+.top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 330px); }
+
+@media (max-width: 900px) { .top { grid-template-columns: 1fr; } }
+
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  overflow-y: auto;
+  @include m.thin-scroll;
+}
+
+@media (max-width: 1000px) { .main { grid-template-columns: 1fr; } }
+
+.left { display: grid; align-content: start; gap: var(--sp-2); }
+
+.applicantRow {
+  background: #e3e3e3;
+  color: var(--c-text-muted);
+  font-size: var(--fs-xs);
+  padding: var(--sp-2);
+}
+
+.addr { background: #dcdcdc; padding: var(--sp-2); }
+.addrMain { font-weight: 700; font-size: var(--fs-md); }
+.addrSub { font-size: var(--fs-md); }
+
+.feed { background: #d3d3d3; min-height: 300px; padding: var(--sp-2); }
+.feedRow { display: grid; gap: 2px; }
+.feedMeta { font-size: var(--fs-xs); color: #4b4b4b; }
+.feedText { font-size: var(--fs-md); }
+
+.right { display: grid; align-content: start; gap: var(--sp-1); }
+
+.flagsRow {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3);
+  background: #dcdcdc;
+  padding: var(--sp-2);
+  font-size: var(--fs-md);
+}
+
+.chs, .chp, .pencil {
+  border: 1px solid #b0b0b0;
+  background: #efefef;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.chp { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+
+.typeHead {
+  background: #3a3d40;
+  color: var(--c-text-invert);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  padding: var(--sp-1) var(--sp-2);
+  text-decoration: underline;
+}
+
+.signs, .klass, .klassVis {
+  background: #e6e6e6;
+  padding: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.klass, .klassVis { font-weight: 400; }
+
+.serviceBar {
+  background: var(--c-panel);
+  color: var(--c-text-invert);
+  padding: var(--sp-2) var(--sp-3);
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.caption { font-size: var(--fs-md); }
+
+// Без overflow: всплывающая строка статуса и история статусов
+// позиционируются над плашкой и прокручиваемым контейнером обрезались бы,
+// а клики перехватывала бы сама полоса.
+.tabs {
+  display: flex; flex-wrap: wrap;
+  gap: var(--sp-1);
+  padding-top: var(--sp-5);
+}
+
+.hint { font-size: var(--fs-xs); color: #b9c8d4; }

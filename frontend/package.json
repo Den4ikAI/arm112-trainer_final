@@ -1,0 +1,14 @@
+{
+  "name": "arm112-trainer-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Тренажёр оператора ДДС: эмуляция АРМ-112",
+  "scripts": {
+    "install:all": "npm --prefix apps/react install && npm --prefix e2e install",
+    "dev": "npm --prefix apps/react run dev",
+    "build": "npm --prefix apps/react run build",
+    "check:domain": "npm --prefix packages/domain run check",
+    "test": "npm --prefix e2e test",
+    "capture": "npm --prefix e2e run capture"
+  }
+}

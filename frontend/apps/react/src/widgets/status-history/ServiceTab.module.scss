@@ -1,0 +1,91 @@
+.wrap { position: relative; }
+
+.tab {
+  min-width: 120px;
+  background: #3a3d40;
+  color: var(--c-text-invert);
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+  text-align: center;
+}
+
+.own { background: var(--c-blue-panel); }
+
+.tabTools { display: flex; justify-content: center; gap: var(--sp-2); }
+
+.tool {
+  border: 0; background: transparent; color: inherit;
+  font-size: 11px; line-height: 1; padding: 2px;
+}
+
+.tabTitle { font-size: var(--fs-sm); font-weight: 700; margin-top: 2px; }
+.tabStatus { font-size: 10px; color: #d6d6d6; white-space: nowrap; }
+
+.history {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  width: max(320px, 100%);
+  background: var(--c-blue-panel);
+  color: var(--c-text-invert);
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  box-shadow: 0 -4px 14px rgb(0 0 0 / .3);
+}
+
+.historyHead {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: var(--fs-sm); font-weight: 700;
+  margin-bottom: var(--sp-2);
+}
+
+.histClose { border: 0; background: transparent; color: inherit; font-size: 14px; }
+
+.histRow {
+  display: flex; flex-wrap: wrap; gap: var(--sp-1);
+  align-items: baseline;
+  font-size: var(--fs-xs);
+  padding: 2px 0;
+}
+
+.op { opacity: .75; }
+.arrow { opacity: .6; }
+.when { font-variant-numeric: tabular-nums; }
+.status { font-weight: 600; }
+.comment { flex: 1 1 180px; opacity: .95; }
+
+.editor {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  display: flex; flex-wrap: wrap; gap: var(--sp-1);
+  align-items: center;
+  width: max(560px, 100%);
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  box-shadow: 0 -4px 14px rgb(0 0 0 / .25);
+}
+
+.select, .input {
+  border: 0; border-bottom: 1px solid var(--c-border);
+  padding: var(--sp-1);
+  font-size: var(--fs-md);
+  background: transparent;
+  min-width: 0;
+}
+
+.select { flex: 0 0 200px; }
+.input { flex: 1 1 130px; }
+
+.ok, .cancel {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  width: 28px; height: 26px;
+}
+
+.error {
+  flex: 1 0 100%;
+  color: var(--c-danger);
+  font-size: var(--fs-xs);
+}

@@ -1,0 +1,31 @@
+# зависимости
+node_modules/
+
+# сборка
+dist/
+.angular/
+*.tsbuildinfo
+
+# результаты тестов и съёмки
+e2e/report/
+e2e/test-results/
+playwright-report/
+test-results/
+
+# архив для передачи — пересобирается, в истории не нужен
+arm112-angular.zip
+
+# окружение
+.env
+.env.*
+!.env.example
+*.local
+
+# мусор редакторов и ОС
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json

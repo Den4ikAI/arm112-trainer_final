@@ -1,0 +1,18 @@
+@use '@styles/mixins' as m;
+
+.chip { @include m.chip(false); }
+.selected { @include m.chip(true); }
+
+.danger {
+  color: var(--c-accent);
+  border-color: var(--c-danger-soft);
+  background: #fdecea;
+}
+
+.accent {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-text-invert);
+}
+
+.disabled { opacity: .5; cursor: not-allowed; }

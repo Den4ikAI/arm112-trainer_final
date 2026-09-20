@@ -1,0 +1,60 @@
+@use '@styles/mixins' as m;
+
+.bar {
+  display: flex; align-items: center; gap: var(--sp-2);
+  min-height: var(--h-servicebar);
+  padding: var(--sp-1) var(--sp-3);
+  background: var(--c-accent);
+  color: var(--c-text-invert);
+  overflow-x: auto;
+  @include m.thin-scroll;
+}
+
+.dds { background: var(--c-panel); }
+
+.caption { font-size: var(--fs-md); white-space: nowrap; }
+.list { display: flex; gap: var(--sp-1); flex: 1; min-width: 0; }
+
+.tag {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2);
+  background: rgb(255 255 255 / .16);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/// Основные службы боевая система подчёркивает двойной линией.
+.auto { text-decoration: underline; text-decoration-style: double; }
+
+.tagX { border: 0; background: transparent; color: inherit; font-size: 14px; padding: 0; }
+
+.add, .save {
+  border: 1px solid rgb(255 255 255 / .6);
+  background: transparent;
+  color: var(--c-text-invert);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.save { font-size: var(--fs-lg); padding-inline: var(--sp-5); }
+
+.search { @include m.underline-input; margin-bottom: var(--sp-3); }
+.options { list-style: none; margin: 0; padding: 0; }
+
+.option {
+  display: block; width: 100%;
+  text-align: start;
+  padding: var(--sp-3);
+  border: 0; border-bottom: 1px solid var(--c-border-soft);
+  background: var(--c-surface);
+  font-size: var(--fs-md);
+}
+
+.optionOn { background: var(--c-blue); color: var(--c-text-invert); }
+
+.modalSave {
+  border: 0; background: var(--c-surface);
+  color: var(--c-accent);
+  font-size: var(--fs-xl); font-weight: 700;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+}

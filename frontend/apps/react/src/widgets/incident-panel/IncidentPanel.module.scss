@@ -1,0 +1,48 @@
+@use '@styles/mixins' as m;
+
+.wrap {
+  position: relative;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  padding: var(--sp-3);
+}
+
+.searchLabel { @include m.field-label; display: block; }
+.bigTitle { font-size: 22px; color: #9a9a9a; margin-top: var(--sp-1); }
+
+.search {
+  @include m.underline-input;
+  font-size: var(--fs-lg);
+  margin-top: var(--sp-1);
+}
+
+.dropdown {
+  position: absolute;
+  inset-inline: var(--sp-3);
+  z-index: 20;
+  margin: 0; padding: 0;
+  list-style: none;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  box-shadow: 0 6px 18px rgb(0 0 0 / .18);
+  max-height: 240px; overflow-y: auto;
+  @include m.thin-scroll;
+}
+
+.option {
+  display: block; width: 100%;
+  padding: var(--sp-3);
+  border: 0; background: transparent;
+  text-align: start;
+  font-size: var(--fs-md);
+
+  &:hover { background: #eef4fa; }
+}
+
+.chosen, .frequent {
+  display: flex; flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
+.significant { @include m.field-label; margin-top: var(--sp-4); }

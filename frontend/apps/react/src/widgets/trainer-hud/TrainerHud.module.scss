@@ -1,0 +1,77 @@
+@use '@styles/mixins' as m;
+
+// Панель обучающегося — третья колонка рабочей области, а не плавающий
+// оверлей: перекрывать карточку она не должна, иначе прячет то,
+// что курсант и должен заполнять.
+.hud {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #12304a;
+  color: var(--c-text-invert);
+  border-left: 1px solid #0a1c2b;
+}
+
+.head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: #0d2537;
+  flex: 0 0 auto;
+}
+
+.badge { font-size: var(--fs-md); font-weight: 700; }
+.sub { font-size: var(--fs-xs); color: #9fc2dc; }
+.toggle { border: 0; background: transparent; color: inherit; font-size: 14px; padding: var(--sp-1); }
+
+.body { padding: var(--sp-3); overflow-y: auto; min-height: 0; @include m.thin-scroll; }
+
+.norm {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--sp-2);
+  background: rgb(255 255 255 / .08);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.normOver { background: var(--c-danger); }
+
+.sectionTitle {
+  display: flex; justify-content: space-between;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: #9fc2dc;
+  margin: var(--sp-3) 0 var(--sp-2);
+}
+
+.counter { color: #fff; }
+
+.transcript { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-2); }
+
+.line {
+  display: grid; gap: 2px;
+  padding: var(--sp-2);
+  background: rgb(255 255 255 / .06);
+  font-size: var(--fs-sm);
+}
+
+.mine { background: rgb(80 160 220 / .18); }
+.who { font-size: 10px; text-transform: uppercase; color: #9fc2dc; }
+.text { line-height: 1.35; }
+
+.questions { display: grid; gap: var(--sp-1); }
+
+.question {
+  text-align: start;
+  border: 1px solid rgb(255 255 255 / .25);
+  background: transparent;
+  color: var(--c-text-invert);
+  font-size: var(--fs-sm);
+  padding: var(--sp-2);
+  line-height: 1.3;
+
+  &:hover:not(:disabled) { background: rgb(255 255 255 / .1); }
+}
+
+.asked { opacity: .45; cursor: default; text-decoration: line-through; }

@@ -1,0 +1,67 @@
+@use '@styles/mixins' as m;
+
+.bar {
+  display: grid;
+  grid-template-columns: 56px 190px repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  min-height: var(--h-topbar);
+}
+
+.hangup {
+  display: grid; place-items: center;
+  border: 0; border-right: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+.hangupIcon { font-size: 22px; transform: rotate(135deg); color: #333; }
+
+.calls { padding: var(--sp-2); border-right: 1px solid var(--c-border); }
+.callsTitle { font-size: var(--fs-md); margin-bottom: var(--sp-1); }
+.callsBtns { display: flex; gap: var(--sp-1); }
+
+.smallBtn {
+  flex: 1;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  font-size: var(--fs-xs);
+  padding: 3px 4px;
+}
+
+.phone {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border-right: 1px solid var(--c-border);
+}
+
+.phoneIcon { font-size: 18px; color: #555; }
+.phoneBody { min-width: 0; }
+.phoneLabel { @include m.field-label; }
+.phoneBody :global(label) > :global(span) { @include m.visually-hidden; }
+
+.aonBtn {
+  white-space: nowrap;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  font-size: var(--fs-xs);
+  padding: 2px 8px;
+}
+
+// На узких экранах полоса телефонов перестраивается в колонку:
+// пятиколоночная сетка боевого АРМ рассчитана на 1920 и в 400px не живёт.
+@media (max-width: 900px) {
+  .bar {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .calls { grid-column: 2; }
+
+  .phone {
+    grid-column: 1 / -1;
+    border-right: 0;
+    border-top: 1px solid var(--c-border);
+  }
+}
