@@ -284,3 +284,50 @@ export interface JobView {
   output?: unknown;
   error?: string;
 }
+
+// ─── Подготовка учебных вызовов ─────────────────────────────────────
+
+export interface HiddenRow {
+  key: string;
+  question: string;
+  answer: string;
+  unlocks: string[];
+}
+
+export interface ScenarioFull {
+  id: string;
+  ticket: number | null;
+  callNo: number | null;
+  legend: string;
+  applicantName: string;
+  applicantPhone: string;
+  applicantStatus: string;
+  normSec: number;
+  status: 'draft' | 'approved' | 'archived';
+  /** Откуда взялся: из билета моделью, руками, засеян миграцией. */
+  source: string;
+  expected: {
+    typeIds?: string[];
+    answers?: Record<string, string[]>;
+    services?: string[];
+    outcome?: string | null;
+    address?: Record<string, string>;
+  };
+  /** Чего не хватило классификатору. Непустое — утверждать рано. */
+  classifyReason: string | null;
+  hidden: HiddenRow[];
+}
+
+export interface ChatMessage {
+  id: number;
+  role: 'teacher' | 'model' | 'system';
+  content: string;
+  patch: Record<string, unknown> | null;
+  at: string;
+}
+
+export interface TurnResult {
+  reply: string;
+  applied: boolean;
+  scenario: ScenarioFull;
+}

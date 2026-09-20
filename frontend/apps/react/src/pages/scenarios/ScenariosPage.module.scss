@@ -1,0 +1,170 @@
+@use '@styles/mixins' as m;
+
+.page { min-height: 100%; padding: var(--sp-4); background: var(--c-shell); }
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.title { margin: 0; font-size: 20px; font-weight: 600; }
+
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+}
+
+.plain { @include m.button; }
+
+.primary {
+  @include m.button;
+  border-color: var(--c-blue);
+  background: var(--c-blue);
+  color: #fff;
+}
+
+/* Список слева, разбор справа: так видно и что есть, и что правим */
+.body {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 80vh;
+  overflow-y: auto;
+  @include m.thin-scroll;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { border-color: var(--c-blue); }
+}
+
+.itemOn { border-color: var(--c-blue); background: #eef6ff; }
+.itemHead { font-size: 12px; font-weight: 600; }
+.itemText { color: var(--c-text-muted); font-size: 12px; }
+
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+.card {
+  padding: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+}
+
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.badge {
+  padding: 1px 10px;
+  border-radius: 9px;
+  background: var(--c-warn);
+  color: #fff;
+  font-size: 11px;
+}
+
+.badgeOk { background: #2e7d32; }
+
+.source { color: var(--c-text-muted); font-size: 12px; }
+
+.blockTitle {
+  margin: var(--sp-4) 0 var(--sp-2);
+  color: var(--c-label);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+
+  &:first-of-type { margin-top: 0; }
+}
+
+.legend {
+  margin: 0;
+  padding: var(--sp-3);
+  border-left: 3px solid var(--c-blue);
+  background: #f4f8fd;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.facts {
+  margin: 0;
+  padding-left: var(--sp-4);
+
+  li { margin-bottom: var(--sp-2); }
+}
+
+.q { display: block; font-size: 13px; }
+
+.a {
+  display: block;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.expected {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-3);
+  margin: 0;
+
+  dt { @include m.field-label; }
+  dd { margin: 2px 0 0; font-size: 14px; }
+}
+
+/* Эталон неполон — утверждать рано, и это должно быть заметно */
+.warn {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--c-warn);
+  background: #fff8ec;
+  font-size: 13px;
+}
+
+.error {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  font-size: 13px;
+}
+
+.empty { color: var(--c-text-muted); font-size: 13px; }
+
+@media (max-width: 1200px) {
+  .body, .detail { grid-template-columns: minmax(0, 1fr); }
+}

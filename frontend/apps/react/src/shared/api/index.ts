@@ -3,7 +3,8 @@ import { api, setToken } from './client';
 import type {
   AdminUser, AuditPage, Card, CardBrief, CardDetail, ClassifierVersion,
   ClassifyResult, Grade, GroupBrief, Health, IncidentType, JobView,
-  ScenarioPublic, Service, SurveyCard, TrainingSession, TranscriptLine, User,
+  ScenarioFull, ScenarioPublic, Service, SurveyCard, TrainingSession,
+  TranscriptLine, TurnResult, User,
 } from './types';
 
 export * from './types';
@@ -45,6 +46,22 @@ export interface ScenarioBrief {
 
 export const scenarios = {
   list: () => api.get<ScenarioBrief[]>('/api/scenarios'),
+
+  /** Полный вызов вместе с эталоном — только преподавателю. */
+  one: (id: string) => api.get<ScenarioFull>(`/api/scenarios/${id}`),
+
+  /** Подготовить вызовы из билетов. Долго, поэтому через очередь. */
+  generate: (tickets: number[], count: number) =>
+    api.post<{ jobId: string }>('/api/scenarios/generate', { tickets, count }),
+
+  chat: (id: string) => api.get<import('./types').ChatMessage[]>(`/api/scenarios/${id}/chat`),
+  say: (id: string, comment: string) =>
+    api.post<TurnResult>(`/api/scenarios/${id}/chat`, { comment }),
+
+  edit: (id: string, patch: Record<string, unknown>) =>
+    api.patch<ScenarioFull>(`/api/scenarios/${id}`, patch),
+  approve: (id: string) => api.post<ScenarioFull>(`/api/scenarios/${id}/approve`),
+  remove: (id: string) => api.del<void>(`/api/scenarios/${id}`),
 };
 
 export const sessions = {

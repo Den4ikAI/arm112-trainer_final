@@ -4,4 +4,6 @@ pub mod card_status;
 pub mod classify;
 pub mod grade;
 pub mod response;
+pub mod scenario_edit;
+pub mod scenario_gen;
 pub mod version_diff;

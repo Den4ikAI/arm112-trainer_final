@@ -108,6 +108,29 @@ struct MatrixRow {
     value: String,
 }
 
+/// Сообщение о неоднозначности.
+///
+/// Раньше писали только количество вариантов — по такой подсказке
+/// не понять, что выбирать. Перечисляем сами значения: их читает
+/// и курсант на экране, и модель при подготовке сценария.
+fn ambiguity(level: &str, options: &BTreeSet<String>, outcomes: usize) -> String {
+    // Длинный список в подсказке бесполезен: он не помещается
+    // и не читается
+    const SHOWN: usize = 6;
+    let shown: Vec<&str> = options.iter().take(SHOWN).map(String::as_str).collect();
+
+    if shown.is_empty() {
+        return format!("уточните признак {level} уровня: подходит {outcomes} вариантов");
+    }
+
+    let tail = if options.len() > SHOWN {
+        format!(" и ещё {}", options.len() - SHOWN)
+    } else {
+        String::new()
+    };
+    format!("уточните признак {level} уровня: {}{tail}", shown.join(", "))
+}
+
 /// ② + ③ Поиск позиций и вычисление условий.
 pub async fn classify(
     pool: &PgPool,
@@ -149,8 +172,12 @@ pub async fn classify(
         let l2: Vec<String> = signs.level2.iter().cloned().collect();
         let l3: Vec<String> = signs.level3.iter().cloned().collect();
 
-        let found: Vec<(Uuid, String, Option<String>)> = sqlx::query_as(
-            "SELECT id, number, outcome_type
+        // Признаки уровней тянем вместе с позицией: если комбинация
+        // окажется неоднозначной, надо будет назвать, между чем
+        // именно выбирать
+        let found: Vec<(Uuid, String, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+            "SELECT id, number, outcome_type, sign2, sign3
                FROM classifier_positions
               WHERE version_id = $1
                 AND group_no = $2
@@ -182,27 +209,25 @@ pub async fn classify(
         // Боевая система в таком состоянии список оповещения тоже
         // не показывает, поэтому честнее попросить уточнение.
         if l2.is_empty() && found.len() > 1 {
-            let distinct: BTreeSet<_> = found.iter().map(|(_, _, o)| o.clone()).collect();
+            let distinct: BTreeSet<_> = found.iter().map(|(_, _, o, _, _)| o.clone()).collect();
             if distinct.len() > 1 {
-                reasons.push(format!(
-                    "уточните признак второго уровня: подходит {} вариантов",
-                    distinct.len()
-                ));
+                let options: BTreeSet<_> =
+                    found.iter().filter_map(|(_, _, _, s2, _)| s2.clone()).collect();
+                reasons.push(ambiguity("второго", &options, distinct.len()));
                 continue;
             }
         }
         if l3.is_empty() && found.len() > 1 {
-            let distinct: BTreeSet<_> = found.iter().map(|(_, _, o)| o.clone()).collect();
+            let distinct: BTreeSet<_> = found.iter().map(|(_, _, o, _, _)| o.clone()).collect();
             if distinct.len() > 1 {
-                reasons.push(format!(
-                    "уточните признак третьего уровня: подходит {} вариантов",
-                    distinct.len()
-                ));
+                let options: BTreeSet<_> =
+                    found.iter().filter_map(|(_, _, _, _, s3)| s3.clone()).collect();
+                reasons.push(ambiguity("третьего", &options, distinct.len()));
                 continue;
             }
         }
 
-        for (id, number, outcome) in found {
+        for (id, number, outcome, _, _) in found {
             position_ids.push(id);
             all_positions.push((number, outcome));
         }

@@ -1,0 +1,120 @@
+@use '@styles/mixins' as m;
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: var(--c-surface);
+}
+
+.head {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+}
+
+.title { margin: 0; font-size: 15px; font-weight: 600; }
+
+.hint {
+  margin: 4px 0 0;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+/* Лента растёт вверх: свежая реплика всегда внизу, как в мессенджере */
+.log {
+  flex: 1;
+  min-height: 220px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: var(--sp-3);
+  @include m.thin-scroll;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 88%;
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.teacher {
+  margin-left: auto;
+  background: var(--c-blue);
+  color: #fff;
+}
+
+.model {
+  background: #eef1f4;
+}
+
+/* Системные пометки — не реплики, а отметки о том, что произошло */
+.system {
+  max-width: 100%;
+  background: transparent;
+  border-left: 3px solid var(--c-border);
+  border-radius: 0;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.pending { opacity: .6; font-style: italic; }
+
+.who {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  opacity: .7;
+}
+
+.text { white-space: pre-wrap; }
+
+.changed {
+  margin-top: 2px;
+  font-size: 11px;
+  opacity: .8;
+}
+
+.empty {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.form {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
+
+.input {
+  flex: 1;
+  padding: var(--sp-2);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  font: inherit;
+  resize: vertical;
+}
+
+.send {
+  @include m.button;
+  align-self: flex-end;
+  border-color: var(--c-blue);
+  background: var(--c-blue);
+  color: #fff;
+}
+
+.error {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  font-size: 12px;
+}

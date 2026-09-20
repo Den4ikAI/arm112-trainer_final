@@ -4,6 +4,7 @@
 //! трейтов. Провайдер выбирается переменной `ML_PROVIDER`.
 //! В MVP работает `mock`, и система функциональна без моделей.
 
+pub mod http;
 pub mod mock;
 
 use anyhow::Result;
@@ -84,6 +85,15 @@ pub trait Llm: Send + Sync {
 
     /// Сводка по типичным ошибкам группы.
     async fn group_insights(&self, stats: serde_json::Value) -> Result<String>;
+
+    /// Свободный диалог: правка сценария по замечанию преподавателя.
+    ///
+    /// На вход — массив сообщений в формате OpenAI, на выход — JSON.
+    /// В трейте, а не в конкретном адаптере, чтобы эндпоинт не зависел
+    /// от того, поднята модель или нет: на заглушке диалог тоже
+    /// работает, просто правок не предлагает.
+    async fn chat_json(&self, messages: serde_json::Value, max_tokens: u32)
+        -> Result<serde_json::Value>;
 }
 
 /// Набор адаптеров, который кладётся в состояние приложения.
@@ -100,9 +110,16 @@ impl MlSuite {
         use crate::config::MlProvider as P;
         match provider {
             P::Mock => Ok(mock::suite()),
-            // Появятся в задачах про ONNX и внешний сервис моделей
-            P::Onnx | P::Http => {
-                anyhow::bail!("провайдер {provider:?} ещё не реализован, используйте ML_PROVIDER=mock")
+            // Внешний сервер моделей: llama.cpp, vLLM, Ollama —
+            // все говорят на диалекте OpenAI
+            P::Http => http::suite(
+                std::env::var("ML_BASE_URL")
+                    .unwrap_or_else(|_| "http://127.0.0.1:8090".into()),
+                std::env::var("ML_MODEL").unwrap_or_else(|_| "local".into()),
+            ),
+            // Появится в задаче про ONNX на процессоре
+            P::Onnx => {
+                anyhow::bail!("провайдер onnx ещё не реализован, используйте mock или http")
             }
         }
     }

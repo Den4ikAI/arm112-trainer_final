@@ -149,6 +149,53 @@ impl Llm for MockLlm {
         Ok(out)
     }
 
+    /// Заглушка диалога.
+    ///
+    /// Обрабатывает ровно одно замечание — «короче»: обрезает легенду
+    /// до первой фразы. Это детерминированно, проверяемо и не
+    /// притворяется пониманием. На остальные замечания честно
+    /// отвечает, что нужна настоящая модель.
+    async fn chat_json(&self, messages: serde_json::Value, _max_tokens: u32)
+        -> Result<serde_json::Value> {
+        let last = messages
+            .as_array()
+            .and_then(|a| a.last())
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+
+        // Текущий вызов приходит первым сообщением пользователя
+        let legend = messages
+            .as_array()
+            .and_then(|a| a.iter().find_map(|m| {
+                let c = m.get("content")?.as_str()?;
+                let start = c.find("\"legend\":")?;
+                let rest = &c[start + 9..];
+                let open = rest.find('"')? + 1;
+                let end = rest[open..].find('"')?;
+                Some(rest[open..open + end].to_string())
+            }))
+            .unwrap_or_default();
+
+        if last.to_lowercase().contains("короче") && !legend.is_empty() {
+            let short = legend
+                .split_inclusive(['.', '!', '?'])
+                .next()
+                .unwrap_or(&legend)
+                .trim()
+                .to_string();
+            return Ok(serde_json::json!({
+                "reply": "Сократил легенду до первой фразы.",
+                "patch": { "legend": short },
+            }));
+        }
+
+        Ok(serde_json::json!({
+            "reply": "Замечание записано. Для правки текста нужна языковая модель: \
+                      поднимите её и укажите ML_PROVIDER=http.",
+        }))
+    }
+
     async fn group_insights(&self, stats: serde_json::Value) -> Result<String> {
         // Принципиально: заглушка НЕ выдумывает цифры, а пересказывает
         // настоящую агрегацию (reports::group::GroupStats). Демо выглядит

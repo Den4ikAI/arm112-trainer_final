@@ -494,6 +494,56 @@ test.describe('Аналитика', () => {
   });
 });
 
+test.describe('Подготовка вызовов', () => {
+  /**
+   * Требование ТЗ: «у Преподавателя имеется контекстное поле, куда он
+   * может ввести комментарий, который должен быть отработан системой
+   * для корректировки вопроса или ответа».
+   *
+   * Сделано окном переписки, а не одним полем: правка редко выходит
+   * с первого раза.
+   */
+  test('замечание преподавателя правит вызов', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('scenarios-link').click();
+
+    await expect(page.getByTestId('legend')).toBeVisible();
+    const before = (await page.getByTestId('legend').innerText()).trim();
+
+    await page.getByTestId('chat-input').fill('Сделай легенду короче');
+    await page.getByTestId('chat-send').click();
+
+    // Реплика преподавателя видна сразу, не дожидаясь ответа
+    await expect(page.getByTestId('msg-teacher').last()).toContainText('короче');
+    await expect(page.getByTestId('msg-model').last()).toBeVisible({ timeout: 60_000 });
+
+    const after = (await page.getByTestId('legend').innerText()).trim();
+    expect(after.length).toBeLessThanOrEqual(before.length);
+  });
+
+  test('переписка сохраняется между заходами', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('scenarios-link').click();
+    await expect(page.getByTestId('chat-log')).toBeVisible();
+
+    const mark = `проверка ${Date.now()}`;
+    await page.getByTestId('chat-input').fill(mark);
+    await page.getByTestId('chat-send').click();
+    await expect(page.getByTestId('msg-model').last()).toBeVisible({ timeout: 60_000 });
+
+    await page.reload();
+    await expect(page.getByTestId('chat-log')).toContainText(mark);
+  });
+
+  test('курсанту раздел не показывается', async ({ page }, info) => {
+    await login(page, info);
+    await expect(page.getByTestId('scenarios-link')).toHaveCount(0);
+
+    await go(page, info, '/scenarios');
+    await expect(page.getByText('доступен преподавателю и администратору')).toBeVisible();
+  });
+});
+
 test.describe('Адаптивность', () => {
   test('на узком экране нет горизонтальной прокрутки', async ({ page }, info) => {
     await page.setViewportSize({ width: 400, height: 900 });

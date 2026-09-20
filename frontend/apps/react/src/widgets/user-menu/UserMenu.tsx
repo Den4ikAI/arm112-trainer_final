@@ -32,8 +32,12 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
           по ТЗ это функции администратора, и сервер туда
           преподавателя не пустит */}
       {!compact && user.role !== 'student' && (
-        <button className={s.link} data-testid="analytics-link"
-                onClick={() => nav('/analytics')}>аналитика</button>
+        <>
+          <button className={s.link} data-testid="scenarios-link"
+                  onClick={() => nav('/scenarios')}>вызовы</button>
+          <button className={s.link} data-testid="analytics-link"
+                  onClick={() => nav('/analytics')}>аналитика</button>
+        </>
       )}
       {!compact && user.role === 'admin' && (
         <button className={s.link} data-testid="admin-link"
