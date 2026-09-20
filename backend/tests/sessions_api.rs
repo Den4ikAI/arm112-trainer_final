@@ -195,8 +195,10 @@ async fn сохранение_закрывает_занятие_и_повтор�
     let (status, saved) = call(&app, Method::POST,
         &format!("/api/sessions/{session}/save"), Some(&tok), None).await;
     assert_eq!(status, StatusCode::OK, "{saved}");
-    assert_eq!(saved["normSec"], 60);
     assert!(saved["card"]["savedAt"].is_string());
+    // Сохранение сразу отдаёт разбор: отдельно за ним ходить не нужно
+    assert_eq!(saved["grade"]["normSec"], 60);
+    assert!(saved["grade"]["score"].is_number());
 
     let (again, _) = call(&app, Method::POST,
         &format!("/api/sessions/{session}/save"), Some(&tok), None).await;
