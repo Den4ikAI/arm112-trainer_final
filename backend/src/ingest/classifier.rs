@@ -262,9 +262,15 @@ pub async fn store(pool: &PgPool, parsed: &Parsed, name: &str, source: &str) -> 
         .await?;
     }
 
+    // Первая загруженная версия становится активной сама: иначе после
+    // развёртывания система осталась бы вовсе без классификатора.
+    // Последующие активирует человек — подменять справочник, по которому
+    // считается эталон, молча нельзя.
     let version_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO classifier_versions (name, source_file, positions_count)
-         VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO classifier_versions (name, source_file, positions_count, is_active)
+         VALUES ($1, $2, $3,
+                 NOT EXISTS (SELECT 1 FROM classifier_versions WHERE is_active))
+         RETURNING id",
     )
     .bind(name)
     .bind(source)

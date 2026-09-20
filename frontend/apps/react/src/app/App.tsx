@@ -5,6 +5,7 @@ import { JournalPage } from '@/pages/journal/JournalPage';
 import { Card112Page } from '@/pages/card112/Card112Page';
 import { CardDdsPage } from '@/pages/card-dds/CardDdsPage';
 import { DebriefPage } from '@/pages/debrief/DebriefPage';
+import { AdminPage } from '@/pages/admin/AdminPage';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 
@@ -33,6 +34,7 @@ export const App = () => {
       <Route path="/card/:number" element={<Private><Card112Page /></Private>} />
       <Route path="/card-dds/:id" element={<Private><CardDdsPage /></Private>} />
       <Route path="/debrief" element={<Private><DebriefPage /></Private>} />
+      <Route path="/admin" element={<Private><AdminPage /></Private>} />
     </Routes>
   );
 };

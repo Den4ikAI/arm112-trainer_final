@@ -170,3 +170,58 @@ export interface ServiceResponses {
 }
 
 export type CardDetail = Card & { services: ServiceResponses[] };
+
+// ─── Администрирование ──────────────────────────────────────────────
+
+export interface AuditEntry {
+  id: number;
+  at: string;
+  userId: string | null;
+  fio: string | null;
+  action: string;
+  entity: string | null;
+  entityId: string | null;
+  payload: Record<string, unknown> | null;
+  ip: string | null;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  total: number;
+  page: number;
+  size: number;
+  /** Какие виды действий встречаются — для фильтра. */
+  actions: string[];
+}
+
+export interface AdminUser {
+  id: string;
+  login: string;
+  fio: string;
+  role: Role;
+  serviceId: string | null;
+  serviceTitle: string | null;
+  workstation: string | null;
+  isActive: boolean;
+  createdAt: string;
+  sessions: number;
+}
+
+export interface ClassifierVersion {
+  id: string;
+  name: string;
+  sourceFile: string;
+  positionsCount: number;
+  isActive: boolean;
+  importedAt: string;
+}
+
+export interface Health {
+  db: boolean;
+  uptimeSec: number;
+  mlProvider: string;
+  wsListeners: number;
+  jobsQueued: number;
+  jobsRunning: number;
+  version: string;
+}

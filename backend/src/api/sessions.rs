@@ -6,6 +6,7 @@
 //! их видно в DevTools и метрика «узнал или угадал» теряет смысл.
 
 use crate::{
+    audit,
     domain::classify::{classify, ClassifyResult},
     domain::grade::{self, Grade},
     ws,
@@ -234,6 +235,17 @@ async fn create(
 
     let session: SessionView = load_session_view(&state.db, session_id).await?;
     let card = load_card(&state.db, card_id).await?;
+
+    audit::log(
+        &state.db,
+        audit::Event::new("session.start")
+            .from_user(&user)
+            .about("session", session_id)
+            .with(serde_json::json!({
+                "scenarioId": sid, "mode": req.mode, "cardId": card_id,
+            })),
+    )
+    .await;
 
     // Преподаватель видит, что курсант взял вызов, сразу — не дожидаясь
     // сохранения карточки
@@ -521,6 +533,25 @@ async fn save(
     grade::store(&state.db, id, &g).await?;
 
     let card = load_card(&state.db, card_id).await?;
+
+    // Сохранение карточки — основное действие оператора, и именно его
+    // разбирают, когда выясняют, кто что отправил в службы
+    audit::log(
+        &state.db,
+        audit::Event::new("card.save")
+            .from_user(&user)
+            .about("card", card_id)
+            .with(serde_json::json!({
+                "number": card.number,
+                "sessionId": id,
+                "outcomeType": card.outcome_type,
+                "services": card.service_ids,
+                "elapsedSec": elapsed,
+                "normSec": session.norm_sec,
+                "score": g.score,
+            })),
+    )
+    .await;
 
     // Вот ради чего канал и нужен: карточка уходит диспетчерам
     // профильных ДДС, и у них начинают тикать 30 секунд

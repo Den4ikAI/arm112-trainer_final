@@ -89,3 +89,17 @@
   color: var(--c-text-muted);
   font-size: 13px;
 }
+
+/* Вход в раздел администратора. Курсанту не показывается. */
+.adminLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  opacity: .85;
+
+  &:hover { opacity: 1; }
+}

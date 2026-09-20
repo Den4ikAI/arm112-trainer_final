@@ -31,6 +31,12 @@ pub struct Config {
     pub jwt_secret: String,
     pub jwt_ttl_hours: i64,
     pub ml_provider: MlProvider,
+    /// Куда класть резервные копии. Не задан — копии не делаются:
+    /// на машине разработчика они не нужны, а молча писать гигабайты
+    /// в чужой каталог нельзя.
+    pub backup_dir: Option<std::path::PathBuf>,
+    /// Сколько суток хранить копии. ТЗ: 30.
+    pub backup_keep_days: i64,
 }
 
 impl Config {
@@ -47,6 +53,8 @@ impl Config {
             jwt_secret: env_or("JWT_SECRET", "dev-secret-change-me"),
             jwt_ttl_hours: env_or("JWT_TTL_HOURS", "8").parse().unwrap_or(8),
             ml_provider: MlProvider::parse(&env_or("ML_PROVIDER", "mock"))?,
+            backup_dir: std::env::var("BACKUP_DIR").ok().map(Into::into),
+            backup_keep_days: env_or("BACKUP_KEEP_DAYS", "30").parse().unwrap_or(30),
         })
     }
 }

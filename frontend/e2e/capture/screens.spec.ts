@@ -19,8 +19,9 @@ const shot = async (page: Page, info: TestInfo, name: string) => {
   await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: false });
 };
 
+/** Приложение на HashRouter: «#» — часть пути, см. tests/helpers.ts. */
 const go = async (page: Page, _info: TestInfo, p: string) => {
-  await page.goto(p);
+  await page.goto(`/#${p}`);
 };
 
 /** Учебные пользователи из миграции 20260921120000, пароль у всех один. */

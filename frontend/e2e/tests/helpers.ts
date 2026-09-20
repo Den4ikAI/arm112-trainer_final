@@ -1,9 +1,17 @@
 import type { Page, TestInfo } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 
-/** Приложение на HashRouter — префикс уже в baseURL. */
+/**
+ * Переход по маршруту приложения.
+ *
+ * Приложение на HashRouter, поэтому «#» обязан быть частью пути.
+ * Если держать его в baseURL, абсолютный путь вроде `/admin` его
+ * затрёт, и вместо маршрута откроется корень — что и случилось:
+ * тесты входа и журнала это не замечали, потому что корень и так
+ * перебрасывает куда надо.
+ */
 export const go = async (page: Page, _info: TestInfo, path: string): Promise<void> => {
-  await page.goto(path);
+  await page.goto(`/#${path}`);
 };
 
 /**

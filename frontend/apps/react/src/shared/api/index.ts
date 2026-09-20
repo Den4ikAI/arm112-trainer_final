@@ -1,8 +1,9 @@
 /** Эндпоинты сервера. Пути — как в backend/src/api. */
 import { api, setToken } from './client';
 import type {
-  Card, CardBrief, CardDetail, ClassifyResult, Grade, IncidentType,
-  ScenarioPublic, Service, SurveyCard, TrainingSession, TranscriptLine, User,
+  AdminUser, AuditPage, Card, CardBrief, CardDetail, ClassifierVersion,
+  ClassifyResult, Grade, Health, IncidentType, ScenarioPublic, Service,
+  SurveyCard, TrainingSession, TranscriptLine, User,
 } from './types';
 
 export * from './types';
@@ -74,4 +75,32 @@ export const cards = {
   addResponse: (id: string, body: {
     serviceId: string; status: string; orderNo?: string; comment?: string;
   }) => api.post<import('./types').ResponseEntry>(`/api/cards/${id}/responses`, body),
+};
+
+export const admin = {
+  health: () => api.get<Health>('/api/admin/health'),
+
+  audit: (params: {
+    from?: string; to?: string; userId?: string;
+    action?: string; entity?: string; entityId?: string;
+    page?: number; size?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== '') qs.set(k, String(v));
+    });
+    return api.get<AuditPage>(`/api/admin/audit${qs.size ? `?${qs}` : ''}`);
+  },
+
+  users: () => api.get<AdminUser[]>('/api/admin/users'),
+  createUser: (body: {
+    login: string; password: string; fio: string;
+    role: string; serviceId?: string | null; workstation?: string | null;
+  }) => api.post<AdminUser>('/api/admin/users', body),
+  setActive: (id: string, active: boolean) =>
+    api.post<void>(`/api/admin/users/${id}/active`, { active }),
+
+  versions: () => api.get<ClassifierVersion[]>('/api/admin/classifier-versions'),
+  activateVersion: (id: string) =>
+    api.post<void>(`/api/admin/classifier-versions/${id}/activate`),
 };

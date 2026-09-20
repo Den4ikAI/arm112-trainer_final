@@ -2,6 +2,7 @@
 
 use crate::{
     api::auth::{AuthUser, Role},
+    audit,
     error::{AppError, AppResult},
     jobs::worker,
     reports::session as session_report,
@@ -175,6 +176,17 @@ async fn enqueue_group(
     )
     .await
     .map_err(AppError::Other)?;
+
+    // Отчёт по группе содержит результаты людей — кто его заказывал,
+    // должно быть видно
+    audit::log(
+        &state.db,
+        audit::Event::new(if kind == "report.group" { "report.group" } else { "insights.group" })
+            .from_user(&user)
+            .about("group", group_id)
+            .with(json!({ "jobId": job_id, "from": period.from, "to": period.to })),
+    )
+    .await;
 
     Ok((StatusCode::ACCEPTED, Json(Accepted { job_id })))
 }

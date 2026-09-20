@@ -7,6 +7,7 @@
 
 use crate::{
     api::auth::{AuthUser, Role},
+    audit,
     domain::response,
     error::{AppError, AppResult},
     state::AppState,
@@ -325,6 +326,22 @@ async fn add_response(
     .bind(req.comment.as_ref().map(|c| c.trim()))
     .fetch_one(&state.db)
     .await?;
+
+    // Кто и когда проставил статус — то, что спрашивают при разборе
+    // происшествия в первую очередь
+    audit::log(
+        &state.db,
+        audit::Event::new("response.add")
+            .from_user(&user)
+            .about("card", id)
+            .with(serde_json::json!({
+                "serviceId": entry.service_id,
+                "status": entry.status,
+                "orderNo": entry.order_no,
+                "comment": entry.comment,
+            })),
+    )
+    .await;
 
     // Другие диспетчеры той же карточки и преподаватель видят
     // движение сразу, без обновления страницы

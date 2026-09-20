@@ -1,0 +1,253 @@
+@use '@styles/mixins' as m;
+
+.page {
+  min-height: 100%;
+  padding: var(--sp-4);
+  background: var(--c-shell);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.title { margin: 0; font-size: 20px; font-weight: 600; }
+
+.back {
+  @include m.button;
+  background: transparent;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: -1px;
+}
+
+.tab {
+  padding: var(--sp-2) var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: #e8e8e8;
+  color: var(--c-text-muted);
+  font: inherit;
+  cursor: pointer;
+
+  &:hover { background: #f2f2f2; }
+}
+
+.tabOn {
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-weight: 600;
+}
+
+.panel {
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: 0 4px 4px 4px;
+  background: var(--c-surface);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.filter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  span { @include m.field-label; }
+
+  select, input {
+    min-width: 200px;
+    padding: 4px 6px;
+    border: 1px solid var(--c-border);
+    border-radius: 3px;
+    background: var(--c-surface);
+    font: inherit;
+  }
+}
+
+.total {
+  margin-left: auto;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.toolbar { margin-bottom: var(--sp-3); }
+
+/* Таблицы тут широкие: журнал действий с подробностями в одну строку
+   не помещается ни на каком экране, поэтому прокрутка своя. */
+.scroll {
+  overflow-x: auto;
+  @include m.thin-scroll;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th {
+    padding: var(--sp-2);
+    border-bottom: 2px solid var(--c-border);
+    color: var(--c-label);
+    font-weight: 600;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: var(--sp-2);
+    border-bottom: 1px solid var(--c-border);
+    vertical-align: top;
+  }
+
+  tbody tr:hover { background: #f6f8fa; }
+}
+
+.when, .action, .entity, .ip, .file { white-space: nowrap; }
+.action { font-family: ui-monospace, monospace; font-size: 12px; }
+.ip { color: var(--c-text-muted); font-variant-numeric: tabular-nums; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.system { color: var(--c-text-muted); font-style: italic; }
+
+/* Подробности — сырой JSON. Длинные значения режем шириной,
+   а не троеточием: по обрезку видно, что там ещё что-то есть. */
+.payload {
+  max-width: 420px;
+  overflow: hidden;
+  color: var(--c-text-muted);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inactive { opacity: .55; }
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+
+  button {
+    @include m.button;
+    min-width: 36px;
+  }
+}
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  background: #f6f8fa;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  span { @include m.field-label; }
+
+  input, select {
+    min-width: 180px;
+    padding: 4px 6px;
+    border: 1px solid var(--c-border);
+    border-radius: 3px;
+    background: var(--c-surface);
+    font: inherit;
+  }
+}
+
+.primary {
+  @include m.button;
+  border-color: var(--c-blue);
+  background: var(--c-blue);
+  color: #fff;
+
+  &:hover { background: var(--c-blue); filter: brightness(1.08); }
+  &:disabled { opacity: .6; cursor: default; }
+}
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--c-blue);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.badge {
+  padding: 1px 8px;
+  border-radius: 8px;
+  background: var(--c-blue);
+  color: #fff;
+  font-size: 11px;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-3);
+  margin: 0;
+
+  div {
+    padding: var(--sp-3);
+    border: 1px solid var(--c-border);
+    border-radius: 4px;
+    background: #f6f8fa;
+  }
+
+  dt { @include m.field-label; }
+  dd { margin: 4px 0 0; font-size: 18px; font-weight: 600; }
+}
+
+.note {
+  margin: var(--sp-3) 0 0;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.error {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  font-size: 13px;
+}
+
+.empty {
+  padding: var(--sp-6);
+  color: var(--c-text-muted);
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .filters, .form { flex-direction: column; align-items: stretch; }
+  .total { margin-left: 0; }
+}
+
+/* Действующая версия классификатора — по ней считается всё. */
+.activeRow { background: #eef6ff; }

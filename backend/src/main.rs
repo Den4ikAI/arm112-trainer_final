@@ -27,6 +27,14 @@ async fn main() -> Result<()> {
     // Очередь отчётов и сводок: норматив ТЗ на отчёт по группе
     // 30 секунд, в HTTP-запросе его держать незачем
     tokio::spawn(jobs::worker::run(state.clone()));
+    // Партиции аудита и резервные копии. Без первого журнал
+    // безопасности перестанет писаться, как только кончатся
+    // созданные миграцией месяцы
+    tokio::spawn(jobs::maintenance::run(
+        state.db.clone(),
+        state.config.backup_dir.clone(),
+        state.config.backup_keep_days,
+    ));
     tracing::info!("фоновые задачи запущены");
 
     let app = Router::new()
@@ -44,7 +52,13 @@ async fn main() -> Result<()> {
         .with_context(|| format!("не удалось занять адрес {bind_addr}"))?;
 
     tracing::info!("слушаю http://{bind_addr}");
-    axum::serve(listener, app).await?;
+    // ConnectInfo — запасной источник адреса для аудита, когда
+    // сервер стоит без обратного прокси
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

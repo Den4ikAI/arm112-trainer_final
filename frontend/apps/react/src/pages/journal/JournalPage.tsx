@@ -128,7 +128,19 @@ export const JournalPage = () => {
               :{String(now.getSeconds()).padStart(2, '0')}
             </span>
           </div>
-          <div className={s.clockUser}>, {user?.fio ?? ''}</div>
+          <div className={s.clockUser}>
+            , {user?.fio ?? ''}
+            {/* Курсанту раздел не нужен и сервер его туда не пустит */}
+            {user && user.role !== 'student' && (
+              <>
+                {' · '}
+                <button className={s.adminLink} data-testid="admin-link"
+                        onClick={() => nav('/admin')}>
+                  администрирование
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

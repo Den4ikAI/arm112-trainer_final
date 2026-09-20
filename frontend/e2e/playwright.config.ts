@@ -23,8 +23,10 @@ export default defineConfig({
   projects: [
     {
       name: 'react',
-      // Приложение на HashRouter, отсюда «#» в базовом адресе.
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:5173/#' },
+      // Путь к странице собирает go() из helpers: приложение на
+      // HashRouter, и «#» должен попасть внутрь пути, а не в базу —
+      // абсолютный путь его бы затёр.
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:5173' },
     },
   ],
 

@@ -6,6 +6,7 @@
 //! профильные события» реализуется через `users.service_id`.
 
 use crate::{
+    audit,
     error::{AppError, AppResult},
     state::AppState,
 };
@@ -79,6 +80,7 @@ pub struct LoginResponse {
 
 async fn login(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<LoginResponse>> {
     let row: Option<(Uuid, String, String, String, Role, Option<String>, Option<String>, bool)> =
@@ -93,16 +95,44 @@ async fn login(
     // Одинаковый ответ на неизвестный логин и неверный пароль:
     // иначе по времени ответа можно перебирать логины
     let Some((id, login, hash, fio, role, service_id, ws, is_active)) = row else {
+        // Неудачную попытку пишем без идентификатора: пользователя
+        // с таким логином нет, но сама попытка — событие безопасности
+        audit::log(
+            &state.db,
+            audit::Event::new("auth.login.failed")
+                .from_ip(ip)
+                .with(serde_json::json!({ "login": req.login, "reason": "нет такого логина" })),
+        )
+        .await;
         return Err(AppError::Unauthorized);
     };
     if !is_active {
+        audit::log(
+            &state.db,
+            audit::Event::new("auth.login.failed")
+                .by(id)
+                .from_ip(ip)
+                .with(serde_json::json!({ "login": login, "reason": "учётная запись отключена" })),
+        )
+        .await;
         return Err(AppError::Forbidden);
     }
 
     let parsed = PasswordHash::new(&hash).map_err(|_| AppError::Unauthorized)?;
-    Argon2::default()
+    if Argon2::default()
         .verify_password(req.password.as_bytes(), &parsed)
-        .map_err(|_| AppError::Unauthorized)?;
+        .is_err()
+    {
+        audit::log(
+            &state.db,
+            audit::Event::new("auth.login.failed")
+                .by(id)
+                .from_ip(ip)
+                .with(serde_json::json!({ "login": login, "reason": "неверный пароль" })),
+        )
+        .await;
+        return Err(AppError::Unauthorized);
+    }
 
     // Номер АРМ при входе перекрывает сохранённый в профиле
     let workstation = req.workstation.or(ws);
@@ -122,6 +152,15 @@ async fn login(
         &EncodingKey::from_secret(state.config.jwt_secret.as_bytes()),
     )
     .map_err(|e| AppError::Other(e.into()))?;
+
+    audit::log(
+        &state.db,
+        audit::Event::new("auth.login")
+            .by(id)
+            .from_ip(ip)
+            .with(serde_json::json!({ "login": login, "workstation": workstation })),
+    )
+    .await;
 
     Ok(Json(LoginResponse {
         token,
@@ -151,6 +190,49 @@ async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Use
     Ok(Json(view))
 }
 
+/// Адрес клиента.
+///
+/// В проде сервер стоит за обратным прокси, и адрес соединения — это
+/// адрес прокси. Настоящий приходит в заголовке; берём первый элемент
+/// `X-Forwarded-For` — это исходный клиент, остальные добавляются
+/// промежуточными прокси.
+///
+/// Заголовкам можно верить только потому, что снаружи напрямую до
+/// сервера не достучаться: по ТЗ система работает в изолированном
+/// контуре. В открытой сети их пришлось бы перезаписывать на прокси.
+fn client_ip(parts: &Parts) -> Option<std::net::IpAddr> {
+    let header = |name: &str| {
+        parts
+            .headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .and_then(|v| v.trim().parse().ok())
+    };
+
+    header("x-forwarded-for")
+        .or_else(|| header("x-real-ip"))
+        .or_else(|| {
+            parts
+                .extensions
+                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                .map(|info| info.0.ip())
+        })
+}
+
+/// Адрес клиента отдельно от пользователя: при входе его ещё нет,
+/// а записать неудачную попытку надо именно с адресом — иначе
+/// перебор паролей в журнале не отличить от забывчивости.
+pub struct ClientIp(pub Option<std::net::IpAddr>);
+
+impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
+        Ok(ClientIp(client_ip(parts)))
+    }
+}
+
 // ─── Извлечение пользователя из запроса ──────────────────────────────
 
 /// Аутентифицированный пользователь. Появление этого типа в аргументах
@@ -161,6 +243,9 @@ pub struct AuthUser {
     pub role: Role,
     pub service_id: Option<String>,
     pub workstation: Option<String>,
+    /// Адрес клиента для аудита. За обратным прокси берётся из
+    /// заголовков, напрямую — из самого соединения.
+    pub ip: Option<std::net::IpAddr>,
 }
 
 impl AuthUser {
@@ -198,6 +283,7 @@ impl FromRequestParts<AppState> for AuthUser {
             role: data.claims.role,
             service_id: data.claims.service_id,
             workstation: data.claims.workstation,
+            ip: client_ip(parts),
         })
     }
 }

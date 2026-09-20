@@ -68,3 +68,18 @@
     background-clip: content-box;
   }
 }
+
+/* Обычная кнопка интерфейса. Вынесена сюда, когда понадобилась
+   в третьем месте: до того каждый экран рисовал свою. */
+@mixin button {
+  padding: 4px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 3px;
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { border-color: var(--c-blue); }
+  &:disabled { opacity: .5; cursor: not-allowed; }
+}
