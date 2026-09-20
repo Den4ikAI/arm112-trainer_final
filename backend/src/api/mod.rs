@@ -5,7 +5,9 @@
 //! **в конец** списка в `routes()`, соседние не переставляем. Git
 //! сливает добавления в разные места без конфликта, перестановки — нет.
 
+pub mod auth;
 pub mod catalog;
+pub mod sessions;
 pub mod health;
 
 use crate::state::AppState;
@@ -15,8 +17,9 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .merge(health::routes())
         .merge(catalog::routes())
+        .merge(auth::routes())
+        .merge(sessions::routes())
     // сюда добавляются роутеры задач:
-    // .merge(auth::routes())      — задача 4
     // .merge(catalog::routes())   — задача 5
     // .merge(classifier::routes())— задачи 2, 3, 6
     // .merge(sessions::routes())  — задачи 7, 8, 9

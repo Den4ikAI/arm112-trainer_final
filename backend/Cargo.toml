@@ -33,6 +33,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
 async-trait = "0.1"
 calamine = "0.36.1"
+# rust_crypto, а не aws_lc_rs: чистый Rust собирается под mingw без
+# сишного тулчейна — от этого зависит кросс-сборка .exe под Windows
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto"] }
+argon2 = "0.6.0"
+password-hash = { version = "0.6.1", features = ["getrandom", "rand_core"] }
+rand = "0.10.3"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# oneshot по роутеру: тесты API без поднятого сервера и свободного порта
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

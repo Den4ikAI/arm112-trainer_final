@@ -1,6 +1,6 @@
 # Сборка под Windows
 
-Проверено 20.09.2026. Работает.
+Проверено 21.09.2026 (после добавления JWT и argon2). Работает.
 
 ## Как собрать
 
@@ -18,10 +18,15 @@ docker run --rm -v "$PWD/out:/out" arm112-winbuild
 
 ```
 out/arm112.exe: PE32+ executable (console) x86-64, for MS Windows
-14 МБ (release)
+19 МБ (release)
 ```
 
 Для сравнения, тот же бинарник под Linux — 7,9 МБ.
+
+Вырос с 14 МБ: добавились argon2 и jsonwebtoken. Последний собирается
+с `default-features = false, features = ["rust_crypto"]` — чистый Rust
+вместо aws-lc-rs, которому нужен сишный тулчейн. Иначе линковка под
+mingw не проходит.
 
 ## Почему через Docker, а не напрямую
 
