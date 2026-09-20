@@ -1,27 +1,8 @@
-//! Тренажёр оператора ДДС города Москвы — серверная часть.
-//!
-//! Архитектура и контракт API описаны в BACKEND.md. Слои:
-//!   api/     HTTP-хендлеры, валидация, RBAC
-//!   ws/      канал класса, события занятия
-//!   domain/  классификатор, машина статусов, оценка
-//!   ingest/  импорт классификатора из XLSX
-//!   jobs/    фоновые задачи
-//!   ml/      адаптеры моделей (в MVP — заглушки)
-//!   store/   PostgreSQL, миграции
-//!   audit/   журнал действий
-
-mod api;
-mod config;
-mod error;
-mod ml;
-mod state;
-mod store;
+//! Точка входа HTTP-сервера.
 
 use anyhow::{Context, Result};
+use arm112::{api, config::Config, ml::MlSuite, state::AppState, store};
 use axum::Router;
-use config::Config;
-use ml::MlSuite;
-use state::AppState;
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
 #[tokio::main]
