@@ -18,14 +18,15 @@
    на виду и то, что запускает, и то, что уже идёт */
 .cols {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
   gap: var(--sp-3);
   align-items: start;
+  max-width: 1400px;
 }
 
 .left, .right { display: flex; flex-direction: column; gap: var(--sp-3); }
 
-.new, .card {
+.new, .card, .listBox {
   padding: var(--sp-3);
   background: var(--c-surface);
   border: 1px solid var(--c-border);
@@ -52,7 +53,7 @@
 
 /* Категорий два десятка — список прокручивается, а не растягивает
    форму на весь экран */
-.types { max-height: 220px; overflow-y: auto; @include m.thin-scroll; }
+.types { max-height: 200px; overflow-y: auto; @include m.thin-scroll; }
 
 .type {
   display: flex;
@@ -72,13 +73,16 @@
   gap: 2px;
   width: 100%;
   padding: var(--sp-2);
-  border: 1px solid transparent;
-  background: none;
+  border: 1px solid var(--c-border);
+  border-bottom: none;
+  background: var(--c-surface);
   text-align: left;
   cursor: pointer;
 
   &:hover { background: var(--c-surface-2); }
 }
+
+.list li:last-child .item { border-bottom: 1px solid var(--c-border); }
 
 .active { border-color: var(--c-blue); background: var(--c-surface-2); }
 

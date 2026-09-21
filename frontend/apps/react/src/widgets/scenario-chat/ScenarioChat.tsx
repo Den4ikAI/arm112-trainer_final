@@ -1,6 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, scenarios, type ChatMessage, type ScenarioFull } from '@/shared/api';
 import clsx from '@/shared/lib/clsx';
+
+/**
+ * Человеческие названия полей вызова.
+ *
+ * Преподаватель читал «изменено: legend, normSec» и не мог понять,
+ * что именно поправила модель.
+ */
+const ПОЛЯ: Record<string, string> = {
+  legend: 'первая фраза',
+  applicantName: 'ФИО заявителя',
+  applicantStatus: 'статус заявителя',
+  normSec: 'норматив',
+  hidden: 'вопросы заявителю',
+  answers: 'признаки',
+  outcome: 'тип происшествия',
+};
+
+const подпись = (ключ: string) => ПОЛЯ[ключ] ?? ключ;
 import s from './ScenarioChat.module.scss';
 
 /**
@@ -92,7 +110,7 @@ export const ScenarioChat = ({
             <span className={s.text}>{m.content}</span>
             {m.patch && Object.keys(m.patch).length > 0 && (
               <span className={s.changed}>
-                изменено: {Object.keys(m.patch).join(', ')}
+                изменено: {Object.keys(m.patch).map(подпись).join(', ')}
               </span>
             )}
           </div>

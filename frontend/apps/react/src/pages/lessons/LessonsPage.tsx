@@ -184,8 +184,13 @@ export const LessonsPage = () => {
             </button>
           </form>
 
+          <div className={s.listBox}>
           <h2 className={s.subtitle}>Список</h2>
-          {list.length === 0 && <p className={s.empty}>Занятий пока нет</p>}
+          {list.length === 0 && (
+            <p className={s.empty}>
+              Занятий пока нет. Соберите первое формой выше.
+            </p>
+          )}
           <ul className={s.list}>
             {list.map((l) => (
               <li key={l.id}>
@@ -202,10 +207,18 @@ export const LessonsPage = () => {
               </li>
             ))}
           </ul>
+          </div>
         </section>
 
         <section className={s.right} aria-label="Ход занятия">
-          {!current && <p className={s.empty}>Выберите занятие слева</p>}
+          {!current && (
+            <div className={s.card}>
+              <p className={s.empty}>
+                Выберите занятие слева — здесь будет виден его ход:
+                кто сколько вызовов взял и с каким баллом.
+              </p>
+            </div>
+          )}
 
           {current && (
             <>

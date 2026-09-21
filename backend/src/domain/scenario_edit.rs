@@ -235,8 +235,15 @@ pub async fn turn(
         "role": "user",
         "content": format!(
             "Вот текущий вызов:\n{}\n\nДальше — замечания преподавателя.",
+            // Показываем все поля, которые модель вправе менять.
+            // Раньше ФИО и статус заявителя в контекст не попадали:
+            // на «поменяй ФИО» модель не видела текущего значения и
+            // правила то, что видела, — первую фразу и норматив
             serde_json::to_string_pretty(&json!({
                 "legend": scenario.legend,
+                "applicantName": scenario.applicant_name,
+                "applicantStatus": scenario.applicant_status,
+                "normSec": scenario.norm_sec,
                 "hidden": scenario.hidden,
                 "answers": scenario.expected.get("answers"),
             }))?)
@@ -323,6 +330,27 @@ pub async fn apply(
     .bind(patch.norm_sec)
     .execute(pool)
     .await?;
+
+    // ФИО заявителя живёт в двух местах: полем вызова и ответом на
+    // вопрос «как вас зовут». Если поправить только поле, заявитель
+    // в разговоре продолжит называть старое имя, а эталон будет ждать
+    // новое — курсант не сможет выяснить то, что от него требуют.
+    // Модель об этом помнить не обязана, поэтому чиним здесь
+    if let Some(новое) = &patch.applicant_name {
+        let старое = current.applicant_name.trim();
+        if !старое.is_empty() && старое != новое.trim() {
+            sqlx::query(
+                "UPDATE scenario_hidden_facts
+                    SET answer = replace(answer, $2, $3)
+                  WHERE scenario_id = $1 AND NOT retired AND answer LIKE '%' || $2 || '%'",
+            )
+            .bind(id)
+            .bind(старое)
+            .bind(новое.trim())
+            .execute(pool)
+            .await?;
+        }
+    }
 
     if let Some(hidden) = &patch.hidden {
         // Заменяем целиком: модель присылает новый список, а не дельту.

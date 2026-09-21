@@ -13,9 +13,18 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Куда ходят проверки.
+///
+/// Отдельная база, если она задана: иначе прогон копит мусор в той же,
+/// на которой стоит стенд — в учётных записях накапливаются сотни
+/// курсантов, а в переписке сценариев реплики «проверка 1789977379959».
+fn адрес_базы(config: &Config) -> String {
+    std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| config.database_url.clone())
+}
+
 async fn база() -> Option<PgPool> {
     let config = Config::from_env().ok()?;
-    let pool = PgPool::connect(&config.database_url).await.ok()?;
+    let pool = PgPool::connect(&адрес_базы(&config)).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
     Some(pool)
 }
@@ -269,4 +278,45 @@ async fn выданный_группе_вызов_архивируется_а_н
     sqlx::query("DELETE FROM assignments WHERE scenario_id = $1").bind(scenario_id).execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM training_groups WHERE id = $1").bind(group_id).execute(&pool).await.unwrap();
     sqlx::query("DELETE FROM scenarios WHERE id = $1").bind(scenario_id).execute(&pool).await.unwrap();
+}
+
+/// Смена ФИО правит и скрытый факт, где заявитель его называет.
+///
+/// Иначе заявитель в разговоре продолжит называть старое имя, а
+/// эталон будет ждать новое — курсант не сможет выяснить то, что
+/// от него требуют.
+#[tokio::test]
+async fn смена_фио_доходит_до_ответа_заявителя() {
+    let Some(pool) = база().await else { return };
+    let (version_id, scenario_id, _) = вызов(&pool).await;
+
+    sqlx::query(
+        "INSERT INTO scenario_hidden_facts
+            (scenario_id, key, question, answer, unlocks, sort_order)
+         VALUES ($1, 'name', 'Как вас зовут?', 'Меня зовут Петров Денис Андреевич.', '{}', 3)",
+    )
+    .bind(scenario_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let patch = Patch {
+        applicant_name: Some("Смирнова Анна Павловна".into()),
+        ..Default::default()
+    };
+    let после = scenario_edit::apply(&pool, version_id, scenario_id, &patch).await.unwrap();
+
+    assert_eq!(после.applicant_name, "Смирнова Анна Павловна");
+
+    let ответ = после
+        .hidden
+        .iter()
+        .find(|f| f.key == "name")
+        .expect("вопрос про имя на месте");
+    assert!(ответ.answer.contains("Смирнова Анна Павловна"),
+            "заявитель должен называть новое имя, а не «{}»", ответ.answer);
+    assert!(!ответ.answer.contains("Петров"), "старое имя должно уйти");
+
+    sqlx::query("DELETE FROM scenarios WHERE id = $1")
+        .bind(scenario_id).execute(&pool).await.unwrap();
 }

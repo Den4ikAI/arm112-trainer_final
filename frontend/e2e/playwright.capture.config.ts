@@ -15,7 +15,7 @@ export default defineConfig({
       name: 'react',
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: 'http://localhost:5173',
+        baseURL: 'http://localhost:5174',
         viewport: { width: 1920, height: 1080 },
       },
     },

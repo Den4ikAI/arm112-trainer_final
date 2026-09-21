@@ -36,9 +36,18 @@ struct Server {
     addr: String,
 }
 
+/// Куда ходят проверки.
+///
+/// Отдельная база, если она задана: иначе прогон копит мусор в той же,
+/// на которой стоит стенд — в учётных записях накапливаются сотни
+/// курсантов, а в переписке сценариев реплики «проверка 1789977379959».
+fn адрес_базы(config: &Config) -> String {
+    std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| config.database_url.clone())
+}
+
 async fn start() -> Option<Server> {
     let config = Config::from_env().ok()?;
-    let pool = sqlx::PgPool::connect(&config.database_url).await.ok()?;
+    let pool = sqlx::PgPool::connect(&адрес_базы(&config)).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
     let ml = MlSuite::build(config.ml_provider).ok()?;
     let state = AppState::new(pool, config, ml);

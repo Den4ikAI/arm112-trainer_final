@@ -85,10 +85,19 @@ export const fillFireCard = async (page: Page): Promise<void> => {
  * Ждать их в тесте нельзя, поэтому двигаем время в базе. Тот же приём
  * используют серверные тесты (backend/tests/watchdog.rs).
  */
+/**
+ * Состарить карточку, чтобы проверить сторож нормативов.
+ *
+ * База берётся та же, в которой работает прогон: она отдельная от
+ * стенда, иначе проверка меняла бы данные, которые кто-то смотрит.
+ */
+const БАЗА_ПРОГОНА =
+  (process.env.TEST_DATABASE_URL ?? 'arm112_test').split('/').pop() ?? 'arm112_test';
+
 export const ageCard = (number: string, seconds: number): void => {
   execFileSync('docker', [
     'exec', 'arm112-db',
-    'psql', '-U', 'arm112', '-d', 'arm112', '-qAtc',
+    'psql', '-U', 'arm112', '-d', БАЗА_ПРОГОНА, '-qAtc',
     `UPDATE cards SET saved_at = now() - interval '${seconds} seconds' WHERE number = '${number}'`,
   ]);
 };

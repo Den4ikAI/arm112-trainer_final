@@ -17,9 +17,18 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+/// Куда ходят проверки.
+///
+/// Отдельная база, если она задана: иначе прогон копит мусор в той же,
+/// на которой стоит стенд, и это видно в администрировании и в
+/// переписке сценариев.
+fn адрес_базы(config: &Config) -> String {
+    std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| config.database_url.clone())
+}
+
 async fn app() -> Option<(Router, PgPool)> {
     let config = Config::from_env().ok()?;
-    let pool = PgPool::connect(&config.database_url).await.ok()?;
+    let pool = PgPool::connect(&адрес_базы(&config)).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
     let ml = MlSuite::build(config.ml_provider).ok()?;
     let router = api::routes().with_state(AppState::new(pool.clone(), config, ml));
