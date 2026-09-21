@@ -1,0 +1,35 @@
+.wrap {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}
+
+.title { margin: 0 0 var(--sp-2); font-size: 14px; font-weight: 600; }
+
+.row { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+
+.box { display: flex; flex-direction: column; min-width: 90px; }
+.value { font-size: 24px; font-weight: 600; }
+.label { color: var(--c-text-muted); font-size: 12px; }
+
+.plus { color: var(--c-ok, #2e7d32); }
+.minus { color: var(--c-danger); }
+
+/* Время фиксации — не украшение: оно показывает, что прогноз
+   сделан до вызова, а не подогнан после */
+.when { margin: var(--sp-2) 0 0; color: var(--c-text-muted); font-size: 12px; }
+
+.parts {
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+
+  li {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--c-border);
+  }
+}

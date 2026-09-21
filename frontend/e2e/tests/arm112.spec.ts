@@ -613,3 +613,50 @@ test.describe('Занятия', () => {
     await expect(page.getByText('доступен преподавателю и администратору')).toBeVisible();
   });
 });
+
+test.describe('Прогноз', () => {
+  /**
+   * Критерий финальной экспертизы: «проверка прогнозирования, оценка
+   * достоверности путем сравнения реальных данных и прогнозных
+   * значений».
+   *
+   * Проверяем не сам прогноз, а то, что он сверяется с фактом и что
+   * видно время его фиксации — иначе сравнение ничего не доказывает.
+   */
+  test('курсант видит прогноз рядом с фактом', async ({ page }, info) => {
+    await login(page, info);
+    await launchTicket3(page);
+    await fillFireCard(page);
+    await page.getByTestId('save-card').click();
+
+    await expect(page.getByTestId('score')).toBeVisible();
+
+    // Прогноза может не быть, если история короткая, — тогда блока
+    // нет вовсе, и это правильно: врать про точность нечем
+    const блок = page.getByTestId('my-forecast');
+    if (await блок.count()) {
+      await expect(page.getByTestId('predicted')).toBeVisible();
+      await expect(блок).toContainText('до начала');
+    }
+  });
+
+  test('достоверность считается рядом с базовой линией', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('analytics-link').click();
+
+    const блок = page.getByTestId('forecast-block');
+    await expect(блок).toBeVisible();
+
+    if (await page.getByTestId('forecast-checked').count()) {
+      // Величина ошибки ничего не значит без того, что даёт простое
+      // среднее, — поэтому показываем обе
+      await expect(блок).toContainText('средняя ошибка');
+      await expect(блок).toContainText('ошибка без модели');
+      await expect(page.getByTestId('forecast-verdict')).toBeVisible();
+      // Время фиксации доказывает, что прогноз сделан до вызова
+      await expect(page.getByTestId('forecast-table')).toContainText('Прогноз сделан');
+    } else {
+      await expect(page.getByTestId('forecast-empty')).toBeVisible();
+    }
+  });
+});

@@ -4,6 +4,7 @@ import { useCatalog } from '@/entities/catalog/model';
 import type { Finding } from '@/shared/api';
 import { fmt } from '@/shared/lib/useTimer';
 import clsx from '@/shared/lib/clsx';
+import { MyForecast } from '@/widgets/forecast/MyForecast';
 import s from './DebriefPage.module.scss';
 
 const KIND_LABEL: Record<Finding['kind'], string> = {
@@ -19,7 +20,7 @@ const KIND_LABEL: Record<Finding['kind'], string> = {
  * значение совпало с эталоном, но заявитель его не сообщал.
  */
 export const DebriefPage = () => {
-  const { grade: result, scenario, transcript, reset } = useTraining();
+  const { grade: result, scenario, transcript, reset, sessionId } = useTraining();
   const serviceTitle = useCatalog((st) => st.serviceTitle);
   const nav = useNavigate();
 
@@ -48,6 +49,8 @@ export const DebriefPage = () => {
           <div className={s.scoreCap}>баллов</div>
         </div>
       </header>
+
+      {sessionId && <MyForecast sessionId={sessionId} actual={result.score} />}
 
       <div className={s.metrics}>
         <Metric label="Время заполнения" value={fmt(result.elapsedSec)}

@@ -16,7 +16,7 @@
 
 use crate::{
     audit,
-    domain::card_status::{derive, is_manual, ServiceOutcome},
+    domain::card_status::{derive, is_manual, Norms, ServiceOutcome},
     ws::{self, Hub},
 };
 use serde_json::json;
@@ -44,6 +44,15 @@ pub async fn run(pool: PgPool, hub: Hub) {
 /// Один проход. Вынесен отдельно, чтобы его можно было вызвать
 /// из теста, не поднимая фоновую задачу.
 pub async fn sweep(pool: &PgPool, hub: &Hub) -> anyhow::Result<usize> {
+    // Нормативы читаются на каждом проходе: администратор может
+    // поменять их, не перезапуская сервер. Проход раз в пять секунд,
+    // два коротких запроса погоды не делают
+    let norms = Norms {
+        ack_sec: crate::reports::forecast::setting(pool, "norm.ack_sec", 30.0).await as i64,
+        completion_hours: crate::reports::forecast::setting(
+            pool, "norm.completion_hours", 48.0).await as i64,
+    };
+
     // Незавершённые карточки: завершённые и проверенные пересчитывать
     // незачем, а их со временем станет большинство
     let cards: Vec<(Uuid, String, i64)> = sqlx::query_as(
@@ -84,7 +93,7 @@ pub async fn sweep(pool: &PgPool, hub: &Hub) -> anyhow::Result<usize> {
             .map(|(_, chain)| ServiceOutcome::from_chain(chain))
             .collect();
 
-        let next = derive(&outcomes, elapsed_sec);
+        let next = derive(&outcomes, elapsed_sec, norms);
         if next == status {
             continue;
         }

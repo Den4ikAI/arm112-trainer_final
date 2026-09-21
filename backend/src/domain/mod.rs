@@ -3,6 +3,7 @@
 pub mod applicant;
 pub mod card_status;
 pub mod classify;
+pub mod forecast;
 pub mod grade;
 pub mod response;
 pub mod scenario_edit;

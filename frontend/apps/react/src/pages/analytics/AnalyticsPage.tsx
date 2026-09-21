@@ -4,6 +4,7 @@ import { reports, type GroupBrief, type GroupStats } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { FunnelChart, Heatmap, KindsChart, TimeChart } from '@/widgets/charts';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
+import { ForecastBlock } from '@/widgets/forecast/ForecastBlock';
 import clsx from '@/shared/lib/clsx';
 import s from './AnalyticsPage.module.scss';
 
@@ -95,6 +96,8 @@ export const AnalyticsPage = () => {
 
       {stats && (
         <>
+          <ForecastBlock groupId={groupId} />
+
           <section className={s.metrics} data-testid="analytics-metrics">
             <Metric label="Занятий" value={String(stats.sessions)} />
             <Metric label="Средний балл"

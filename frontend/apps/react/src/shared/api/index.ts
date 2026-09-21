@@ -109,6 +109,62 @@ export const lessons = {
   remove: (id: string) => api.del<void>(`/api/lessons/${id}`),
 };
 
+/**
+ * Прогноз результата и проверка самого прогноза.
+ *
+ * Критерий ТЗ просит не прогноз, а сравнение прогнозных значений
+ * с реальными, поэтому главное здесь — `accuracy`, посчитанная по
+ * фактически сделанным прогнозам.
+ */
+export interface ForecastAccuracy {
+  checked: number;
+  meanError: number | null;
+  hitRate: number | null;
+  tolerance: number;
+  baselineError: number | null;
+}
+
+export interface CheckedForecast {
+  sessionId: string;
+  fio: string;
+  predicted: number;
+  actual: number;
+  basis: number;
+  trained: boolean;
+  madeAt: string;
+  checkedAt: string;
+}
+
+export interface MyForecast {
+  sessionId: string;
+  predicted: number;
+  actual: number | null;
+  basis: number;
+  trained: boolean;
+  features: {
+    contributions?: { label: string; points: number }[];
+    intercept?: number;
+  };
+  madeAt: string;
+}
+
+export interface SettingRow {
+  key: string;
+  value: number;
+  title: string;
+  hint: string;
+}
+
+export const forecast = {
+  group: (id: string) =>
+    api.get<{ accuracy: ForecastAccuracy; checked: CheckedForecast[] }>(
+      `/api/forecast/group/${id}`),
+  mine: () => api.get<MyForecast[]>('/api/forecast/me'),
+  settings: () => api.get<SettingRow[]>('/api/settings'),
+  setSetting: (key: string, value: number) =>
+    api.patch<SettingRow>(`/api/settings/${key}`, { value }),
+};
+
 export const sessions = {
   create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112') =>
     api.post<{ session: TrainingSession; card: Card; scenario: ScenarioPublic }>(

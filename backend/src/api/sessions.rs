@@ -270,6 +270,26 @@ async fn create(
 
     tx.commit().await?;
 
+    // Прогноз фиксируется здесь и больше не меняется. Записать его
+    // после — значит подогнать под факт, и проверка потеряет смысл.
+    // Если истории мало, прогноза просто нет: врать про точность
+    // на трёх занятиях хуже, чем промолчать
+    let group_no: Option<i32> = sqlx::query_scalar(
+        "SELECT t.group_no FROM incident_types t
+          WHERE t.id = (SELECT expected->'typeIds'->>0 FROM scenarios WHERE id = $1)",
+    )
+    .bind(sid)
+    .fetch_optional(&state.db)
+    .await?
+    .flatten();
+
+    if let Err(e) =
+        crate::reports::forecast::record(&state.db, user.id, session_id, group_no).await
+    {
+        // Прогноз — надстройка: без него занятие проходит как обычно
+        tracing::warn!(session = %session_id, error = %e, "прогноз не записан");
+    }
+
     let session: SessionView = load_session_view(&state.db, session_id).await?;
     let card = load_card(&state.db, card_id).await?;
 
@@ -610,6 +630,12 @@ async fn save(
     })
     .await?;
     grade::store(&state.db, id, &g).await?;
+
+    // Факт проставляется один раз и только после разбора — это
+    // вторая половина проверки прогноза
+    if let Err(e) = crate::reports::forecast::check(&state.db, id, g.score).await {
+        tracing::warn!(session = %id, error = %e, "прогноз не сверен с фактом");
+    }
 
     let card = load_card(&state.db, card_id).await?;
 
