@@ -8,6 +8,7 @@ import { DebriefPage } from '@/pages/debrief/DebriefPage';
 import { AdminPage } from '@/pages/admin/AdminPage';
 import { AnalyticsPage } from '@/pages/analytics/AnalyticsPage';
 import { ScenariosPage } from '@/pages/scenarios/ScenariosPage';
+import { LessonsPage } from '@/pages/lessons/LessonsPage';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 
@@ -39,6 +40,7 @@ export const App = () => {
       <Route path="/admin" element={<Private><AdminPage /></Private>} />
       <Route path="/analytics" element={<Private><AnalyticsPage /></Private>} />
       <Route path="/scenarios" element={<Private><ScenariosPage /></Private>} />
+      <Route path="/lessons" element={<Private><LessonsPage /></Private>} />
     </Routes>
   );
 };

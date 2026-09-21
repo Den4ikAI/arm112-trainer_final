@@ -241,13 +241,32 @@ async fn чужая_задача_не_видна() {
 }
 
 /// Курсант в своей группе состоит и должен её видеть; чужих — нет.
+///
+/// Сверяем с членством в базе, а не с названием группы: раньше
+/// проверка требовала, чтобы все названия содержали «УМЦ», и ломалась
+/// от любой группы, заведённой соседним тестом.
 #[tokio::test]
 async fn курсант_видит_только_свои_группы() {
-    let Some((app, _)) = app().await else { return };
+    let Some((app, pool)) = app().await else { return };
 
     let student = token(&app, "student1").await;
     let (status, groups) = call(&app, Method::GET, "/api/groups", Some(&student), None).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(groups.as_array().unwrap().iter()
-        .all(|g| g["title"].as_str().unwrap().contains("УМЦ")));
+
+    let свои: Vec<String> = sqlx::query_scalar(
+        "SELECT g.id::text FROM training_groups g
+           JOIN group_members m ON m.group_id = g.id
+           JOIN users u ON u.id = m.user_id
+          WHERE u.login = 'student1'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert!(!свои.is_empty(), "курсант должен состоять хотя бы в одной группе");
+    for g in groups.as_array().unwrap() {
+        let id = g["id"].as_str().unwrap();
+        assert!(свои.contains(&id.to_string()),
+                "показана чужая группа {}", g["title"]);
+    }
 }

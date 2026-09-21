@@ -33,6 +33,8 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
           преподавателя не пустит */}
       {!compact && user.role !== 'student' && (
         <>
+          <button className={s.link} data-testid="lessons-link"
+                  onClick={() => nav('/lessons')}>занятия</button>
           <button className={s.link} data-testid="scenarios-link"
                   onClick={() => nav('/scenarios')}>вызовы</button>
           <button className={s.link} data-testid="analytics-link"

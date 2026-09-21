@@ -64,6 +64,51 @@ export const scenarios = {
   remove: (id: string) => api.del<void>(`/api/scenarios/${id}`),
 };
 
+/**
+ * Занятие, которым управляет преподаватель.
+ *
+ * Осторожно с терминами: в ТЗ «занятие» — это то, что ведёт
+ * преподаватель, а один отработанный вызов у нас называется
+ * `session`. Здесь `lesson` — занятие, `session` — вызов.
+ */
+export interface LessonBrief {
+  id: string;
+  title: string;
+  groupId: string;
+  groupTitle: string;
+  mode: 'card112' | 'dds';
+  source: 'generated' | 'by_students' | 'mixed';
+  typeIds: string[];
+  startedAt: string | null;
+  finishedAt: string | null;
+  members: number;
+  items: number;
+}
+
+export interface LessonProgress {
+  userId: string;
+  fio: string;
+  started: number;
+  graded: number;
+  avgScore: number | null;
+}
+
+export type LessonFull = LessonBrief & { progress: LessonProgress[] };
+
+export const lessons = {
+  list: () => api.get<LessonBrief[]>('/api/lessons'),
+  one: (id: string) => api.get<LessonFull>(`/api/lessons/${id}`),
+  create: (body: {
+    groupId: string; title: string;
+    mode: 'card112' | 'dds';
+    typeIds?: string[];
+    source?: 'generated' | 'by_students' | 'mixed';
+  }) => api.post<LessonBrief>('/api/lessons', body),
+  start: (id: string) => api.post<LessonFull>(`/api/lessons/${id}/start`),
+  finish: (id: string) => api.post<LessonFull>(`/api/lessons/${id}/finish`),
+  remove: (id: string) => api.del<void>(`/api/lessons/${id}`),
+};
+
 export const sessions = {
   create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112') =>
     api.post<{ session: TrainingSession; card: Card; scenario: ScenarioPublic }>(

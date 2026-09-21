@@ -141,15 +141,31 @@ async fn list_scenarios(
     // Черновики видит только тот, кто их выверяет
     let drafts = user.role != crate::api::auth::Role::Student;
 
+    // Пока по группе курсанта идёт занятие, он видит только его
+    // вызовы: тему выбирает преподаватель, а не курсант.
+    // Вне занятия список открыт — иначе тренажёром нельзя
+    // пользоваться для самостоятельной отработки
     let items: Vec<ScenarioBrief> = sqlx::query_as(
         "SELECT s.id, s.ticket, s.call_no, s.legend, s.norm_sec,
                 (SELECT count(*) FROM scenario_hidden_facts f
                   WHERE f.scenario_id = s.id AND NOT f.retired) AS questions_count
            FROM scenarios s
-          WHERE s.status = 'approved' OR $1
+          WHERE (s.status = 'approved' OR $1)
+            AND (NOT EXISTS (
+                     SELECT 1 FROM lessons l
+                      JOIN group_members m ON m.group_id = l.group_id
+                      WHERE m.user_id = $2
+                        AND l.mode = 'card112'
+                        AND l.started_at IS NOT NULL AND l.finished_at IS NULL)
+                 OR EXISTS (
+                     SELECT 1 FROM assignments a
+                      JOIN lessons l ON l.id = a.lesson_id
+                      WHERE a.scenario_id = s.id AND a.user_id = $2
+                        AND l.started_at IS NOT NULL AND l.finished_at IS NULL))
           ORDER BY s.ticket NULLS LAST, s.call_no NULLS LAST",
     )
     .bind(drafts)
+    .bind(user.id)
     .fetch_all(&state.db)
     .await?;
 

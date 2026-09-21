@@ -1,0 +1,145 @@
+@use '@styles/mixins' as m;
+
+.page { min-height: 100%; padding: var(--sp-4); background: var(--c-shell); }
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.title { margin: 0; font-size: 20px; font-weight: 600; }
+.subtitle { margin: 0 0 var(--sp-2); font-size: 14px; font-weight: 600; }
+
+/* Сборка и список слева, ход занятия справа: преподаватель держит
+   на виду и то, что запускает, и то, что уже идёт */
+.cols {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: start;
+}
+
+.left, .right { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+.new, .card {
+  padding: var(--sp-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: var(--sp-2);
+  font-size: 13px;
+
+  input, select { @include m.underline-input; }
+}
+
+.types {
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--c-border);
+  font-size: 13px;
+
+  legend { padding: 0 4px; font-weight: 600; }
+}
+
+/* Категорий два десятка — список прокручивается, а не растягивает
+   форму на весь экран */
+.types { max-height: 220px; overflow-y: auto; @include m.thin-scroll; }
+
+.type {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.hint { margin: var(--sp-2) 0 0; color: var(--c-text-muted); font-size: 12px; }
+
+.list { margin: 0; padding: 0; list-style: none; }
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--sp-2);
+  border: 1px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { background: var(--c-surface-2); }
+}
+
+.active { border-color: var(--c-blue); background: var(--c-surface-2); }
+
+/* Идущее занятие видно сразу: преподаватель обычно открывает
+   страницу именно ради него */
+.running .itemTitle::before {
+  content: '●';
+  margin-right: 6px;
+  color: var(--c-ok, #2e7d32);
+}
+
+.itemTitle { font-size: 13px; font-weight: 600; }
+.itemMeta { color: var(--c-text-muted); font-size: 12px; }
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+
+  dt { color: var(--c-text-muted); font-size: 12px; }
+  dd { margin: 2px 0 0; font-size: 13px; }
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+.primary {
+  @include m.button;
+  border-color: var(--c-blue);
+  background: var(--c-blue);
+  color: #fff;
+}
+
+.danger {
+  @include m.button;
+  border-color: var(--c-danger);
+  color: var(--c-danger);
+}
+
+.ghost { @include m.button; }
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--c-border); text-align: left; }
+  th { color: var(--c-text-muted); font-weight: 600; }
+  td:not(:first-child), th:not(:first-child) { text-align: right; }
+}
+
+.error {
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  font-size: 13px;
+}
+
+.empty { color: var(--c-text-muted); font-size: 13px; }
+
+@media (max-width: 1000px) {
+  .cols { grid-template-columns: 1fr; }
+}

@@ -561,3 +561,55 @@ test.describe('Адаптивность', () => {
     expect(overflow).toBeLessThanOrEqual(1);
   });
 });
+
+test.describe('Занятия', () => {
+  /**
+   * ТЗ §10, оба сценария «Проведение практического занятия»:
+   * преподаватель выбирает тему, запускает обучение, следит за ходом
+   * и завершает в любой момент.
+   *
+   * Осторожно с терминами: «занятие» здесь — то, что ведёт
+   * преподаватель, а не один отработанный курсантом вызов.
+   */
+  test('преподаватель собирает, запускает и завершает занятие', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('lessons-link').click();
+
+    const тема = `Проверка ${Date.now()}`;
+    await page.getByTestId('lesson-title').fill(тема);
+    await page.getByTestId('lesson-create').click();
+
+    await expect(page.getByTestId('lesson-current')).toHaveText(тема);
+    await expect(page.getByTestId('lesson-state')).toHaveText('собрано');
+
+    await page.getByTestId('lesson-start').click();
+    await expect(page.getByTestId('lesson-state')).toHaveText('идёт');
+    // Ход занятия показывается по каждому курсанту группы
+    await expect(page.getByTestId('lesson-progress')).toBeVisible();
+
+    await page.getByTestId('lesson-finish').click();
+    await expect(page.getByTestId('lesson-state')).toHaveText('завершено');
+  });
+
+  test('пустое занятие не запускается и объясняет причину', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('lessons-link').click();
+
+    await page.getByTestId('lesson-title').fill(`Нет такой темы ${Date.now()}`);
+    // Отмечаем категорию, по которой утверждённых вызовов заведомо нет
+    const категории = page.locator('fieldset input[type=checkbox]');
+    await категории.last().check();
+    await page.getByTestId('lesson-create').click();
+
+    await page.getByTestId('lesson-start').click();
+    await expect(page.getByRole('alert')).toContainText('не нашлось');
+    await expect(page.getByTestId('lesson-state')).toHaveText('собрано');
+  });
+
+  test('курсанту раздел не показывается', async ({ page }, info) => {
+    await login(page, info, 'student1');
+    await expect(page.getByTestId('lessons-link')).toHaveCount(0);
+    await go(page, info, '/lessons');
+    await expect(page.getByText('доступен преподавателю и администратору')).toBeVisible();
+  });
+});
