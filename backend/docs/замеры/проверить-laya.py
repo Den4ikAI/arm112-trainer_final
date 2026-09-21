@@ -21,7 +21,11 @@ s = u.spec_from_file_location("набор", "/media/denis/work4/llm/набор-�
 from laya import Router
 
 
+ТЕМАМИ = "--темы" in sys.argv
+
+
 def главное() -> int:
+    print(f"описания вариантов: {'короткие темы' if ТЕМАМИ else 'вопросы целиком'}")
     print("поднимаю Laya…", flush=True)
     t0 = time.time()
     router = Router(preload=True)
@@ -36,11 +40,16 @@ def главное() -> int:
 
     for название, факты, проверки in набор.НАБОРЫ:
         print(f"══ {название} ({len(факты)} вариантов)")
+        # Как и у остальных, пробуем два вида описаний: вопрос целиком
+        # и короткую тему. Laya в примере из карточки ждёт описание
+        # вида «invoices, payments, refunds» — то есть тему, не вопрос
+        описания = ({к: набор.ТЕМЫ[к] for к in факты} if ТЕМАМИ
+                    else {к: т for к, т in факты.items()})
         вопросы = {
             "факт": {
                 "type": "choice",
-                "instructions": "Про какой из этих вопросов спрашивает оператор?",
-                "criteria": {ключ: текст for ключ, текст in факты.items()},
+                "instructions": "Про что спрашивает оператор?",
+                "criteria": описания,
             }
         }
 
