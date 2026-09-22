@@ -109,6 +109,26 @@ async fn list(
     let offset = q.page.max(0) * size;
     let pattern = q.q.as_ref().map(|s| format!("%{}%", s.trim().to_lowercase()));
 
+    // Пока по группе курсанта идёт занятие в режиме ДДС, в его ленте
+    // только карточки этого занятия: материал выбирает преподаватель.
+    // Раньше карточки раскладывались в `lesson_cards`, но лента их не
+    // учитывала, и занятие на экран курсанта никак не влияло
+    let lesson: Option<Uuid> = if user.role == Role::Student {
+        sqlx::query_scalar(
+            "SELECT l.id FROM lessons l
+               JOIN group_members m ON m.group_id = l.group_id
+              WHERE m.user_id = $1 AND l.mode = 'dds'
+                AND l.started_at IS NOT NULL AND l.finished_at IS NULL
+              ORDER BY l.started_at DESC
+              LIMIT 1",
+        )
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await?
+    } else {
+        None
+    };
+
     // Незаполненная карточка в журнале не нужна: она ещё пишется
     let sql = "
         SELECT c.id, c.number, c.created_at, c.saved_at, c.address, c.description,
@@ -128,6 +148,8 @@ async fn list(
            AND ($4::text IS NULL OR lower(c.number) LIKE $4
                 OR lower(c.description) LIKE $4
                 OR lower(c.address::text) LIKE $4)
+           AND ($7::uuid IS NULL OR c.id IN (
+                 SELECT card_id FROM lesson_cards WHERE lesson_id = $7))
          ORDER BY c.saved_at DESC
          LIMIT $5 OFFSET $6";
 
@@ -141,6 +163,7 @@ async fn list(
         .bind(&pattern)
         .bind(size)
         .bind(offset)
+        .bind(lesson)
         .fetch_all(&state.db)
         .await?;
 
@@ -154,12 +177,15 @@ async fn list(
             AND ($3::text IS NULL OR c.status::text = $3)
             AND ($4::text IS NULL OR lower(c.number) LIKE $4
                  OR lower(c.description) LIKE $4
-                 OR lower(c.address::text) LIKE $4)",
+                 OR lower(c.address::text) LIKE $4)
+            AND ($5::uuid IS NULL OR c.id IN (
+                  SELECT card_id FROM lesson_cards WHERE lesson_id = $5))",
     )
     .bind(&service_filter)
     .bind(own_filter)
     .bind(&q.status)
     .bind(&pattern)
+    .bind(lesson)
     .fetch_one(&state.db)
     .await?;
 
@@ -288,7 +314,7 @@ pub struct NewResponse {
         ("id" = String, Path, description = "Идентификатор карточки"),
     ),
     responses(
-        (status = 200, description = "Проставить статус реагирования", body = ResponseEntry),
+        (status = 201, description = "Статус проставлен", body = ResponseEntry),
         (status = 401, description = "Требуется вход"),
         (status = 403, description = "Недостаточно прав"),
     ),

@@ -66,16 +66,20 @@ pub struct LessonBrief {
 }
 
 /// Ход занятия по каждому курсанту.
+///
+/// Смысл полей зависит от режима. В приёме вызова это вызовы и их
+/// разбор. В режиме ДДС разбора нет — там карточки, за которые курсант
+/// взялся, и те, где его служба довела работу до конца.
 #[derive(Debug, Serialize, utoipa::ToSchema, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub user_id: Uuid,
     pub fio: String,
-    /// Сколько вызовов начато
+    /// Вызовов начато / карточек взято в работу
     pub started: i64,
-    /// Сколько доведено до разбора
+    /// Вызовов доведено до разбора / карточек, где служба закончила
     pub graded: i64,
-    /// Средний балл по завершённым, если они есть
+    /// Средний балл по разобранным вызовам. В режиме ДДС его нет
     pub avg_score: Option<f64>,
 }
 
@@ -209,17 +213,21 @@ pub async fn start(
     let роздано = if mode == "card112" {
         раздать_вызовы(&state.db, id, group_id, &type_ids).await?
     } else {
-        раздать_карточки(&state.db, id, &type_ids, &source).await?
+        раздать_карточки(&state.db, id, group_id, &type_ids, &source).await?
     };
 
     // Пустое занятие запускать бессмысленно: курсанты увидят
     // пустой экран и решат, что сломалось
     if роздано == 0 {
-        return Err(AppError::Validation(
+        let причина = if mode == "card112" {
             "по выбранным категориям не нашлось ни одного утверждённого вызова: \
              подготовьте их или выберите другие категории"
-                .into(),
-        ));
+        } else {
+            "не нашлось карточек, которые касались бы служб этой группы и ещё \
+             ждали бы работы: проведите сначала занятие по приёму вызовов \
+             или выберите другие категории"
+        };
+        return Err(AppError::Validation(причина.into()));
     }
 
     sqlx::query("UPDATE lessons SET started_at = now() WHERE id = $1")
@@ -306,15 +314,31 @@ async fn раздать_вызовы(
     Ok(if участники.is_empty() { вызовы.len() as i64 } else { роздано })
 }
 
+/// Статусы, которыми служба заканчивает работу по карточке.
+/// Карточка, где служба уже отработала, как материал занятия бесполезна.
+const ЗАКРЫВАЮЩИЕ: &str = "'Работы завершены', 'Отказ от выполнения работ', 'Не принята'";
+
+/// Сколько карточек достаётся одной службе группы.
+const НА_СЛУЖБУ: i64 = 5;
+
 /// Набрать карточки для работы со статусами реагирования.
+///
+/// Берём только карточки, которые касаются служб самой группы и где
+/// эта служба ещё не отработала. Раньше брались двадцать последних
+/// карточек вообще: диспетчер Мослифта получал пожары, которых не
+/// увидит в своей ленте, а закрытые карточки — работу, которой нет.
+///
+/// Каждой службе — до пяти карточек, в случайном порядке: ТЗ (§10)
+/// говорит о «формировании системой случайной карточки события».
 async fn раздать_карточки(
     pool: &sqlx::PgPool,
     lesson_id: Uuid,
+    group_id: Uuid,
     type_ids: &[String],
     source: &str,
 ) -> AppResult<i64> {
     // «Сформированные обучающимися» — те, что заполнены в занятиях
-    // по карточке 112; «созданные системой» — посеянные без занятия
+    // по карточке 112; «созданные системой» — заведённые без занятия
     let условие = match source {
         "by_students" => "c.session_id IS NOT NULL",
         "generated" => "c.session_id IS NULL",
@@ -323,17 +347,32 @@ async fn раздать_карточки(
 
     let запрос = format!(
         "INSERT INTO lesson_cards (lesson_id, card_id)
-         SELECT $1, c.id FROM cards c
-          WHERE c.saved_at IS NOT NULL
-            AND {условие}
-            AND ($2::text[] = '{{}}' OR c.type_ids && $2)
-          ORDER BY c.created_at DESC LIMIT 20
+         SELECT DISTINCT $1::uuid, card_id FROM (
+             SELECT cs.card_id,
+                    row_number() OVER (PARTITION BY cs.service_id ORDER BY random()) AS n
+               FROM card_services cs
+               JOIN cards c ON c.id = cs.card_id
+              WHERE c.saved_at IS NOT NULL
+                AND {условие}
+                AND ($2::text[] = '{{}}' OR c.type_ids && $2)
+                AND cs.service_id IN (
+                      SELECT u.service_id FROM users u
+                        JOIN group_members m ON m.user_id = u.id
+                       WHERE m.group_id = $3 AND u.service_id IS NOT NULL)
+                AND NOT EXISTS (
+                      SELECT 1 FROM response_entries r
+                       WHERE r.card_id = c.id AND r.service_id = cs.service_id
+                         AND r.status::text IN ({ЗАКРЫВАЮЩИЕ}))
+         ) t
+         WHERE n <= $4
          ON CONFLICT DO NOTHING"
     );
 
     let роздано = sqlx::query(&запрос)
         .bind(lesson_id)
         .bind(type_ids)
+        .bind(group_id)
+        .bind(НА_СЛУЖБУ)
         .execute(pool)
         .await?
         .rows_affected();
@@ -472,6 +511,10 @@ async fn карточка(pool: &sqlx::PgPool, id: Uuid) -> AppResult<LessonBrie
 async fn полностью(pool: &sqlx::PgPool, id: Uuid) -> AppResult<LessonFull> {
     let lesson = карточка(pool, id).await?;
 
+    if lesson.mode == "dds" {
+        return Ok(LessonFull { progress: ход_ддс(pool, id).await?, lesson });
+    }
+
     // Ход занятия: кто сколько начал и довёл до разбора. Считаем по
     // заданиям занятия, а не по всем вызовам курсанта
     let progress: Vec<Progress> = sqlx::query_as(
@@ -493,6 +536,33 @@ async fn полностью(pool: &sqlx::PgPool, id: Uuid) -> AppResult<LessonFu
     .await?;
 
     Ok(LessonFull { lesson, progress })
+}
+
+/// Ход занятия ДДС: статусы, которые курсант проставил по карточкам
+/// занятия, пока оно шло.
+///
+/// Раньше ход считался по заданиям и в этом режиме был пуст всегда:
+/// у занятия ДДС заданий нет, материал — общий набор карточек.
+async fn ход_ддс(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Vec<Progress>> {
+    let запрос = format!(
+        "SELECT u.id AS user_id, u.fio,
+                count(DISTINCT r.card_id) AS started,
+                count(DISTINCT r.card_id)
+                    FILTER (WHERE r.status::text IN ({ЗАКРЫВАЮЩИЕ})) AS graded,
+                NULL::float8 AS avg_score
+           FROM group_members m
+           JOIN users u ON u.id = m.user_id
+           JOIN lessons l ON l.id = $1
+           LEFT JOIN response_entries r
+                  ON r.user_id = u.id
+                 AND r.card_id IN (SELECT card_id FROM lesson_cards WHERE lesson_id = $1)
+                 AND r.at >= l.started_at
+                 AND r.at <= COALESCE(l.finished_at, now())
+          WHERE m.group_id = l.group_id
+          GROUP BY u.id, u.fio
+          ORDER BY u.fio"
+    );
+    Ok(sqlx::query_as(&запрос).bind(id).fetch_all(pool).await?)
 }
 
 #[utoipa::path(

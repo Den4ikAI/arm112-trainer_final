@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { go, login, launchTicket3, fillFireCard, ageCard, USERS } from './helpers';
+import { go, login, launchTicket3, fillFireCard, ageCard, USERS, PASSWORD } from './helpers';
 
 /**
  * Прогон против живого сервера: классификатор, оценка и машина статусов
@@ -193,6 +193,52 @@ test.describe('Режим ДДС', () => {
       await login(page, info, USERS.lift);
       await expect(page.getByTestId(`journal-row-${number}`)).toHaveCount(0);
     });
+
+  /**
+   * Занятие в режиме ДДС: пока оно идёт, в ленте курсанта только его
+   * карточки, и курсант видит, почему.
+   *
+   * Занятие ограничивает ленту всей группы, поэтому завершаем его
+   * в `finally`: упавший на середине тест иначе оставил бы его идущим,
+   * и следующие сценарии падали бы по чужой причине.
+   */
+  test('занятие ДДС ограничивает ленту и говорит об этом', async ({ page }, info) => {
+    await createFireCard(page, info);
+
+    await login(page, info, 'teacher1');
+    await go(page, info, '/lessons');
+    await page.getByTestId('lesson-group')
+      .selectOption({ label: 'УМЦ-1, поток сентябрь 2026' });
+    await page.getByTestId('lesson-title').fill(`Статусы ${Date.now()}`);
+    await page.getByTestId('lesson-mode').selectOption('dds');
+    await page.getByTestId('lesson-create').click();
+    await page.getByTestId('lesson-start').click();
+    await expect(page.getByTestId('lesson-state')).toHaveText('идёт');
+    await expect(page.getByTestId('lesson-progress')).toContainText('Взял в работу');
+
+    try {
+      await login(page, info, USERS.mchs);
+      await expect(page.getByTestId('lesson-banner'))
+        .toContainText('только карточки занятия');
+      // Свежая карточка пожара касается МЧС, значит материал у службы есть
+      await expect(page.locator('[data-testid^="journal-row-"]').first()).toBeVisible();
+    } finally {
+      const вход = await page.request.post('/api/auth/login',
+        { data: { login: 'teacher1', password: PASSWORD } });
+      const { token } = await вход.json();
+      const заголовки = { authorization: `Bearer ${token}` };
+      const список = await (await page.request.get('/api/lessons',
+        { headers: заголовки })).json() as { id: string; startedAt: string | null;
+                                             finishedAt: string | null }[];
+      for (const l of список.filter((x) => x.startedAt && !x.finishedAt)) {
+        await page.request.post(`/api/lessons/${l.id}/finish`, { headers: заголовки });
+      }
+    }
+
+    // После завершения лента снова обычная
+    await login(page, info, USERS.mchs);
+    await expect(page.getByTestId('lesson-banner')).toHaveCount(0);
+  });
 
   test('статусы проставляются последовательно и проверяются сервером',
     async ({ page }, info) => {

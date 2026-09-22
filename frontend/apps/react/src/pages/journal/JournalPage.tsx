@@ -3,8 +3,8 @@ import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTa
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
-import { ApiError, cards, channel, scenarios as scenariosApi,
-         type CardBrief, type ScenarioBrief } from '@/shared/api';
+import { ApiError, cards, channel, lessons, scenarios as scenariosApi,
+         type CardBrief, type LessonBrief, type ScenarioBrief } from '@/shared/api';
 import { useNavigate } from 'react-router-dom';
 import { useClock } from '@/shared/lib/useClock';
 import s from './JournalPage.module.scss';
@@ -44,6 +44,9 @@ export const JournalPage = () => {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<JournalRow[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioBrief[]>([]);
+  // Идущее занятие по группе курсанта. Пока оно идёт, и список вызовов,
+  // и лента ограничены его материалом — курсант должен понимать почему
+  const [lesson, setLesson] = useState<LessonBrief | null>(null);
   const [error, setError] = useState<string | null>(null);
   const start = useTraining((st) => st.start);
   const user = useSession((st) => st.user);
@@ -69,6 +72,12 @@ export const JournalPage = () => {
 
       if (feed.status === 'fulfilled') setRows(feed.value.items.map(toRow));
       if (list.status === 'fulfilled') setScenarios(list.value);
+
+      // Занятие — надстройка: не узнали о нём, и экран работает как обычно
+      if (user?.role === 'student') {
+        const идущие = await lessons.list().catch(() => [] as LessonBrief[]);
+        if (alive) setLesson(идущие[0] ?? null);
+      }
 
       // Говорим, что именно не открылось, а не «что-то сломалось»
       const беда = (r: PromiseSettledResult<unknown>) =>
@@ -166,6 +175,14 @@ export const JournalPage = () => {
       </section>
 
       {error && <div className={s.error} role="status">{error}</div>}
+      {lesson && (
+        <div className={s.lesson} role="status" data-testid="lesson-banner">
+          Идёт занятие «{lesson.title}».{' '}
+          {lesson.mode === 'dds'
+            ? 'В журнале только карточки занятия, касающиеся вашей службы.'
+            : 'В списке учебных вызовов только вызовы занятия.'}
+        </div>
+      )}
 
       <JournalTable rows={rows} />
     </div>

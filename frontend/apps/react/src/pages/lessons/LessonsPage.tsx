@@ -232,7 +232,8 @@ export const LessonsPage = () => {
                   <div><dt>Состояние</dt>
                        <dd data-testid="lesson-state">{состояние(current)}</dd></div>
                   <div><dt>Курсантов</dt><dd>{current.members}</dd></div>
-                  <div><dt>Роздано</dt><dd>{current.items}</dd></div>
+                  <div><dt>{current.mode === 'dds' ? 'Карточек в наборе' : 'Роздано вызовов'}</dt>
+                       <dd>{current.items}</dd></div>
                 </dl>
 
                 <div className={s.actions}>
@@ -273,7 +274,15 @@ export const LessonsPage = () => {
                 {current.progress.length > 0 && (
                   <table className={s.table} data-testid="lesson-progress">
                     <thead>
-                      <tr><th>Курсант</th><th>Взято</th><th>Разобрано</th><th>Средний балл</th></tr>
+                      {/* В режиме ДДС разбора нет: курсант берёт карточки
+                          и доводит работу своей службы до конца */}
+                      {current.mode === 'dds' ? (
+                        <tr><th>Курсант</th><th>Взял в работу</th>
+                            <th>Довёл до конца</th><th>Средний балл</th></tr>
+                      ) : (
+                        <tr><th>Курсант</th><th>Взял вызовов</th>
+                            <th>Разобрано</th><th>Средний балл</th></tr>
+                      )}
                     </thead>
                     <tbody>
                       {current.progress.map((p) => (
