@@ -1,0 +1,20 @@
+# Контекст сборки — корень репозитория, поэтому отсекаем всё тяжёлое
+# и лишнее. Без этого в контекст уезжали бы гигабайты: собранный
+# backend/target, node_modules и рабочие копии .claude/worktrees
+# с их собственными target.
+.git
+.claude
+**/target
+**/node_modules
+**/dist
+
+# Материалы, которые в образ не нужны и частью не публикуются
+refs
+transcript
+frontend/e2e
+frontend/screenshots
+*.gguf
+*.zip
+
+# Секреты стенда
+**/.env

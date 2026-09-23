@@ -1,0 +1,105 @@
+# Тренажёр оператора 112 и диспетчера ДДС: весь стенд одним файлом.
+#
+#   web     nginx: статика клиента, прокси /api и /ws    наружу: WEB_PORT
+#   backend сервер тренажёра (Rust)                      только внутри
+#   db      PostgreSQL 16                                только внутри
+#   model   llama.cpp + GigaChat 3.1 с MTP (профиль model) только внутри
+#
+# Поднимать через deploy/up.sh: он генерирует секреты при первом запуске
+# и сам решает, включать ли модель — по наличию файла весов.
+#
+# restart: unless-stopped у всех — стенд должен пережить перезагрузку ВМ
+# и несколько дней экспертизы без участия человека.
+
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-arm112}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?задайте DB_PASSWORD в deploy/.env или запустите deploy/up.sh}
+      POSTGRES_DB: ${DB_NAME:-arm112}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build:
+      context: ..
+      dockerfile: deploy/backend.Dockerfile
+    image: arm112-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-arm112}:${DB_PASSWORD}@db:5432/${DB_NAME:-arm112}
+      JWT_SECRET: ${JWT_SECRET:?задайте JWT_SECRET в deploy/.env или запустите deploy/up.sh}
+      JWT_TTL_HOURS: ${JWT_TTL_HOURS:-8}
+      # up.sh ставит http, если файл модели на месте, иначе mock. На mock
+      # классификация, оценка и весь интерфейс работают полностью —
+      # нет только ответов модели при подготовке и правке вызовов
+      ML_PROVIDER: ${ML_PROVIDER:-mock}
+      ML_BASE_URL: http://model:8090
+      ML_MODEL: local
+      # ТЗ: резервное копирование не реже раза в сутки
+      BACKUP_DIR: /backups
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - backups:/backups
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/admin/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # При первом запуске импортируется классификатор — это до минуты
+      start_period: 120s
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+    image: arm112-web
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # Модель поднимается только с профилем model — его включает up.sh,
+  # когда находит файл весов. Сервер от неё при старте не зависит:
+  # пока модель загружается, работает всё, кроме ответов модели
+  model:
+    profiles: ["model"]
+    build:
+      context: ..
+      dockerfile: deploy/model.Dockerfile
+    image: arm112-model
+    restart: unless-stopped
+    environment:
+      MODEL_FILE: ${MODEL_FILE:-full-mtp-q4_K_M.gguf}
+      MODEL_THREADS: ${MODEL_THREADS:-6}
+      MODEL_CTX: ${MODEL_CTX:-8192}
+    volumes:
+      - ${MODEL_DIR:-/opt/arm112/model}:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8090/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 180s
+
+volumes:
+  db-data:
+  backups:
