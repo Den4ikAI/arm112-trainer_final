@@ -7,6 +7,7 @@
 //! и держать HTTP-соединение всё это время незачем: эндпоинт отдаёт
 //! `202` с номером задачи, клиент опрашивает `/api/jobs/:id`.
 
+pub mod advice;
 pub mod csv;
 pub mod forecast;
 pub mod group;

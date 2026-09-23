@@ -1,6 +1,7 @@
 //! Доменная логика: классификация, статусы, оценка.
 
 pub mod applicant;
+pub mod advice;
 pub mod card_status;
 pub mod classify;
 pub mod forecast;

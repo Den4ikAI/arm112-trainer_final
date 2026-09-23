@@ -165,6 +165,53 @@ export const forecast = {
     api.patch<SettingRow>(`/api/settings/${key}`, { value }),
 };
 
+/**
+ * Рекомендации курсанту и проверка того, сработали ли они.
+ *
+ * Критерий ТЗ — «проверка рекомендаций сервиса и реальных
+ * рекомендаций». Рекомендация фиксируется с временем, вердикт ставит
+ * первый следующий разбор, где у ошибки была возможность повториться.
+ */
+export interface Advice {
+  id: string;
+  text: string;
+  field: string;
+  kind: 'guessed' | 'wrong' | 'missing' | 'extra';
+  label: string;
+  occurrences: number;
+  windowSize: number;
+  madeAt: string;
+  /** Разбор, после которого выдана */
+  sourceSessionId: string;
+  /** Разбор, которым проверена; null — ещё не проверена */
+  checkSessionId: string | null;
+  worked: boolean | null;
+  checkedAt: string | null;
+}
+
+export interface AdviceEfficacy {
+  checked: number;
+  worked: number;
+  rate: number | null;
+  baselineChecked: number;
+  baselineRate: number | null;
+  tooFew: boolean;
+}
+
+export interface CheckedAdvice {
+  fio: string;
+  text: string;
+  worked: boolean;
+  madeAt: string;
+  checkedAt: string;
+}
+
+export const advice = {
+  mine: () => api.get<Advice[]>('/api/advice/me'),
+  group: (id: string) =>
+    api.get<{ efficacy: AdviceEfficacy; recent: CheckedAdvice[] }>(`/api/advice/group/${id}`),
+};
+
 export const sessions = {
   create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112') =>
     api.post<{ session: TrainingSession; card: Card; scenario: ScenarioPublic }>(

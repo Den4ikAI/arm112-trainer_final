@@ -8,9 +8,9 @@
 use crate::{
     api::auth::{AuthUser, Role},
     audit,
-    domain::forecast::Accuracy,
+    domain::{advice::Efficacy, forecast::Accuracy},
     error::{AppError, AppResult},
-    reports::forecast,
+    reports::{advice, forecast},
     state::AppState,
 };
 use axum::{
@@ -26,6 +26,8 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/forecast/group/{id}", get(group))
         .route("/api/forecast/me", get(mine))
+        .route("/api/advice/me", get(my_advice))
+        .route("/api/advice/group/{id}", get(group_advice))
         .route("/api/settings", get(settings))
         .route("/api/settings/{key}", patch(set_setting))
 }
@@ -99,6 +101,54 @@ pub async fn mine(
     Ok(Json(rows))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/advice/me",
+    tag = "Прогноз",
+    responses(
+        (status = 200, description = "Свои рекомендации: выданные и проверенные", body = Vec<advice::AdviceView>),
+        (status = 401, description = "Требуется вход"),
+    ),
+)]
+pub async fn my_advice(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> AppResult<Json<Vec<advice::AdviceView>>> {
+    Ok(Json(advice::mine(&state.db, user.id).await.map_err(AppError::Other)?))
+}
+
+/// Насколько рекомендации работают в группе.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupAdvice {
+    pub efficacy: Efficacy,
+    /// Проверенные рекомендации: что советовали и сработало ли
+    pub recent: Vec<advice::CheckedAdvice>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/advice/group/{id}",
+    tag = "Прогноз",
+    params(("id" = String, Path, description = "Идентификатор группы")),
+    responses(
+        (status = 200, description = "Доля сработавших рекомендаций и базовая линия", body = GroupAdvice),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+pub async fn group_advice(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<GroupAdvice>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    let (efficacy, recent) = advice::group_efficacy(&state.db, id)
+        .await
+        .map_err(AppError::Other)?;
+    Ok(Json(GroupAdvice { efficacy, recent }))
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Setting {
@@ -145,6 +195,7 @@ fn предел(key: &str) -> Option<(f64, f64)> {
         "attestation.threshold" => (1.0, 100.0),
         "norm.ack_sec" => (5.0, 600.0),
         "norm.completion_hours" => (1.0, 720.0),
+        "advice.window" => (2.0, 20.0),
         _ => return None,
     })
 }

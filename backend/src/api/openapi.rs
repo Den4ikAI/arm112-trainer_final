@@ -99,6 +99,8 @@ use utoipa::{
         crate::api::lessons::finish,
         crate::api::forecast::group,
         crate::api::forecast::mine,
+        crate::api::forecast::my_advice,
+        crate::api::forecast::group_advice,
         crate::api::forecast::settings,
         crate::api::forecast::set_setting,
         crate::api::health::health,

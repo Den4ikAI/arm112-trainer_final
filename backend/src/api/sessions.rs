@@ -637,6 +637,13 @@ async fn save(
         tracing::warn!(session = %id, error = %e, "прогноз не сверен с фактом");
     }
 
+    // Рекомендации: сначала вердикт по открытым, потом новые по тому,
+    // что в этом разборе повторилось. Надстройка — без неё разбор
+    // проходит как обычно
+    if let Err(e) = crate::reports::advice::after_grade(&state.db, id).await {
+        tracing::warn!(session = %id, error = %e, "рекомендации не обновлены");
+    }
+
     let card = load_card(&state.db, card_id).await?;
 
     // Сохранение карточки — основное действие оператора, и именно его

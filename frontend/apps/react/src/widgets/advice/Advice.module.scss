@@ -1,0 +1,50 @@
+/* Цвет текста задаём явно: разбор идёт на тёмном фоне со светлым
+   текстом, и наследованный белый на белой плашке пропал бы */
+.wrap {
+  margin: var(--sp-3) 0;
+  padding: var(--sp-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+}
+
+.title { margin: 0 0 var(--sp-2); font-size: 14px; font-weight: 600; color: var(--c-text); }
+
+.list { margin: 0 0 var(--sp-2); padding: 0; list-style: none; font-size: 13px; }
+
+.item {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: var(--sp-2);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+
+.metric { display: flex; flex-direction: column; padding: var(--sp-2); background: var(--c-surface-2); }
+.value { font-size: 20px; font-weight: 600; }
+.label { color: var(--c-text-muted); font-size: 12px; }
+
+.verdict { margin: 0 0 var(--sp-2); font-size: 13px; }
+.note { margin: 0 0 var(--sp-2); color: var(--c-text-muted); font-size: 12px; }
+.empty { color: var(--c-text-muted); font-size: 13px; }
+.muted { color: var(--c-text-muted); font-size: 12px; }
+
+/* Итог читают глазами: выполнена — зелёным, нет — красным */
+.ok { color: var(--c-ok, #2e7d32); font-weight: 600; }
+.bad { color: var(--c-danger); font-weight: 600; }
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th, td { padding: 5px 8px; border-bottom: 1px solid var(--c-border); text-align: left; vertical-align: top; }
+  th { color: var(--c-text-muted); font-weight: 600; }
+}

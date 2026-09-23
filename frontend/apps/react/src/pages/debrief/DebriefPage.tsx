@@ -5,6 +5,7 @@ import type { Finding } from '@/shared/api';
 import { fmt } from '@/shared/lib/useTimer';
 import clsx from '@/shared/lib/clsx';
 import { MyForecast } from '@/widgets/forecast/MyForecast';
+import { MyAdvice } from '@/widgets/advice/MyAdvice';
 import s from './DebriefPage.module.scss';
 
 const KIND_LABEL: Record<Finding['kind'], string> = {
@@ -51,6 +52,7 @@ export const DebriefPage = () => {
       </header>
 
       {sessionId && <MyForecast sessionId={sessionId} actual={result.score} />}
+      {sessionId && <MyAdvice sessionId={sessionId} />}
 
       <div className={s.metrics}>
         <Metric label="Время заполнения" value={fmt(result.elapsedSec)}
