@@ -91,6 +91,13 @@ struct Question {
     /// Пропускать поле нельзя: клиенту пришлось бы сторожить каждое
     /// обращение, а забытая проверка роняет весь экран карточки.
     options: Vec<String>,
+    /// Вопрос, от ответа на который зависят варианты этого. У карт,
+    /// выведенных из классификатора, второй признак зависит от первого:
+    /// у ДТП одни варианты, у «ДТП пострадавшие» — другие
+    depends_on: Option<String>,
+    /// Вариант → при каких ответах на `depends_on` он показывается.
+    /// Варианта нет в словаре — показывается всегда
+    option_parents: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -103,10 +110,6 @@ struct SurveyCard {
     /// из классификатора. Фронтенд может это показывать преподавателю.
     source: &'static str,
 }
-
-/// Карты, снятые со скриншотов. Для остальных типов карта выводится
-/// из классификатора — это отдельная задача.
-const FROM_SCREENSHOT: [&str; 3] = ["101", "104", "explosion"];
 
 #[utoipa::path(
     get,
@@ -135,25 +138,26 @@ async fn survey_card(
         return Err(crate::error::AppError::NotFound);
     };
 
-    let questions: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT id, label, kind::text FROM survey_questions
+    let questions: Vec<(String, String, String, bool, Option<String>)> = sqlx::query_as(
+        "SELECT id, label, kind::text, derived, depends_on FROM survey_questions
           WHERE type_id = $1 ORDER BY sort_order",
     )
     .bind(&type_id)
     .fetch_all(&state.db)
     .await?;
 
-    // Карты нет — это не ошибка: для большинства типов она ещё
-    // не построена из классификатора. Отвечаем 204, чтобы фронтенд
-    // отличал «нет карты» от «нет такого типа».
+    // Карты нет — это не ошибка: у группы классификатора может не
+    // оказаться ни одной позиции, видимой оператору. Отвечаем 204,
+    // чтобы фронтенд отличал «нет карты» от «нет такого типа»
     if questions.is_empty() {
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
 
+    let derived = questions.iter().any(|q| q.3);
     let mut out = Vec::with_capacity(questions.len());
-    for (id, label, kind) in questions {
-        let options: Vec<String> = sqlx::query_scalar(
-            "SELECT value FROM survey_options
+    for (id, label, kind, _, depends_on) in questions {
+        let rows: Vec<(String, Option<Vec<String>>)> = sqlx::query_as(
+            "SELECT value, parents FROM survey_options
               WHERE type_id = $1 AND question_id = $2 ORDER BY sort_order",
         )
         .bind(&type_id)
@@ -161,14 +165,21 @@ async fn survey_card(
         .fetch_all(&state.db)
         .await?;
 
-        out.push(Question { id, label, kind, options });
+        let mut options = Vec::with_capacity(rows.len());
+        let mut option_parents = std::collections::BTreeMap::new();
+        for (value, parents) in rows {
+            if let Some(p) = parents {
+                option_parents.insert(value.clone(), p);
+            }
+            options.push(value);
+        }
+
+        out.push(Question { id, label, kind, options, depends_on, option_parents });
     }
 
-    let source = if FROM_SCREENSHOT.contains(&type_id.as_str()) {
-        "screenshot"
-    } else {
-        "classifier"
-    };
+    // Откуда карта: со скриншота — формулировки дословные, из
+    // классификатора — структура верная, подписи вопросов общие
+    let source = if derived { "classifier" } else { "screenshot" };
 
     Ok(Json(SurveyCard { type_id, title, questions: out, source }).into_response())
 }

@@ -18,6 +18,22 @@ async fn main() -> Result<()> {
     store::migrate(&db).await?;
     tracing::info!("миграции применены");
 
+    // Опросные карты для типов, которых нет на скриншотах боевой
+    // системы, выводятся из активной версии классификатора. Без них
+    // на ДТП, «Человек в опасности», 102 и 103 курсант нажимал плашку,
+    // и не появлялось ничего
+    let active: Option<uuid::Uuid> =
+        sqlx::query_scalar("SELECT id FROM classifier_versions WHERE is_active")
+            .fetch_optional(&db)
+            .await?;
+    match active {
+        Some(version_id) => {
+            let cards = arm112::ingest::survey::materialise(&db, version_id).await?;
+            tracing::info!(cards, "опросные карты выведены из классификатора");
+        }
+        None => tracing::warn!("активной версии классификатора нет — опросные карты не выведены"),
+    }
+
     let bind_addr = config.bind_addr.clone();
     let state = AppState::new(db, config, ml);
 

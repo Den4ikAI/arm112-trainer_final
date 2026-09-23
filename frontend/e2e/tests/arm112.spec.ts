@@ -706,3 +706,73 @@ test.describe('Прогноз', () => {
     }
   });
 });
+
+test.describe('Опросные карты', () => {
+  /**
+   * Со скриншотов сняты только три карты — 101, 104 и «Взрыв». На ДТП
+   * курсант нажимал плашку, и не появлялось ничего: вызов было нечем
+   * классифицировать. Теперь карта выводится из классификатора.
+   */
+  test('ДТП открывает карту, выведенную из классификатора', async ({ page }, info) => {
+    await login(page, info);
+    await launchTicket3(page);
+
+    await page.getByRole('button', { name: 'ДТП', exact: true }).click();
+
+    const карта = page.getByTestId('survey-dtp');
+    await expect(карта).toBeVisible();
+    const первый = карта.getByRole('group', { name: 'Признак 1 (тип происшествия)' });
+    await expect(первый.getByRole('button', { name: 'ДТП пострадавшие', exact: true }))
+      .toBeVisible();
+
+    // Пока первый признак не выбран, второму не из чего выбирать
+    await expect(карта.getByRole('group', { name: 'Признак 2' })).toHaveCount(0);
+
+    await первый.getByRole('button', { name: 'ДТП пострадавшие', exact: true }).click();
+
+    // Варианты второго уровня — только из ветки «ДТП пострадавшие»
+    const второй = карта.getByRole('group', { name: 'Признак 2' });
+    await expect(второй.getByRole('button', { name: 'Наезд на пешехода', exact: true }))
+      .toBeVisible();
+    await expect(второй.getByRole('button', { name: 'Автоподстава', exact: true }))
+      .toHaveCount(0);
+
+    // Выбор доходит до классификатора: службы подбираются. На наезд
+    // на пешехода — скорая и полиция, пожарных классификатор не зовёт
+    await второй.getByRole('button', { name: 'Наезд на пешехода', exact: true }).click();
+    const службы = page.getByLabel('Список оповещения');
+    await expect(службы).toContainText('Классификатор СМП', { timeout: 10_000 });
+    await expect(службы).toContainText('Классификатор МВД');
+  });
+
+  test('смена первого признака снимает неподходящий второй', async ({ page }, info) => {
+    await login(page, info);
+    await launchTicket3(page);
+    await page.getByRole('button', { name: 'ДТП', exact: true }).click();
+
+    const карта = page.getByTestId('survey-dtp');
+    const первый = карта.getByRole('group', { name: 'Признак 1 (тип происшествия)' });
+    await первый.getByRole('button', { name: 'ДТП', exact: true }).click();
+    const второй = карта.getByRole('group', { name: 'Признак 2' });
+    await второй.getByRole('button', { name: 'Автоподстава', exact: true }).click();
+
+    // «Автоподстава» бывает только без пострадавших
+    await первый.getByRole('button', { name: 'ДТП пострадавшие', exact: true }).click();
+    await expect(второй.getByRole('button', { name: 'Автоподстава', exact: true }))
+      .toHaveCount(0);
+  });
+
+  test('очистить адрес стирает все поля адреса', async ({ page }, info) => {
+    await login(page, info);
+    await launchTicket3(page);
+
+    const улица = page.getByRole('textbox', { name: 'Улица:' });
+    const дом = page.getByRole('textbox', { name: 'Дом/Вл:' });
+    await улица.fill('Станционная');
+    await дом.fill('28');
+
+    await page.getByTestId('clear-address').click();
+    await expect(улица).toHaveValue('');
+    await expect(дом).toHaveValue('');
+  });
+});

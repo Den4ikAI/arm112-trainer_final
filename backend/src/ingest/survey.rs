@@ -123,3 +123,155 @@ pub async fn derive(pool: &PgPool, version_id: Uuid, group_no: i32) -> Result<Op
 
     Ok(Some(DerivedCard { group_no, group_title, branches, skipped_hidden }))
 }
+
+/// Подписи вопросов выведенной карты — заголовки столбцов классификатора
+/// («112 - Признак.1 (тип происшествия)», «112-Признак.2»,
+/// «112-Признак.3»), без служебного префикса «112».
+const LABELS: [&str; 3] = ["Признак 1 (тип происшествия)", "Признак 2", "Признак 3"];
+
+/// Идентификатор вопроса выведенной карты.
+///
+/// Ответы карточки лежат одним словарём на все выбранные типы, поэтому
+/// идентификатор включает тип: у ДТП и «Человека в опасности» первый
+/// признак разный, и общий ключ `p1` смешал бы их ответы.
+pub fn derived_question_id(type_id: &str, level: usize) -> String {
+    format!("{type_id}-p{level}")
+}
+
+/// Разложить выведенные карты по таблицам опросных карт.
+///
+/// Карты кладутся туда же, где лежат снятые со скриншотов, — тогда
+/// справочник, классификация, подписи в разборе и подготовка вызовов
+/// работают с ними без отдельных веток. Снятые со скриншотов карты
+/// не трогаются: у них дословные формулировки боевой системы.
+///
+/// Выведенные карты пересобираются целиком: при смене версии
+/// классификатора дерево признаков могло поменяться.
+///
+/// Возвращает, сколько карт построено.
+pub async fn materialise(pool: &PgPool, version_id: Uuid) -> Result<usize> {
+    let mut tx = pool.begin().await?;
+
+    // Два пересбора одновременно столкнулись бы на ключах: каждый
+    // удаляет прежние карты и вставляет новые. Такое бывает и при
+    // двух активациях подряд, и в параллельных проверках
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('survey.materialise'))")
+        .execute(&mut *tx)
+        .await?;
+
+    // Каскад снимет и варианты, и сопоставления с признаками
+    sqlx::query("DELETE FROM survey_questions WHERE derived")
+        .execute(&mut *tx)
+        .await?;
+
+    let types: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT t.id, t.group_no FROM incident_types t
+          WHERE t.group_no IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM survey_questions q WHERE q.type_id = t.id)
+          ORDER BY t.id",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Дерево одной группы строим один раз: на группу 23 завязаны восемь типов
+    let mut trees: BTreeMap<i32, Option<DerivedCard>> = BTreeMap::new();
+    let mut built = 0usize;
+
+    for (type_id, group_no) in types {
+        if !trees.contains_key(&group_no) {
+            trees.insert(group_no, derive(pool, version_id, group_no).await?);
+        }
+        let Some(card) = trees.get(&group_no).and_then(Option::as_ref) else {
+            continue;
+        };
+
+        // Уровень 1: все первые признаки группы
+        let level1: Vec<(String, Vec<String>)> =
+            card.branches.keys().map(|s1| (s1.clone(), Vec::new())).collect();
+
+        // Уровень 2: второй признак и первые, под которыми он встречается.
+        // Пустой ключ — позиция без второго признака, как вариант он не
+        // нужен: такую позицию выбирают, не отвечая на вопрос
+        let mut level2: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        // Уровень 3: третий признак и вторые, под которыми он встречается
+        let mut level3: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (s1, branch) in &card.branches {
+            for (s2, s3s) in &branch.objects {
+                if !s2.is_empty() {
+                    let parents = level2.entry(s2.clone()).or_default();
+                    if !parents.contains(s1) {
+                        parents.push(s1.clone());
+                    }
+                }
+                for s3 in s3s {
+                    let parents = level3.entry(s3.clone()).or_default();
+                    if !s2.is_empty() && !parents.contains(s2) {
+                        parents.push(s2.clone());
+                    }
+                }
+            }
+        }
+
+        let levels: [Vec<(String, Vec<String>)>; 3] = [
+            level1,
+            level2.into_iter().collect(),
+            level3.into_iter().collect(),
+        ];
+
+        for (i, options) in levels.iter().enumerate() {
+            if options.is_empty() {
+                continue;
+            }
+            let level = i + 1;
+            let qid = derived_question_id(&type_id, level);
+            let depends_on = (level > 1).then(|| derived_question_id(&type_id, level - 1));
+
+            sqlx::query(
+                "INSERT INTO survey_questions
+                     (type_id, id, label, kind, sort_order, derived, depends_on)
+                 VALUES ($1, $2, $3, 'single', $4, true, $5)",
+            )
+            .bind(&type_id)
+            .bind(&qid)
+            .bind(LABELS[i])
+            .bind(level as i32)
+            .bind(&depends_on)
+            .execute(&mut *tx)
+            .await?;
+
+            for (order, (value, parents)) in options.iter().enumerate() {
+                // Третий признак без второго (у ветки без объектов)
+                // от второго уровня не зависит
+                let parents = (!parents.is_empty()).then_some(parents);
+                sqlx::query(
+                    "INSERT INTO survey_options (type_id, question_id, value, sort_order, parents)
+                     VALUES ($1, $2, $3, $4, $5)",
+                )
+                .bind(&type_id)
+                .bind(&qid)
+                .bind(value)
+                .bind(order as i32 + 1)
+                .bind(parents)
+                .execute(&mut *tx)
+                .await?;
+
+                // Вариант и есть признак классификатора, дословно
+                sqlx::query(
+                    "INSERT INTO sign_mapping
+                         (type_id, question_id, option_value, sign_level, sign_text)
+                     VALUES ($1, $2, $3, $4, $3)",
+                )
+                .bind(&type_id)
+                .bind(&qid)
+                .bind(value)
+                .bind(level as i16)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        built += 1;
+    }
+
+    tx.commit().await?;
+    Ok(built)
+}

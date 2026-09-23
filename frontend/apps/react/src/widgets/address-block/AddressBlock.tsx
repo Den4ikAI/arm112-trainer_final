@@ -21,6 +21,15 @@ export const AddressBlock = ({ value, readOnly, onChange, onOpenMap }: Props) =>
   // переход с неуправляемого поля на управляемое
   const get = (f: string) => value[f] ?? '';
 
+  // Раньше кнопка была заглушкой «в тренажёре не реализовано», хотя
+  // в боевой системе она есть и нужна: заявитель назвал не тот адрес,
+  // а переписывать поля по одному долго
+  const очистить = () => {
+    for (const [поле, значение] of Object.entries(value)) {
+      if (значение) onChange?.(поле, '');
+    }
+  };
+
   return (
     <section className={s.wrap} aria-label="Адрес происшествия">
       <div className={s.head}>
@@ -66,9 +75,13 @@ export const AddressBlock = ({ value, readOnly, onChange, onOpenMap }: Props) =>
         <Field label="Описательный адрес:" value={get('descriptive')} onChange={set('descriptive')} />
       </div>
 
-      <div className={s.actions}>
-        <button {...stubProps('Очистка адреса')} className={s.clearBtn}>очистить адрес</button>
-      </div>
+      {!readOnly && (
+        <div className={s.actions}>
+          <button className={s.clearBtn} onClick={очистить} data-testid="clear-address">
+            очистить адрес
+          </button>
+        </div>
+      )}
     </section>
   );
 };

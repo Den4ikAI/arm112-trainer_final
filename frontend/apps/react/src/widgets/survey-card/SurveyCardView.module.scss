@@ -28,3 +28,11 @@
 .label { font-size: var(--fs-md); color: #4a4a4a; padding-top: 6px; }
 .control { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .free { @include m.underline-input; max-width: 420px; }
+
+/* Карты у типа нет — это сообщение, а не поломка */
+.none {
+  margin: 0;
+  padding: var(--sp-3);
+  color: var(--c-text-muted);
+  font-size: 13px;
+}

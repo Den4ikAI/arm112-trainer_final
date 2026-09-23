@@ -15,7 +15,12 @@ interface CatalogState {
   types: IncidentType[];
   services: Service[];
   applicantStatuses: string[];
-  cards: Record<string, SurveyCard>;
+  /**
+   * Опросные карты по типам. `null` — карты у типа нет: это надо
+   * отличать от «ещё не загружена», иначе на экране пустота, и курсант
+   * решает, что плашка не нажалась.
+   */
+  cards: Record<string, SurveyCard | null>;
   loaded: boolean;
   load(): Promise<void>;
   loadCard(typeId: string): Promise<void>;
@@ -41,8 +46,9 @@ export const useCatalog = create<CatalogState>((set, get) => ({
   },
 
   loadCard: async (typeId) => {
-    if (get().cards[typeId]) return;
-    const card = await catalog.surveyCard(typeId);
+    if (typeId in get().cards) return;
+    // Сервер отвечает 204, когда карты у типа нет, — клиент отдаёт undefined
+    const card = (await catalog.surveyCard(typeId)) ?? null;
     set((st) => ({ cards: { ...st.cards, [typeId]: card } }));
   },
 

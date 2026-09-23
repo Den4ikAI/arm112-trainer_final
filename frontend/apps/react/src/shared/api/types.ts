@@ -31,12 +31,21 @@ export interface SurveyQuestion {
   label: string;
   kind: 'single' | 'multi' | 'text' | 'number';
   options: string[];
+  /**
+   * Вопрос, от ответа на который зависят варианты этого. У карт,
+   * выведенных из классификатора, второй признак зависит от первого.
+   */
+  dependsOn: string | null;
+  /** Вариант → при каких ответах на `dependsOn` он показывается. */
+  optionParents: Record<string, string[]>;
 }
 
 export interface SurveyCard {
   typeId: string;
   title: string;
   questions: SurveyQuestion[];
+  /** Со скриншота боевой системы или выведена из классификатора. */
+  source: 'screenshot' | 'classifier';
 }
 
 export interface NotifiedService {

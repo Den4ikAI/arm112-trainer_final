@@ -509,6 +509,13 @@ async fn activate_version(
         .await?;
     tx.commit().await?;
 
+    // Опросные карты, выведенные из классификатора, следуют за версией:
+    // дерево признаков в новой версии могло поменяться
+    let cards = crate::ingest::survey::materialise(&state.db, id)
+        .await
+        .map_err(crate::error::AppError::Other)?;
+    tracing::info!(cards, "опросные карты пересобраны по новой версии");
+
     audit::log(
         &state.db,
         audit::Event::new("classifier.activate")
