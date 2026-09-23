@@ -38,6 +38,17 @@ export interface SurveyQuestion {
   dependsOn: string | null;
   /** Вариант → при каких ответах на `dependsOn` он показывается. */
   optionParents: Record<string, string[]>;
+  /**
+   * Когда показывать сам вопрос: хотя бы одно условие выполнено —
+   * вопрос виден. Пустой массив — виден всегда. Карта растёт по мере
+   * ответов, как на кадрах: «Правонарушение» появляется после объекта.
+   */
+  showWhen: ShowWhen[];
+}
+
+export interface ShowWhen {
+  question: string;
+  values: string[];
 }
 
 export interface SurveyCard {

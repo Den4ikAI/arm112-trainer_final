@@ -98,6 +98,20 @@ struct Question {
     /// Вариант → при каких ответах на `depends_on` он показывается.
     /// Варианта нет в словаре — показывается всегда
     option_parents: std::collections::BTreeMap<String, Vec<String>>,
+    /// Когда вопрос виден целиком. Достаточно одного выполненного
+    /// условия; пустой список — виден всегда. Карта боевой системы
+    /// растёт по мере ответов: на пустом «Где» у пожара только «Где»
+    /// и «Описание», а «Описание правонарушения» появляется лишь после
+    /// «Есть правонарушение»
+    show_when: Vec<ShowWhen>,
+}
+
+/// Условие показа вопроса: ответ на `question` содержит одно из `values`.
+#[derive(Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+struct ShowWhen {
+    question: String,
+    values: Vec<String>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -138,8 +152,9 @@ async fn survey_card(
         return Err(crate::error::AppError::NotFound);
     };
 
-    let questions: Vec<(String, String, String, bool, Option<String>)> = sqlx::query_as(
-        "SELECT id, label, kind::text, derived, depends_on FROM survey_questions
+    type Row = (String, String, String, bool, Option<String>, Option<serde_json::Value>);
+    let questions: Vec<Row> = sqlx::query_as(
+        "SELECT id, label, kind::text, derived, depends_on, show_when FROM survey_questions
           WHERE type_id = $1 ORDER BY sort_order",
     )
     .bind(&type_id)
@@ -155,7 +170,7 @@ async fn survey_card(
 
     let derived = questions.iter().any(|q| q.3);
     let mut out = Vec::with_capacity(questions.len());
-    for (id, label, kind, _, depends_on) in questions {
+    for (id, label, kind, _, depends_on, show_when) in questions {
         let rows: Vec<(String, Option<Vec<String>>)> = sqlx::query_as(
             "SELECT value, parents FROM survey_options
               WHERE type_id = $1 AND question_id = $2 ORDER BY sort_order",
@@ -174,7 +189,18 @@ async fn survey_card(
             options.push(value);
         }
 
-        out.push(Question { id, label, kind, options, depends_on, option_parents });
+        // Условие хранится JSON-ом; кривое — это ошибка данных, а не
+        // повод прятать вопрос: показываем его всегда и пишем в журнал
+        let show_when: Vec<ShowWhen> = match show_when {
+            None => Vec::new(),
+            Some(v) => serde_json::from_value(v).unwrap_or_else(|e| {
+                tracing::warn!(type_id = %type_id, question = %id, error = %e,
+                               "условие показа вопроса не разобралось");
+                Vec::new()
+            }),
+        };
+
+        out.push(Question { id, label, kind, options, depends_on, option_parents, show_when });
     }
 
     // Откуда карта: со скриншота — формулировки дословные, из

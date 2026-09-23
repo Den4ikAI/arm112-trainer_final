@@ -37,6 +37,37 @@ const видимые = (q: SurveyQuestion, answers: Props['answers']): string[] 
   });
 };
 
+/**
+ * Какие вопросы карты сейчас показывать.
+ *
+ * Карта растёт по мере ответов, как на кадрах боевой системы: после
+ * «Улица» появляется признак пожара на улице, после объекта —
+ * «Правонарушение». Вопрос виден, если выполнено хоть одно его условие,
+ * а условие выполнено, только если виден и сам вопрос, на который оно
+ * ссылается: ответ на скрытый вопрос карту не раскрывает.
+ */
+const видимыеВопросы = (card: SurveyCard, answers: Props['answers']): Set<string> => {
+  const поId = new Map(card.questions.map((q) => [q.id, q]));
+  const итог = new Map<string, boolean>();
+  const виден = (id: string, путь: Set<string>): boolean => {
+    const готово = итог.get(id);
+    if (готово !== undefined) return готово;
+    const q = поId.get(id);
+    // Ссылка на вопрос, которого нет в карте, или цикл в условиях —
+    // ошибка данных; прятать из-за неё вопрос нельзя, но и раскрывать
+    // по ней другие тоже
+    if (!q || путь.has(id)) return false;
+    путь.add(id);
+    const ответ = q.showWhen.length === 0 || q.showWhen.some((w) =>
+      виден(w.question, путь)
+      && выбрано(answers[w.question]).some((v) => w.values.includes(v)));
+    путь.delete(id);
+    итог.set(id, ответ);
+    return ответ;
+  };
+  return new Set(card.questions.filter((q) => виден(q.id, new Set())).map((q) => q.id));
+};
+
 export const SurveyCardView = ({ typeId, answers, onAnswer, onClose, readOnly }: Props) => {
   const card = useCatalog((st) => st.cards[typeId]);
   const loadCard = useCatalog((st) => st.loadCard);
@@ -56,6 +87,21 @@ export const SurveyCardView = ({ typeId, answers, onAnswer, onClose, readOnly }:
       const можно = видимые(q, answers);
       const осталось = было.filter((v) => можно.includes(v));
       if (осталось.length !== было.length) onAnswer(q.id, осталось);
+    }
+  }, [card, answers, onAnswer, readOnly]);
+
+  // Вопрос скрылся — его ответ тоже снимаем. Иначе «Мусор», выбранный
+  // до переключения на «Транспорт», продолжал бы подбирать службы
+  // уличного пожара, хотя на экране его уже нет
+  useEffect(() => {
+    if (!card || readOnly) return;
+    const видны = видимыеВопросы(card, answers);
+    for (const q of card.questions) {
+      if (видны.has(q.id)) continue;
+      const было = answers[q.id];
+      if (Array.isArray(было) ? было.length > 0 : Boolean(было)) {
+        onAnswer(q.id, Array.isArray(было) ? [] : '');
+      }
     }
   }, [card, answers, onAnswer, readOnly]);
 
@@ -86,20 +132,24 @@ const Body = ({ card, answers, onAnswer, readOnly }: {
   answers: Props['answers'];
   onAnswer: Props['onAnswer'];
   readOnly?: boolean;
-}) => (
-  <div className={s.body}>
-    {card.questions.map((q) => {
-      const варианты = видимые(q, answers);
-      // Зависимый вопрос без подходящих вариантов не показываем:
-      // пока не выбран первый признак, второму не из чего выбирать
-      if (q.dependsOn && варианты.length === 0) return null;
-      return (
-        <Question key={q.id} q={{ ...q, options: варианты }} value={answers[q.id]}
-                  readOnly={readOnly} onAnswer={(v) => onAnswer(q.id, v)} />
-      );
-    })}
-  </div>
-);
+}) => {
+  const видны = видимыеВопросы(card, answers);
+  return (
+    <div className={s.body}>
+      {card.questions.map((q) => {
+        if (!видны.has(q.id)) return null;
+        const варианты = видимые(q, answers);
+        // Зависимый вопрос без подходящих вариантов не показываем:
+        // пока не выбран первый признак, второму не из чего выбирать
+        if (q.dependsOn && варианты.length === 0) return null;
+        return (
+          <Question key={q.id} q={{ ...q, options: варианты }} value={answers[q.id]}
+                    readOnly={readOnly} onAnswer={(v) => onAnswer(q.id, v)} />
+        );
+      })}
+    </div>
+  );
+};
 
 const Question = ({ q, value, onAnswer, readOnly }: {
   q: SurveyQuestion;

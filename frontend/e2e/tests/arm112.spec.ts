@@ -66,6 +66,9 @@ test.describe('Карточка 112', () => {
     await page.locator('#type-search').fill('101');
     await page.getByRole('option', { name: '101', exact: true }).click();
 
+    // Карта растёт по ответам: признак пожара в доме — после «Дом»
+    await page.getByRole('group', { name: 'Где' })
+      .getByRole('button', { name: 'Дом', exact: true }).click();
     await expect(page.getByRole('group', { name: 'Признак пожара (дом)' })).toBeVisible();
 
     const flame = page.getByRole('button', { name: 'Открытое пламя / Дым' });
@@ -89,8 +92,8 @@ test.describe('Карточка 112', () => {
     await page.getByRole('group', { name: 'Где' })
       .getByRole('button', { name: 'Улица' }).click();
 
-    // В карте 101 ветки «Улица» нет, признак второго уровня задать нечем.
-    // Движок не выдумывает позицию, а объясняет (OPEN-QUESTIONS, вопрос 4).
+    // Одно «Улица» — ещё не позиция: что горит, не сказано.
+    // Движок не выдумывает позицию, а объясняет, чего не хватает.
     await expect(page.getByTestId('classify-reason'))
       .toContainText('признак второго уровня');
   });
