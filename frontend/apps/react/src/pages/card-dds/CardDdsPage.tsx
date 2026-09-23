@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { cards, channel, type CardDetail } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
+import { BrigadePanel } from '@/widgets/brigade-panel/BrigadePanel';
 import { CallBar } from '@/widgets/call-bar/CallBar';
 import { CardHeader } from '@/widgets/card-header/CardHeader';
 import { ServiceTab } from '@/widgets/status-history/ServiceTab';
@@ -94,6 +95,12 @@ export const CardDdsPage = () => {
               <div className={s.feedText}>{card.description}</div>
             </div>
           </div>
+
+          {/* Бригада и доклады — только своей службы: чужую бригаду
+              диспетчер не направляет и докладов её не слышит */}
+          {own && card.services.some((sv) => sv.serviceId === own) && (
+            <BrigadePanel cardId={card.id} serviceId={own} stamp={card} />
+          )}
         </div>
 
         <div className={s.right}>

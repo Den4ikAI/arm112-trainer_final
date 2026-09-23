@@ -1,7 +1,7 @@
 /** Эндпоинты сервера. Пути — как в backend/src/api. */
 import { api, setToken } from './client';
 import type {
-  AdminUser, AuditPage, Card, CardBrief, CardDetail, ClassifierVersion,
+  AdminUser, AuditPage, Brigade, Card, CardBrief, CardDetail, ClassifierVersion,
   ClassifyResult, Grade, GroupBrief, Health, IncidentType, JobView,
   ScenarioFull, ScenarioPublic, Service, SurveyCard, TrainingSession,
   TranscriptLine, TurnResult, User,
@@ -240,6 +240,16 @@ export const cards = {
   addResponse: (id: string, body: {
     serviceId: string; status: string; orderNo?: string; comment?: string;
   }) => api.post<import('./types').ResponseEntry>(`/api/cards/${id}/responses`, body),
+
+  brigade: (id: string, serviceId?: string) =>
+    api.get<Brigade>(`/api/cards/${id}/brigade${serviceId
+      ? `?serviceId=${encodeURIComponent(serviceId)}` : ''}`),
+  assignBrigade: (id: string, serviceId: string, brigadeNo: number) =>
+    api.post<Brigade>(`/api/cards/${id}/brigade`, { serviceId, brigadeNo }),
+  /** Диспетчер сам звонит старшему и узнаёт текущий этап. */
+  callBrigade: (id: string, serviceId: string) =>
+    api.post<{ text: string; learned: string | null; brigade: Brigade }>(
+      `/api/cards/${id}/brigade/call`, { serviceId }),
 };
 
 export const admin = {

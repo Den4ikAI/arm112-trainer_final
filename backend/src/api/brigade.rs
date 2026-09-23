@@ -168,6 +168,9 @@ async fn chain(pool: &PgPool, card_id: Uuid, service_id: &str) -> AppResult<Vec<
     Ok(rows.into_iter().map(|(status, at)| brigade::Status { status, at }).collect())
 }
 
+/// Этап из базы: stage, text, due_at, delivered_at, channel.
+type ReportRow = (String, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>);
+
 /// Собрать представление бригады для карточки и службы.
 ///
 /// `staff` — показывать ли шкалу целиком. Курсант видит только то,
@@ -197,7 +200,7 @@ pub async fn load(
 
     let (reports, calls) = match &assignment {
         Some((id, _, _)) => {
-            let reports: Vec<(String, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>)> =
+            let reports: Vec<ReportRow> =
                 sqlx::query_as(
                     "SELECT stage::text, text, due_at, delivered_at, channel
                        FROM brigade_reports WHERE assignment_id = $1 ORDER BY due_at",

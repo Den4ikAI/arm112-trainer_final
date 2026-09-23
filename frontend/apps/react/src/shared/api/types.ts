@@ -351,3 +351,38 @@ export interface TurnResult {
   applied: boolean;
   scenario: ScenarioFull;
 }
+
+/**
+ * Бригада диспетчера ДДС. Бригады учебные — «Бригада 1», «Бригада 2»:
+ * настоящих составов служб у нас нет.
+ */
+export interface BrigadeReport {
+  stage: string;
+  text: string;
+  /** Когда этап наступил на самом деле. Курсанту не приходит. */
+  dueAt?: string | null;
+  deliveredAt: string | null;
+  /** incoming — старший позвонил сам, outgoing — диспетчер позвонил ему. */
+  channel: 'incoming' | 'outgoing' | null;
+}
+
+export type DdsFindingKind = 'ok' | 'late' | 'notByFact' | 'missed' | 'noBrigade';
+
+export interface DdsFinding {
+  kind: DdsFindingKind;
+  stage: string;
+  knownAt: string | null;
+  statusAt: string | null;
+  lagSec: number | null;
+  consequence: string | null;
+}
+
+export interface Brigade {
+  serviceId: string;
+  brigadeCount: number;
+  canAssign: boolean;
+  assignment: { brigadeNo: number; assignedAt: string } | null;
+  reports: BrigadeReport[];
+  calls: { at: string; learned: string | null }[];
+  debrief: { findings: DdsFinding[]; score: number | null; pending: number };
+}

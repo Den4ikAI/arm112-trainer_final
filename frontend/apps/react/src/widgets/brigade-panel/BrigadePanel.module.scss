@@ -1,0 +1,64 @@
+.panel {
+  display: grid;
+  gap: var(--sp-2);
+  background: #e6e6e6;
+  padding: var(--sp-2);
+  font-size: var(--fs-md);
+}
+
+.head { font-weight: 700; }
+.assigned { font-weight: 400; }
+
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
+.select {
+  border: 1px solid #b0b0b0;
+  background: #fff;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.btn {
+  border: 1px solid #b0b0b0;
+  background: #efefef;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+
+  &:disabled { opacity: .6; }
+}
+
+.answer { font-style: italic; }
+
+// Входящий звонок должен бросаться в глаза: диспетчер в это время
+// может смотреть в другую часть карточки
+.incoming {
+  background: var(--c-accent);
+  color: var(--c-text-invert);
+  padding: var(--sp-1) var(--sp-2);
+}
+
+.reports {
+  margin: 0;
+  padding-left: var(--sp-4);
+  display: grid;
+  gap: 2px;
+  font-size: var(--fs-sm);
+}
+
+.when { color: #4b4b4b; margin-right: var(--sp-2); }
+.via { color: #4b4b4b; }
+
+.debrief {
+  display: grid;
+  gap: var(--sp-1);
+  border-top: 1px solid #c4c4c4;
+  padding-top: var(--sp-2);
+}
+
+.finding { font-size: var(--fs-sm); padding-left: var(--sp-2); border-left: 3px solid; }
+.good { border-color: #4a8f4a; }
+.bad { border-color: var(--c-accent); }
+.consequence { color: #4b4b4b; }
+
+.muted { color: var(--c-text-muted); font-size: var(--fs-sm); margin: 0; }
+.error { color: var(--c-accent); font-size: var(--fs-sm); margin: 0; }
