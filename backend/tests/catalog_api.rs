@@ -6,9 +6,18 @@
 
 use sqlx::PgPool;
 
+/// Куда ходят проверки.
+///
+/// Раньше здесь по умолчанию стояла база стенда `arm112`, а `.env` не
+/// читался вовсе — и прогон накатывал на стенд миграции. Новая миграция
+/// из ветки попадала туда раньше кода, и сервер стенда при следующем
+/// запуске падал с «migration … was previously applied but is missing».
+/// Теперь — как в остальных проверках: отдельная база из `.env`.
 async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://arm112:arm112@localhost:5432/arm112".into());
+    let _ = dotenvy::dotenv();
+    let url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .ok()?;
     let pool = PgPool::connect(&url).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
     Some(pool)
@@ -72,14 +81,15 @@ async fn карта_104_соответствует_версии_2026() {
     assert_eq!(count, 5, "все пять вариантов в одном вопросе");
 }
 
-/// Карты есть только для трёх типов — те, что сняты со скриншотов.
-/// Для остальных её надо выводить из классификатора, а не сочинять.
+/// Со скриншотов сняты карты ровно трёх типов. Остальные выводятся
+/// из классификатора (`derived`), а не сочиняются, — поэтому считаем
+/// только снятые: выведенных теперь десятки.
 #[tokio::test]
 async fn опросные_карты_только_со_скриншотов() {
     let Some(pool) = pool().await else { return };
 
     let types: Vec<String> = sqlx::query_scalar(
-        "SELECT DISTINCT type_id FROM survey_questions ORDER BY type_id",
+        "SELECT DISTINCT type_id FROM survey_questions WHERE NOT derived ORDER BY type_id",
     )
     .fetch_all(&pool)
     .await

@@ -10,9 +10,18 @@ use arm112::domain::version_diff::{diff, impact};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+/// Куда ходят проверки.
+///
+/// Раньше здесь по умолчанию стояла база стенда `arm112`, а `.env` не
+/// читался вовсе — и прогон накатывал на стенд миграции. Новая миграция
+/// из ветки попадала туда раньше кода, и сервер стенда при следующем
+/// запуске падал с «migration … was previously applied but is missing».
+/// Теперь — как в остальных проверках: отдельная база из `.env`.
 async fn pool() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://arm112:arm112@localhost:5432/arm112".into());
+    let _ = dotenvy::dotenv();
+    let url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .ok()?;
     let pool = PgPool::connect(&url).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
     Some(pool)
