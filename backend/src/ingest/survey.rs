@@ -178,8 +178,8 @@ pub async fn materialise(pool: &PgPool, version_id: Uuid) -> Result<usize> {
     let mut built = 0usize;
 
     for (type_id, group_no) in types {
-        if !trees.contains_key(&group_no) {
-            trees.insert(group_no, derive(pool, version_id, group_no).await?);
+        if let std::collections::btree_map::Entry::Vacant(slot) = trees.entry(group_no) {
+            slot.insert(derive(pool, version_id, group_no).await?);
         }
         let Some(card) = trees.get(&group_no).and_then(Option::as_ref) else {
             continue;
