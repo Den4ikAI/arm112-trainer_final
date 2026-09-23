@@ -1,6 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
+ * Порты прогона. По умолчанию свои, отдельные от стенда (8080/5173).
+ * Задаются окружением, чтобы несколько прогонов могли идти разом —
+ * у каждого своя база и свои порты, и они не подхватывают чужой сервер.
+ */
+const API_PORT = process.env.E2E_API_PORT ?? '8081';
+const WEB_PORT = process.env.E2E_WEB_PORT ?? '5174';
+
+/**
  * Прогон сценариев против фронтенда тренажёра АРМ-112.
  * Dev-сервер поднимается сам, отдельно запускать не нужно.
  */
@@ -26,7 +34,7 @@ export default defineConfig({
       // Путь к странице собирает go() из helpers: приложение на
       // HashRouter, и «#» должен попасть внутрь пути, а не в базу —
       // абсолютный путь его бы затёр.
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:5174' },
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${WEB_PORT}` },
     },
   ],
 
@@ -50,19 +58,19 @@ export default defineConfig({
         PATH: `${process.env.HOME}/.cargo/bin:${process.env.PATH}`,
         DATABASE_URL: process.env.TEST_DATABASE_URL
           ?? 'postgres://arm112:arm112@localhost:5432/arm112_test',
-        BIND_ADDR: '127.0.0.1:8081',
+        BIND_ADDR: `127.0.0.1:${API_PORT}`,
       },
-      url: 'http://127.0.0.1:8081/api/admin/health',
+      url: `http://127.0.0.1:${API_PORT}/api/admin/health`,
       reuseExistingServer: false,
       timeout: 180_000,
     },
     {
       // Свой порт и свой прокси: иначе прогон подхватит уже
       // поднятый для разработки клиент, а тот смотрит на стенд
-      command: 'npm run dev -- --host 127.0.0.1 --port 5174',
+      command: `npm run dev -- --host 127.0.0.1 --port ${WEB_PORT}`,
       cwd: '../apps/react',
-      env: { ...process.env, VITE_API_TARGET: 'http://127.0.0.1:8081' },
-      url: 'http://localhost:5174',
+      env: { ...process.env, VITE_API_TARGET: `http://127.0.0.1:${API_PORT}` },
+      url: `http://localhost:${WEB_PORT}`,
       reuseExistingServer: false,
       timeout: 120_000,
     },
