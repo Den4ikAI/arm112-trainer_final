@@ -12,9 +12,14 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// Куда ходят проверки: отдельная база из `.env`, как у остальных.
+/// Раньше по умолчанию стояла база стенда — проверки классификации
+/// читали его данные вместо тестовых.
 async fn setup() -> Option<(PgPool, Uuid)> {
-    let url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://arm112:arm112@localhost:5432/arm112".into());
+    let _ = dotenvy::dotenv();
+    let url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .ok()?;
     let pool = PgPool::connect(&url).await.ok()?;
     let version: Uuid = sqlx::query_scalar(
         "SELECT id FROM classifier_versions ORDER BY is_active DESC, imported_at DESC LIMIT 1",
