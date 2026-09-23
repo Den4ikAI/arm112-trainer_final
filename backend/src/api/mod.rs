@@ -6,6 +6,7 @@
 //! сливает добавления в разные места без конфликта, перестановки — нет.
 
 pub mod admin;
+pub mod brigade;
 pub mod auth;
 pub mod catalog;
 pub mod cards;
@@ -32,6 +33,7 @@ pub fn routes() -> Router<AppState> {
         .merge(scenarios::routes())
         .merge(lessons::routes())
         .merge(forecast::routes())
+        .merge(brigade::routes())
     // сюда добавляются роутеры задач:
     // .merge(catalog::routes())   — задача 5
     // .merge(classifier::routes())— задачи 2, 3, 6

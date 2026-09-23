@@ -443,7 +443,7 @@ async fn add_response(
 /// Карточку видно, если она профильная для службы пользователя,
 /// своя, или пользователь — преподаватель либо администратор.
 /// Ответ всегда 404: по коду не должно быть видно, что карточка есть.
-async fn visible_card(pool: &sqlx::PgPool, id: Uuid, user: &AuthUser) -> AppResult<()> {
+pub(crate) async fn visible_card(pool: &sqlx::PgPool, id: Uuid, user: &AuthUser) -> AppResult<()> {
     if user.role != Role::Student {
         let exists: bool =
             sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM cards WHERE id = $1)")

@@ -79,7 +79,8 @@ pub struct Progress {
     pub started: i64,
     /// Вызовов доведено до разбора / карточек, где служба закончила
     pub graded: i64,
-    /// Средний балл по разобранным вызовам. В режиме ДДС его нет
+    /// Средний балл: в приёме вызова — по разобранным вызовам, в режиме
+    /// ДДС — по разбору работы с бригадой (`domain::brigade`)
     pub avg_score: Option<f64>,
 }
 
@@ -543,6 +544,10 @@ async fn полностью(pool: &sqlx::PgPool, id: Uuid) -> AppResult<LessonFu
 ///
 /// Раньше ход считался по заданиям и в этом режиме был пуст всегда:
 /// у занятия ДДС заданий нет, материал — общий набор карточек.
+///
+/// Средний балл — по разбору работы с бригадой: статусы по докладам,
+/// а не наугад. До появления докладов разбора ДДС не было вовсе, и
+/// балл здесь всегда был пуст.
 async fn ход_ддс(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Vec<Progress>> {
     let запрос = format!(
         "SELECT u.id AS user_id, u.fio,
@@ -562,7 +567,36 @@ async fn ход_ддс(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Vec<Progress>
           GROUP BY u.id, u.fio
           ORDER BY u.fio"
     );
-    Ok(sqlx::query_as(&запрос).bind(id).fetch_all(pool).await?)
+    let mut ход: Vec<Progress> = sqlx::query_as(&запрос).bind(id).fetch_all(pool).await?;
+
+    for строка in &mut ход {
+        // Бригады, которые курсант назначил по карточкам занятия, пока оно шло
+        let назначено: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT a.card_id, a.service_id
+               FROM brigade_assignments a
+               JOIN lessons l ON l.id = $1
+              WHERE a.user_id = $2
+                AND a.card_id IN (SELECT card_id FROM lesson_cards WHERE lesson_id = $1)
+                AND a.assigned_at >= l.started_at
+                AND a.assigned_at <= COALESCE(l.finished_at, now())",
+        )
+        .bind(id)
+        .bind(строка.user_id)
+        .fetch_all(pool)
+        .await?;
+
+        let mut баллы = Vec::new();
+        for (card_id, service_id) in назначено {
+            if let Some(балл) = crate::api::brigade::score_for(pool, card_id, &service_id).await? {
+                баллы.push(балл as f64);
+            }
+        }
+        if !баллы.is_empty() {
+            строка.avg_score = Some(баллы.iter().sum::<f64>() / баллы.len() as f64);
+        }
+    }
+
+    Ok(ход)
 }
 
 #[utoipa::path(

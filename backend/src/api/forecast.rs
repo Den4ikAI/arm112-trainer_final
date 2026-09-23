@@ -196,6 +196,16 @@ fn предел(key: &str) -> Option<(f64, f64)> {
         "norm.ack_sec" => (5.0, 600.0),
         "norm.completion_hours" => (1.0, 720.0),
         "advice.window" => (2.0, 20.0),
+        // Шкала работ учебной бригады ДДС. Минимум — чтобы этап не
+        // наступал раньше, чем диспетчер успеет назначить бригаду;
+        // максимум — час: дольше учебное занятие не идёт
+        "brigade.count" => (1.0, 10.0),
+        "brigade.start_sec" => (5.0, 3600.0),
+        "brigade.arrive_sec" => (5.0, 3600.0),
+        "brigade.work_start_sec" => (5.0, 3600.0),
+        "brigade.work_sec" => (5.0, 3600.0),
+        "brigade.report_delay_sec" => (0.0, 3600.0),
+        "brigade.update_norm_sec" => (5.0, 600.0),
         _ => return None,
     })
 }
