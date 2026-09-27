@@ -413,17 +413,30 @@ const ClassifierTab = () => {
 
 const HealthTab = () => {
   const [health, setHealth] = useState<Health | null>(null);
+  // До первого ответа — загрузка, а не «сервер не отвечает»:
+  // иначе каждое открытие вкладки начиналось с ложной тревоги
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    const load = () => void admin.health().then(setHealth).catch(() => setHealth(null));
+    const load = () => void admin.health()
+      .then((h) => { setHealth(h); setFailed(false); })
+      .catch(() => { setHealth(null); setFailed(true); });
     load();
     const timer = setInterval(load, 5000);
     return () => clearInterval(timer);
   }, []);
 
-  if (!health) return <p className={s.empty}>Сервер не отвечает</p>;
+  if (!health) {
+    return <p className={s.empty}>{failed ? 'Сервер не отвечает' : 'Загрузка…'}</p>;
+  }
 
-  const uptime = (sec: number) => {
+  // Поле, которого нет в ответе, — «нет данных», а не пустое место:
+  // пустота не отличает ноль задач от поломки
+  const show = (v: number | string | undefined) =>
+    v === undefined || v === null || v === '' ? 'нет данных' : String(v);
+
+  const uptime = (sec: number | undefined) => {
+    if (typeof sec !== 'number' || !Number.isFinite(sec)) return 'нет данных';
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
     return h ? `${h} ч ${m} мин` : `${m} мин ${sec % 60} с`;
@@ -434,12 +447,12 @@ const HealthTab = () => {
       <dl className={s.stats} data-testid="health">
         <div><dt>База данных</dt><dd>{health.db ? 'отвечает' : 'недоступна'}</dd></div>
         <div><dt>Время работы</dt><dd>{uptime(health.uptimeSec)}</dd></div>
-        <div><dt>Адаптеры моделей</dt><dd>{health.mlProvider}</dd></div>
-        <div><dt>Открытых каналов класса</dt><dd>{health.wsListeners}</dd></div>
-        <div><dt>Задач в очереди</dt><dd>{health.jobsQueued}</dd></div>
+        <div><dt>Адаптеры моделей</dt><dd>{show(health.mlProvider)}</dd></div>
+        <div><dt>Открытых каналов класса</dt><dd>{show(health.wsListeners)}</dd></div>
+        <div><dt>Задач в очереди</dt><dd>{show(health.jobsQueued)}</dd></div>
         {/* Залипшая задача видна по тому, что это число не падает */}
-        <div><dt>Задач в работе</dt><dd>{health.jobsRunning}</dd></div>
-        <div><dt>Версия</dt><dd>{health.version}</dd></div>
+        <div><dt>Задач в работе</dt><dd>{show(health.jobsRunning)}</dd></div>
+        <div><dt>Версия</dt><dd>{show(health.version)}</dd></div>
       </dl>
     </section>
   );

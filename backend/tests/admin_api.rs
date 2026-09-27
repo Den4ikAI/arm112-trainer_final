@@ -230,6 +230,25 @@ async fn журнал_действий_только_администратору
     assert_eq!(status, StatusCode::OK);
 }
 
+/// Замечание со стенда: «Время работы: NaN мин NaN с», пустые
+/// адаптеры и очередь. Сервер отдавал поля в snake_case, а клиент
+/// читает camelCase. Проверяем контракт — ровно те имена, что
+/// ждёт экран «Состояние».
+#[tokio::test]
+async fn состояние_сервера_отдаётся_в_именах_клиента() {
+    let Some((app, _)) = app().await else { return };
+    let admin = token(&app, "admin").await;
+
+    let (status, body) = call(&app, Method::GET, "/api/admin/health", Some(&admin), None).await;
+    assert_eq!(status, StatusCode::OK);
+    for поле in ["db", "uptimeSec", "mlProvider", "wsListeners", "jobsQueued", "jobsRunning", "version"] {
+        assert!(body.get(поле).is_some(), "в ответе нет «{поле}»: {body}");
+    }
+    assert!(body["uptimeSec"].is_u64());
+    assert!(body["jobsQueued"].is_i64());
+    assert!(!body["mlProvider"].as_str().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn администратор_заводит_учётную_запись() {
     let Some((app, pool)) = app().await else { return };

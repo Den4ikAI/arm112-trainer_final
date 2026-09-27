@@ -4,7 +4,11 @@ use crate::{error::AppResult, state::AppState};
 use axum::{extract::State, routing::get, Json, Router};
 use serde::Serialize;
 
+/// Имена полей — в camelCase, как у всего API. Без этого сервер
+/// отдавал `uptime_sec`, клиент читал `uptimeSec`, и в администрировании
+/// стояло «NaN мин NaN с» и пустые счётчики очереди.
 #[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Health {
     /// Отвечает ли база
     db: bool,
