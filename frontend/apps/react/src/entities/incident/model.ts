@@ -14,13 +14,32 @@
 import { create } from 'zustand';
 import {
   sessions, ApiError,
-  type Card, type ClassifyResult, type Grade, type ScenarioPublic,
+  type Card, type ClassifyResult, type Grade, type ScenarioPublic, type SessionState,
 } from '@/shared/api';
 
 /** Пауза перед отправкой правок. Он же буфер на случай обрыва сети. */
 const DEBOUNCE_MS = 500;
 /** Через сколько повторить отправку, если сеть отвалилась. */
 const RETRY_MS = 3000;
+
+/**
+ * Где помним текущий вызов между обновлениями страницы.
+ *
+ * sessionStorage, а не localStorage: он живёт, пока открыта вкладка,
+ * и переживает F5 — ровно то, что нужно. Сам вызов хранит сервер,
+ * здесь только его номер; без номера вызов находится запросом
+ * «незаконченный вызов курсанта».
+ */
+const STORAGE_KEY = 'arm112.sessionId';
+const remember = (id: string | null) => {
+  try {
+    if (id) sessionStorage.setItem(STORAGE_KEY, id);
+    else sessionStorage.removeItem(STORAGE_KEY);
+  } catch { /* приватный режим: продолжение найдётся запросом к серверу */ }
+};
+const remembered = (): string | null => {
+  try { return sessionStorage.getItem(STORAGE_KEY); } catch { return null; }
+};
 
 interface TrainingState {
   sessionId: string | null;
@@ -31,12 +50,20 @@ interface TrainingState {
   transcript: Array<{ who: string; text: string; atSec: number }>;
   revealed: string[];
   grade: Grade | null;
+  /** Когда вызов начат — от этого момента идёт таймер, и после F5 тоже. */
+  startedAt: string | null;
   saving: boolean;
   error: string | null;
 }
 
 interface Actions {
   start(scenarioId: string): Promise<void>;
+  /**
+   * Продолжить вызов после обновления страницы, повторного входа или
+   * в новой вкладке. `number` — номер карточки из адреса страницы:
+   * чужой по номеру вызов не подставляем. `false` — продолжать нечего.
+   */
+  resume(number?: string): Promise<boolean>;
   /** Локальная правка + отложенная отправка. */
   edit(patch: Partial<Card>): void;
   editAddress(field: string, value: string): void;
@@ -106,6 +133,24 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     timer = setTimeout(send, DEBOUNCE_MS);
   };
 
+  /** Разложить пришедшее с сервера состояние вызова по экрану. */
+  const restore = (st: SessionState) => {
+    pending = {};
+    if (timer) clearTimeout(timer);
+    remember(st.session.id);
+    set({
+      sessionId: st.session.id,
+      card: st.card,
+      scenario: st.scenario,
+      classify: st.classify,
+      transcript: st.transcript,
+      revealed: st.scenario.questions.filter((q) => q.revealed).map((q) => q.factId),
+      grade: st.grade,
+      startedAt: st.session.startedAt,
+      error: null,
+    });
+  };
+
   return {
     sessionId: null,
     card: null,
@@ -114,13 +159,18 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     transcript: [],
     revealed: [],
     grade: null,
+    startedAt: null,
     saving: false,
     error: null,
 
+    // Новая попытка — всегда новая карточка. Продолжение незаконченного
+    // вызова — отдельное действие: журнал предлагает его сам, и F5 на
+    // карточке его восстанавливает (`resume`)
     start: async (scenarioId) => {
       const r = await sessions.create(scenarioId);
       pending = {};
       if (timer) clearTimeout(timer);
+      remember(r.session.id);
       set({
         sessionId: r.session.id,
         card: r.card,
@@ -130,8 +180,22 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
         transcript: [{ who: 'заявитель', text: r.scenario.legend, atSec: 0 }],
         revealed: [],
         grade: null,
+        startedAt: r.session.startedAt,
         error: null,
       });
+    },
+
+    resume: async (number) => {
+      // Сначала вызов этой вкладки — он может быть и сохранённым,
+      // тогда вернётся разбор. Не подошёл — незаконченный вызов курсанта
+      const fits = (st: SessionState | undefined) =>
+        st && (!number || st.card.number === number) ? st : undefined;
+      const id = remembered();
+      const st = fits(id ? await sessions.state(id).catch(() => undefined) : undefined)
+        ?? fits(await sessions.active().catch(() => undefined));
+      if (!st) return false;
+      restore(st);
+      return true;
     },
 
     edit: (patch) => {
@@ -205,9 +269,11 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     reset: () => {
       if (timer) clearTimeout(timer);
       pending = {};
+      remember(null);
       set({
         sessionId: null, card: null, scenario: null, classify: null,
-        transcript: [], revealed: [], grade: null, saving: false, error: null,
+        transcript: [], revealed: [], grade: null, startedAt: null,
+        saving: false, error: null,
       });
     },
   };

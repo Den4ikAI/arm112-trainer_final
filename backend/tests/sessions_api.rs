@@ -249,3 +249,91 @@ async fn занятие_без_токена_не_создаётся() {
         Some(json!({ "scenarioId": sid, "mode": "card112" }))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
+
+/// Свой курсант на проверку: «незаконченный вызов» — последний у
+/// пользователя, и на общем student1 его перехватили бы соседние
+/// проверки, которые идут параллельно.
+async fn свой_курсант(pool: &sqlx::PgPool) -> (uuid::Uuid, String) {
+    let login = format!("курсант-f5-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+    let id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (login, password_hash, fio, role)
+         SELECT $1, password_hash, 'Проверочный К.К.', 'student'
+           FROM users WHERE login = 'student1'
+         RETURNING id",
+    )
+    .bind(&login).fetch_one(pool).await.unwrap();
+    (id, login)
+}
+
+async fn убрать_курсанта(pool: &sqlx::PgPool, id: uuid::Uuid) {
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1").bind(id).execute(pool).await.ok();
+    sqlx::query("DELETE FROM cards WHERE created_by = $1").bind(id).execute(pool).await.ok();
+    sqlx::query("UPDATE audit_log SET user_id = NULL WHERE user_id = $1").bind(id).execute(pool).await.ok();
+    sqlx::query("DELETE FROM users WHERE id = $1").bind(id).execute(pool).await.ok();
+}
+
+/// Замечание со стенда: после обновления страницы экран писал
+/// «Занятие не запущено», а повторный выбор билета заводил новую
+/// пустую карточку. Незаконченный вызов должен возвращаться целиком:
+/// тот же номер, введённые поля, заданные вопросы, разговор, время.
+#[tokio::test]
+async fn после_обновления_страницы_вызов_продолжается_с_того_же_места() {
+    let Some((app, pool)) = app().await else { return };
+    let Some(sid) = scenario_id(&pool).await else { return };
+    let (user_id, login) = свой_курсант(&pool).await;
+    let tok = token(&app, &login).await;
+
+    let (_, пусто) = call(&app, Method::GET, "/api/sessions/active", Some(&tok), None).await;
+    assert!(пусто.is_null(), "у нового курсанта незаконченных вызовов нет: {пусто}");
+
+    let (_, начато) = call(&app, Method::POST, "/api/sessions", Some(&tok),
+        Some(json!({ "scenarioId": sid, "mode": "card112" }))).await;
+    let session = начато["session"]["id"].as_str().unwrap().to_string();
+    let номер = начато["card"]["number"].clone();
+    let вопрос = начато["scenario"]["questions"][0]["factId"].as_str().unwrap().to_string();
+
+    call(&app, Method::POST, &format!("/api/sessions/{session}/ask"), Some(&tok),
+        Some(json!({ "factId": вопрос }))).await;
+    call(&app, Method::PATCH, &format!("/api/sessions/{session}/card"), Some(&tok),
+        Some(json!({ "applicantName": "Проверка восстановления",
+                     "typeIds": ["101"], "answers": { "where": ["Дом"] } }))).await;
+
+    // «Обновили страницу»: у клиента ничего нет, кроме входа
+    let (status, с) = call(&app, Method::GET, "/api/sessions/active", Some(&tok), None).await;
+    assert_eq!(status, StatusCode::OK, "{с}");
+    assert_eq!(с["session"]["id"], session.as_str(), "вернулся не тот вызов");
+    assert_eq!(с["card"]["number"], номер, "номер карточки сменился");
+    assert_eq!(с["card"]["applicantName"], "Проверка восстановления");
+    assert_eq!(с["card"]["answers"]["where"], json!(["Дом"]));
+    assert!(с["session"]["startedAt"].is_string(), "без начала не восстановить таймер");
+
+    let заданные: Vec<&Value> = с["scenario"]["questions"].as_array().unwrap().iter()
+        .filter(|q| q["revealed"] == true).collect();
+    assert_eq!(заданные.len(), 1);
+    assert_eq!(заданные[0]["factId"], вопрос.as_str());
+    // Легенда, вопрос и ответ
+    assert_eq!(с["transcript"].as_array().unwrap().len(), 3);
+    assert!(с["classify"].is_object(), "список оповещения по выбранному типу не вернулся");
+    assert!(с["grade"].is_null(), "разбор до сохранения показывать нельзя");
+
+    // Эталон и ответы на незаданные вопросы по-прежнему не уезжают
+    let raw = с.to_string();
+    assert!(!raw.contains("expected"), "эталон уехал на клиент");
+    assert!(!raw.contains("Королёв"), "ответ про город виден до вопроса");
+
+    // После сохранения незаконченного нет, а состояние по номеру
+    // вызова отдаёт разбор — его тоже можно открыть после обновления
+    call(&app, Method::POST, &format!("/api/sessions/{session}/save"), Some(&tok), None).await;
+    let (status, _) = call(&app, Method::GET, "/api/sessions/active", Some(&tok), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, после) = call(&app, Method::GET, &format!("/api/sessions/{session}"), Some(&tok), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(после["grade"]["score"].is_number(), "{после}");
+
+    // Чужой вызов курсанту не отдаётся
+    let чужой = token(&app, "student1").await;
+    let (status, _) = call(&app, Method::GET, &format!("/api/sessions/{session}"), Some(&чужой), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    убрать_курсанта(&pool, user_id).await;
+}

@@ -34,6 +34,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/sessions/{id}/save", post(save))
         .route("/api/sessions/{id}/transcript", get(transcript))
         .route("/api/sessions/{id}/grade", get(grade_view))
+        .route("/api/sessions/active", get(active))
+        .route("/api/sessions/{id}", get(state_view))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
@@ -120,6 +122,12 @@ pub struct ScenarioBrief {
     pub legend: String,
     pub norm_sec: i32,
     pub questions_count: i64,
+    /// `draft` или `approved`. Курсанту приходят только утверждённые
+    pub status: String,
+    /// По нему вызов без билета отличается от соседнего с той же
+    /// легендой: у подготовленных моделью и заведённых вручную номера
+    /// билета нет, и преподаватель видел ряд одинаковых подписей
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Список вызовов, которые можно взять в работу. Эталон не отдаётся
@@ -148,7 +156,8 @@ async fn list_scenarios(
     let items: Vec<ScenarioBrief> = sqlx::query_as(
         "SELECT s.id, s.ticket, s.call_no, s.legend, s.norm_sec,
                 (SELECT count(*) FROM scenario_hidden_facts f
-                  WHERE f.scenario_id = s.id AND NOT f.retired) AS questions_count
+                  WHERE f.scenario_id = s.id AND NOT f.retired) AS questions_count,
+                s.status::text AS status, s.created_at
            FROM scenarios s
           WHERE (s.status = 'approved' OR $1)
             AND (NOT EXISTS (
@@ -162,7 +171,7 @@ async fn list_scenarios(
                       JOIN lessons l ON l.id = a.lesson_id
                       WHERE a.scenario_id = s.id AND a.user_id = $2
                         AND l.started_at IS NOT NULL AND l.finished_at IS NULL))
-          ORDER BY s.ticket NULLS LAST, s.call_no NULLS LAST",
+          ORDER BY s.ticket NULLS LAST, s.call_no NULLS LAST, s.created_at DESC",
     )
     .bind(drafts)
     .bind(user.id)
@@ -821,6 +830,182 @@ async fn transcript(
     .await?;
 
     Ok(Json(lines))
+}
+
+// ─── Продолжение после обновления страницы ──────────────────────────
+
+/// Всё, что нужно экрану, чтобы продолжить вызов с того же места.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionState {
+    pub session: SessionView,
+    pub card: CardView,
+    /// Вопросы — с отметкой, какие уже заданы в этом вызове
+    pub scenario: ScenarioPublic,
+    pub transcript: Vec<TranscriptLine>,
+    /// Список оповещения по уже выбранным признакам. Пусто, пока
+    /// тип происшествия не выбран
+    pub classify: Option<ClassifyResult>,
+    /// Разбор, если карточка уже сохранена
+    pub grade: Option<Grade>,
+}
+
+/// Сколько живёт незаконченный вызов, который предлагается продолжить.
+/// Норматив вызова — минуты; брошенное полдня назад — уже не
+/// продолжение, а мусор, и таймер показал бы часы.
+const ACTIVE_HOURS: i32 = 12;
+
+/// Незаконченный вызов курсанта — чтобы после обновления страницы,
+/// повторного входа или в новой вкладке продолжить его, а не начать
+/// заново с пустой карточкой.
+///
+/// Замечание со стенда: после F5 экран писал «Занятие не запущено»,
+/// а повторный выбор того же билета заводил новую карточку.
+#[utoipa::path(
+    get,
+    path = "/api/sessions/active",
+    tag = "Занятие",
+    responses(
+        (status = 200, description = "Незаконченный вызов", body = SessionState),
+        (status = 204, description = "Незаконченного вызова нет"),
+        (status = 401, description = "Требуется вход"),
+    ),
+)]
+async fn active(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> AppResult<axum::response::Response> {
+    use axum::response::IntoResponse;
+
+    let id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM sessions
+          WHERE user_id = $1 AND mode = 'card112' AND finished_at IS NULL
+            AND scenario_id IS NOT NULL
+            AND started_at > now() - make_interval(hours => $2)
+          ORDER BY started_at DESC
+          LIMIT 1",
+    )
+    .bind(user.id)
+    .bind(ACTIVE_HOURS)
+    .fetch_optional(&state.db)
+    .await?;
+
+    match id {
+        Some(id) => Ok(Json(load_state(&state.db, id).await?).into_response()),
+        None => Ok(StatusCode::NO_CONTENT.into_response()),
+    }
+}
+
+/// Состояние вызова целиком: карточка, разговор, заданные вопросы
+/// и — если карточка сохранена — разбор.
+#[utoipa::path(
+    get,
+    path = "/api/sessions/{id}",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Состояние вызова", body = SessionState),
+        (status = 401, description = "Требуется вход"),
+        (status = 404, description = "Нет такого вызова"),
+    ),
+)]
+async fn state_view(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<SessionState>> {
+    own_session(&state.db, id, &user).await?;
+    Ok(Json(load_state(&state.db, id).await?))
+}
+
+async fn load_state(pool: &sqlx::PgPool, id: Uuid) -> AppResult<SessionState> {
+    let session = load_session_view(pool, id).await?;
+
+    let card_id: Uuid = sqlx::query_scalar("SELECT id FROM cards WHERE session_id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let card = load_card(pool, card_id).await?;
+
+    #[allow(clippy::type_complexity)]
+    let sc: (Uuid, Option<i32>, Option<i32>, String, String, String, String) = sqlx::query_as(
+        "SELECT s.id, s.ticket, s.call_no, s.legend, s.applicant_name,
+                s.applicant_phone, s.applicant_status
+           FROM scenarios s JOIN sessions x ON x.scenario_id = s.id
+          WHERE x.id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(AppError::NotFound)?;
+    let (sid, ticket, call_no, legend, name, phone, app_status) = sc;
+
+    // Снятый правкой вопрос остаётся, если его уже задали: он есть
+    // в разговоре, и пропажа кнопки выглядела бы поломкой
+    let questions: Vec<(Uuid, String, String, bool)> = sqlx::query_as(
+        "SELECT f.id, f.key, f.question,
+                EXISTS (SELECT 1 FROM revealed_facts r
+                         WHERE r.session_id = $2 AND r.fact_id = f.id) AS revealed
+           FROM scenario_hidden_facts f
+          WHERE f.scenario_id = $1
+            AND (NOT f.retired OR EXISTS (SELECT 1 FROM revealed_facts r
+                                           WHERE r.session_id = $2 AND r.fact_id = f.id))
+          ORDER BY f.sort_order",
+    )
+    .bind(sid)
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+
+    let transcript: Vec<TranscriptLine> = sqlx::query_as(
+        "SELECT who, text, at_sec FROM transcript_lines
+          WHERE session_id = $1 ORDER BY at_sec, id",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+
+    // Список оповещения только считаем, не переписываем: он уже
+    // записан при последней правке карточки
+    let classify = if card.type_ids.is_empty() {
+        None
+    } else {
+        let answers: Value = sqlx::query_scalar("SELECT answers FROM cards WHERE id = $1")
+            .bind(card_id)
+            .fetch_one(pool)
+            .await?;
+        let version_id = active_version(pool).await?;
+        Some(classify(pool, version_id, &card.type_ids, &answers_to_map(&answers)).await?)
+    };
+
+    let grade = grade::load(pool, id).await.map_err(AppError::Other)?;
+
+    Ok(SessionState {
+        scenario: ScenarioPublic {
+            id: sid,
+            ticket,
+            call_no,
+            legend,
+            applicant_name: name,
+            applicant_phone: phone,
+            applicant_status: app_status,
+            norm_sec: session.norm_sec,
+            questions: questions
+                .into_iter()
+                .map(|(fact_id, key, question, revealed)| QuestionPublic {
+                    fact_id, key, question, revealed,
+                })
+                .collect(),
+        },
+        session,
+        card,
+        transcript,
+        classify,
+        grade,
+    })
 }
 
 // ─── Общее ───────────────────────────────────────────────────────────

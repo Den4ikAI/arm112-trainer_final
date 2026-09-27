@@ -8,6 +8,7 @@ import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 import { ScenarioChat } from '@/widgets/scenario-chat/ScenarioChat';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
+import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import clsx from '@/shared/lib/clsx';
 import s from './ScenariosPage.module.scss';
 
@@ -124,7 +125,8 @@ export const ScenariosPage = () => {
               onClick={() => void open(item.id)}
             >
               <span className={s.itemHead}>
-                Билет {item.ticket} · вызов {item.callNo}
+                {scenarioTitle(item)}
+                {item.status === 'draft' && <span className={s.itemDraft}> · черновик</span>}
               </span>
               <span className={s.itemText}>{item.legend.slice(0, 90)}</span>
             </button>

@@ -138,6 +138,16 @@ export interface TrainingSession {
   normSec: number;
 }
 
+/** Вызов целиком — чтобы продолжить его после обновления страницы. */
+export interface SessionState {
+  session: TrainingSession;
+  card: Card;
+  scenario: ScenarioPublic;
+  transcript: TranscriptLine[];
+  classify: ClassifyResult | null;
+  grade: Grade | null;
+}
+
 export type FindingKind = 'ok' | 'guessed' | 'wrong' | 'missing' | 'extra';
 
 export interface Finding {
@@ -174,6 +184,9 @@ export interface CardBrief {
   outcomeType: string | null;
   status: string;
   operator: string;
+  workstation: string | null;
+  /** Пострадавшие, как их отметил оператор; null — отметки нет. */
+  victims: number | null;
   /**
    * Когда карточка поступила в ленту: в занятии ДДС — выпуск потоком
    * занятия, иначе — сохранение оператором 112.

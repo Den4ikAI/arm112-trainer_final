@@ -3,7 +3,7 @@ import { api, setToken } from './client';
 import type {
   AdminUser, AuditPage, Brigade, Card, CardBrief, CardDetail, ClassifierVersion,
   ClassifyResult, Grade, GroupBrief, Health, IncidentType, JobView,
-  ScenarioFull, ScenarioPublic, Service, SurveyCard, TrainingSession,
+  ScenarioFull, ScenarioPublic, Service, SessionState, SurveyCard, TrainingSession,
   TranscriptLine, TurnResult, User,
 } from './types';
 
@@ -42,6 +42,8 @@ export interface ScenarioBrief {
   legend: string;
   normSec: number;
   questionsCount: number;
+  status: 'draft' | 'approved' | 'archived';
+  createdAt: string;
 }
 
 export const scenarios = {
@@ -228,10 +230,13 @@ export const sessions = {
     api.post<{ card: Card; grade: Grade }>(`/api/sessions/${id}/save`),
   grade: (id: string) => api.get<Grade>(`/api/sessions/${id}/grade`),
   transcript: (id: string) => api.get<TranscriptLine[]>(`/api/sessions/${id}/transcript`),
+  /** Незаконченный вызов курсанта; `undefined` — такого нет. */
+  active: () => api.get<SessionState | undefined>('/api/sessions/active'),
+  state: (id: string) => api.get<SessionState>(`/api/sessions/${id}`),
 };
 
 export const cards = {
-  list: (params: { scope?: string; status?: string; q?: string; page?: number } = {}) => {
+  list: (params: { scope?: string; status?: string; q?: string; page?: number; size?: number } = {}) => {
     const qs = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== '') qs.set(k, String(v));

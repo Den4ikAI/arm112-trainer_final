@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTraining } from '@/entities/incident/model';
 import { useCatalog } from '@/entities/catalog/model';
@@ -19,12 +19,26 @@ export const Card112Page = () => {
   const { number = '' } = useParams();
   const nav = useNavigate();
   const {
-    card, scenario, classify, revealed, transcript, grade, error,
-    edit, editAddress, toggleType, setAnswer, setManualServices, ask, save, flush,
+    card, scenario, classify, revealed, transcript, grade, error, startedAt,
+    edit, editAddress, toggleType, setAnswer, setManualServices, ask, save, flush, resume,
   } = useTraining();
   const applicantStatuses = useCatalog((st) => st.applicantStatuses);
 
-  const elapsed = useTimer(!grade);
+  const elapsed = useTimer(!grade, startedAt);
+
+  // После обновления страницы, повторного входа или в новой вкладке
+  // вызов продолжается с того же места: сервер помнит карточку,
+  // разговор и заданные вопросы. Раньше здесь сразу было «Занятие не
+  // запущено», а повторный выбор билета заводил новую карточку
+  const [resuming, setResuming] = useState(!card);
+  useEffect(() => {
+    if (card) return;
+    let alive = true;
+    void resume(number).finally(() => { if (alive) setResuming(false); });
+    return () => { alive = false; };
+    // Только при входе на страницу: дальше карточку ведёт хранилище
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Список оповещения считает сервер: здесь только то, что он прислал
   const auto = classify?.services.map((x) => x.serviceId) ?? [];
@@ -49,11 +63,21 @@ export const Card112Page = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, [save]);
 
+  if (!card && resuming) {
+    return (
+      <div className={s.page}>
+        <p className={s.empty} data-testid="resuming">Восстанавливаю вызов…</p>
+      </div>
+    );
+  }
+
   if (!card) {
     return (
       <div className={s.page}>
         <p className={s.empty} data-testid="no-session">
-          Занятие не запущено. Возьмите вызов в журнале.
+          {number
+            ? `Карточки ${number} нет среди ваших незаконченных вызовов: она уже сохранена или начата другим пользователем. Возьмите вызов в журнале.`
+            : 'Занятие не запущено. Возьмите вызов в журнале.'}
         </p>
         <button onClick={() => nav('/journal')}>В журнал</button>
       </div>

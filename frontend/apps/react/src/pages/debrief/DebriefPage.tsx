@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTraining } from '@/entities/incident/model';
 import { useCatalog } from '@/entities/catalog/model';
 import type { Finding } from '@/shared/api';
 import { fmt } from '@/shared/lib/useTimer';
+import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import clsx from '@/shared/lib/clsx';
 import { MyForecast } from '@/widgets/forecast/MyForecast';
 import { MyAdvice } from '@/widgets/advice/MyAdvice';
@@ -21,9 +23,28 @@ const KIND_LABEL: Record<Finding['kind'], string> = {
  * значение совпало с эталоном, но заявитель его не сообщал.
  */
 export const DebriefPage = () => {
-  const { grade: result, scenario, transcript, reset, sessionId } = useTraining();
+  const { grade: result, scenario, transcript, revealed, reset, sessionId, resume } = useTraining();
   const serviceTitle = useCatalog((st) => st.serviceTitle);
   const nav = useNavigate();
+
+  // После обновления страницы разбор берётся с сервера: он посчитан
+  // один раз при сохранении и там и лежит
+  const [resuming, setResuming] = useState(!result);
+  useEffect(() => {
+    if (result) return;
+    let alive = true;
+    void resume().finally(() => { if (alive) setResuming(false); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if ((!result || !scenario) && resuming) {
+    return (
+      <div className={s.page}>
+        <p className={s.empty}>Загружаю разбор…</p>
+      </div>
+    );
+  }
 
   if (!result || !scenario) {
     return (
@@ -43,7 +64,7 @@ export const DebriefPage = () => {
       <header className={s.head}>
         <div>
           <h1 className={s.title}>Разбор вызова</h1>
-          <div className={s.sub}>Билет {scenario.ticket} · вызов {scenario.callNo}</div>
+          <div className={s.sub}>{scenarioTitle(scenario)}</div>
         </div>
         <div className={s.scoreBox} data-testid="score">
           <div className={s.score}>{result.score}</div>
@@ -57,10 +78,20 @@ export const DebriefPage = () => {
       <div className={s.metrics}>
         <Metric label="Время заполнения" value={fmt(result.elapsedSec)}
                 danger={result.overNorm} note={`норматив ${fmt(result.normSec)}`} />
-        <Metric label="Выяснено у заявителя"
-                value={`${scenario.questions.length - guessed.length} / ${scenario.questions.length}`} />
-        <Metric label="Службы оповещены"
-                value={`${result.services.actual.length} / ${result.services.expected.length}`}
+        {/* Единица — вопрос заявителю, а не поле карточки. Раньше из
+            числа вопросов вычиталось число угаданных полей, а один
+            вопрос раскрывает несколько полей — на стенде вышло «−1 / 5» */}
+        <Metric label="Задано вопросов заявителю"
+                value={`${revealed.filter((id) => scenario.questions.some((q) => q.factId === id)).length} / ${scenario.questions.length}`}
+                note={guessed.length > 0 ? `угадано полей: ${guessed.length}` : undefined} />
+        {/* Направлено из требуемых и отдельно лишние. Было «оповещены
+            6 / 5»: лишняя служба смешивалась с нужными, а «оповещены»
+            выдавало выбор службы за подтверждённый приём — его
+            ставит диспетчер ДДС, а не курсант 112 */}
+        <Metric label="Требуемые службы направлены"
+                value={`${result.services.expected.length - result.services.missed.length} / ${result.services.expected.length}`}
+                note={result.services.extra.length > 0
+                  ? `лишних: ${result.services.extra.length}` : 'лишних нет'}
                 danger={result.services.missed.length > 0} />
       </div>
 

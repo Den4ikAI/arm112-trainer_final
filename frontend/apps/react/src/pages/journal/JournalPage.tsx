@@ -3,10 +3,11 @@ import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTa
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
-import { ApiError, cards, channel, lessons, scenarios as scenariosApi,
-         type CardBrief, type LessonBrief, type ScenarioBrief } from '@/shared/api';
+import { ApiError, cards, channel, lessons, scenarios as scenariosApi, sessions,
+         type CardBrief, type LessonBrief, type ScenarioBrief, type SessionState } from '@/shared/api';
 import { useNavigate } from 'react-router-dom';
 import { useClock } from '@/shared/lib/useClock';
+import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import s from './JournalPage.module.scss';
 import { stubProps } from '@/shared/ui/Stub';
 
@@ -28,29 +29,44 @@ const toRow = (c: CardBrief): JournalRow => {
     date: saved.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' }),
     time: saved.toLocaleTimeString('ru-RU'),
     type: c.outcomeType ?? '—',
-    victims: 'Нет',
+    // Сохранённое в карточке, а не заглушка: на стенде журнал писал
+    // «Нет» при отмеченных пострадавших
+    victims: c.victims == null ? 'Нет' : String(c.victims),
     address,
     serviceStatus: c.status,
     waitingSec: c.waitingSec,
     opened: c.opened ?? null,
     recorded: c.recorded ?? null,
     operator: c.operator,
-    workstation: '',
+    workstation: c.workstation ?? '',
     description: c.description,
     to: `/card-dds/${c.id}`,
   };
 };
 
+/**
+ * Записей на странице — как на кадре журнала боевой системы.
+ * Раньше подпись говорила «10», а приходило 50 без перехода дальше,
+ * и остальная история была недоступна.
+ */
+const PAGE_SIZE = 10;
+
 /** Главный экран: поиск, список происшествий, часы. Плюс запуск учебного вызова. */
 export const JournalPage = () => {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<JournalRow[]>([]);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
   const [scenarios, setScenarios] = useState<ScenarioBrief[]>([]);
   // Идущее занятие по группе курсанта. Пока оно идёт, и список вызовов,
   // и лента ограничены его материалом — курсант должен понимать почему
   const [lesson, setLesson] = useState<LessonBrief | null>(null);
   const [error, setError] = useState<string | null>(null);
   const start = useTraining((st) => st.start);
+  const resume = useTraining((st) => st.resume);
+  // Незаконченный вызов: после обновления страницы или повторного
+  // входа его можно продолжить, а не начинать билет заново
+  const [unfinished, setUnfinished] = useState<SessionState | null>(null);
   const user = useSession((st) => st.user);
   const nav = useNavigate();
   const now = useClock();
@@ -67,17 +83,22 @@ export const JournalPage = () => {
       const scope = user?.role === 'student' ? 'service' : 'all';
 
       const [feed, list] = await Promise.allSettled([
-        cards.list({ scope, q: query || undefined }),
+        cards.list({ scope, q: query || undefined, page, size: PAGE_SIZE }),
         scenariosApi.list(),
       ]);
       if (!alive) return;
 
-      if (feed.status === 'fulfilled') setRows(feed.value.items.map(toRow));
+      if (feed.status === 'fulfilled') {
+        setRows(feed.value.items.map(toRow));
+        setTotal(feed.value.total);
+      }
       if (list.status === 'fulfilled') setScenarios(list.value);
 
       // Занятие — надстройка: не узнали о нём, и экран работает как обычно
       if (user?.role === 'student') {
         const идущие = await lessons.list().catch(() => [] as LessonBrief[]);
+        const незакончен = await sessions.active().catch(() => undefined);
+        if (alive) setUnfinished(незакончен ?? null);
         if (alive) setLesson(идущие[0] ?? null);
       }
 
@@ -119,7 +140,11 @@ export const JournalPage = () => {
       clearInterval(timer);
       if (topics.length) channel.unsubscribe(topics);
     };
-  }, [query, user?.role, user?.serviceId]);
+  }, [query, page, user?.role, user?.serviceId]);
+
+  const proceed = async (st: SessionState) => {
+    if (await resume(st.card.number)) nav(`/card/${st.card.number}`);
+  };
 
   const launch = async (scenarioId: string) => {
     await start(scenarioId);
@@ -134,12 +159,14 @@ export const JournalPage = () => {
           <div className={s.searchRow}>
             <input className={s.search} value={query} placeholder="Поиск происшествий"
                    aria-label="Поиск происшествий"
-                   onChange={(e) => setQuery(e.target.value)} />
+                   // Новый поиск — с первой страницы: на пятой его
+                   // результатов может не быть
+                   onChange={(e) => { setQuery(e.target.value); setPage(0); }} />
             <span className={s.loupe} aria-hidden>⌕</span>
           </div>
           <div className={s.searchSub}>
             <button {...stubProps('Расширенный поиск')} className={s.link}>расширенный по параметрам ⌄</button>
-            <button className={s.reset} onClick={() => setQuery('')}>сбросить</button>
+            <button className={s.reset} onClick={() => { setQuery(''); setPage(0); }}>сбросить</button>
           </div>
         </div>
 
@@ -166,7 +193,7 @@ export const JournalPage = () => {
             <button key={sc.id} className={s.launchBtn}
                     data-testid={`launch-t${sc.ticket}-c${sc.callNo}`}
                     onClick={() => void launch(sc.id)}>
-              <strong>Билет {sc.ticket} · вызов {sc.callNo}</strong>
+              <strong>{scenarioTitle(sc)}</strong>
               <span>{sc.legend.slice(0, 74)}…</span>
             </button>
           ))}
@@ -175,6 +202,16 @@ export const JournalPage = () => {
           )}
         </div>
       </section>
+
+      {unfinished && (
+        <div className={s.lesson} role="status" data-testid="unfinished-call">
+          Есть незаконченный вызов: карточка {unfinished.card.number}
+          {unfinished.scenario.ticket != null
+            && `, билет ${unfinished.scenario.ticket} · вызов ${unfinished.scenario.callNo}`}.{' '}
+          <button className={s.continue} data-testid="continue-call"
+                  onClick={() => void proceed(unfinished)}>Продолжить</button>
+        </div>
+      )}
 
       {error && <div className={s.error} role="status">{error}</div>}
       {lesson && (
@@ -186,7 +223,8 @@ export const JournalPage = () => {
         </div>
       )}
 
-      <JournalTable rows={rows} />
+      <JournalTable rows={rows}
+                    pager={{ page, size: PAGE_SIZE, total, onPage: setPage }} />
     </div>
   );
 };

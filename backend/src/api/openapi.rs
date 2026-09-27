@@ -68,6 +68,8 @@ use utoipa::{
         crate::api::sessions::save,
         crate::api::sessions::transcript,
         crate::api::sessions::grade_view,
+        crate::api::sessions::active,
+        crate::api::sessions::state_view,
         crate::api::cards::list,
         crate::api::cards::one,
         crate::api::cards::add_response,

@@ -85,6 +85,15 @@
   font-size: 13px;
 }
 
+.continue {
+  border: 1px solid var(--c-blue);
+  background: transparent;
+  color: var(--c-blue);
+  font-size: 13px;
+  padding: 0 var(--sp-2);
+  cursor: pointer;
+}
+
 .error {
   margin: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
