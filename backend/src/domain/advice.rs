@@ -105,11 +105,21 @@ impl Past {
     /// доказывает: если в следующем вызове нет вопроса про газификацию,
     /// рекомендация «выясняйте газификацию» не проверена, а не выполнена.
     ///
-    /// `Some(true)` — поле проверялось и заполнено верно.
-    /// `Some(false)` — поле проверялось, и с ним снова не так. Ошибка
-    /// другого вида на том же поле тоже считается неудачей: поле
-    /// по-прежнему заполняется неправильно, засчитывать это в пользу
-    /// рекомендации было бы лестью.
+    /// `Some(true)` — рекомендация исполнена, `Some(false)` — нет.
+    ///
+    /// Критерий — ровно то, что написано в тексте рекомендации
+    /// (см. [`wording`]), и не строже. Раньше исполненной считалась
+    /// только безупречно заполненная графа, и совет «не оставляйте
+    /// поле пустым» отмечался невыполненным при заполненном верно,
+    /// но угаданном значении: курсант сделал ровно то, о чём просили,
+    /// а в аналитике рекомендация «не сработала».
+    ///
+    /// * «не оставляйте пустым» (`missing`) — поле заполнено;
+    /// * «сверяйте с заявителем» (`wrong`) — значение совпало с
+    ///   эталоном, выяснено оно или угадано;
+    /// * «выясняйте вопросом» (`guessed`) — поле выяснено и верно.
+    ///   Здесь ошибка другого вида — неудача: неверное или пустое
+    ///   поле выясненным не бывает.
     pub fn outcome(&self, p: &Problem) -> Option<bool> {
         if p.is_service() {
             let id = p.service_id().to_string();
@@ -128,7 +138,12 @@ impl Past {
         if graded.is_empty() {
             return None;
         }
-        Some(graded.iter().all(|m| m.kind == "ok"))
+        let no = |kinds: &[&str]| graded.iter().all(|m| !kinds.contains(&m.kind.as_str()));
+        Some(match p.kind.as_str() {
+            "missing" => no(&["missing"]),
+            "wrong" => no(&["wrong", "missing"]),
+            _ => graded.iter().all(|m| m.kind == "ok"),
+        })
     }
 }
 
@@ -430,6 +445,34 @@ mod tests {
         let п = Problem::new("address.street", "guessed");
         let снова_не_так = разбор(&[("address.street", "wrong")]);
         assert_eq!(снова_не_так.outcome(&п), Some(false));
+    }
+
+    /// Замечание со стенда: «Не оставляйте пустым поле…» отмечено
+    /// невыполненным, хотя поле заполнено верно — только угадано.
+    #[test]
+    fn не_оставлять_пустым_исполнено_когда_поле_заполнено() {
+        let п = Problem::new("answers.inhouse", "missing");
+        assert_eq!(разбор(&[("answers.inhouse", "guessed")]).outcome(&п), Some(true));
+        assert_eq!(разбор(&[("answers.inhouse", "wrong")]).outcome(&п), Some(true),
+                   "заполнено, пусть и неверно: рекомендация была о пустом поле");
+        assert_eq!(разбор(&[("answers.inhouse", "missing")]).outcome(&п), Some(false));
+    }
+
+    #[test]
+    fn сверять_с_заявителем_исполнено_когда_значение_верное() {
+        let п = Problem::new("address.settlement", "wrong");
+        assert_eq!(разбор(&[("address.settlement", "ok")]).outcome(&п), Some(true));
+        assert_eq!(разбор(&[("address.settlement", "guessed")]).outcome(&п), Some(true));
+        assert_eq!(разбор(&[("address.settlement", "wrong")]).outcome(&п), Some(false));
+        assert_eq!(разбор(&[("address.settlement", "missing")]).outcome(&п), Some(false));
+    }
+
+    #[test]
+    fn выяснять_вопросом_исполнено_только_когда_выяснено() {
+        let п = Problem::new("answers.gasified", "guessed");
+        assert_eq!(разбор(&[("answers.gasified", "ok")]).outcome(&п), Some(true));
+        assert_eq!(разбор(&[("answers.gasified", "guessed")]).outcome(&п), Some(false));
+        assert_eq!(разбор(&[("answers.gasified", "missing")]).outcome(&п), Some(false));
     }
 
     #[test]
