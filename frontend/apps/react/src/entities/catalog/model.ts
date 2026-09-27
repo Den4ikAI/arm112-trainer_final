@@ -25,6 +25,8 @@ interface CatalogState {
   load(): Promise<void>;
   loadCard(typeId: string): Promise<void>;
   serviceTitle(id: string): string;
+  /** Короткое имя для плашки в полосе оповещения. */
+  serviceShort(id: string): string;
   typeTitle(id: string): string;
 }
 
@@ -54,5 +56,6 @@ export const useCatalog = create<CatalogState>((set, get) => ({
 
   // Идентификатор вместо названия — заметная поломка, а не тихая
   serviceTitle: (id) => get().services.find((s) => s.id === id)?.title ?? id,
+  serviceShort: (id) => get().services.find((s) => s.id === id)?.shortTitle ?? id,
   typeTitle: (id) => get().types.find((t) => t.id === id)?.title ?? id,
 }));

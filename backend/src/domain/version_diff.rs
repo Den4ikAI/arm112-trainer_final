@@ -109,16 +109,20 @@ pub async fn diff(pool: &PgPool, from: Uuid, to: Uuid) -> Result<Diff> {
 
     // Служба «появилась», если её нет ни в одной позиции старой версии.
     // Сама таблица services общая для всех версий: там накапливаются
-    // все, кто когда-либо встречался
+    // все, кто когда-либо встречался.
+    //
+    // Название — заголовок столбца из файла, а не то, что видит курсант:
+    // сравниваются файлы классификатора, и администратор сверяет список
+    // с самим XLSX и с условием задачи
     let services_added: Vec<ServiceRef> = sqlx::query_as(
-        "SELECT s.id, s.title FROM services s
+        "SELECT s.id, COALESCE(s.source_title, s.title) AS title FROM services s
           WHERE EXISTS (SELECT 1 FROM classifier_position_services ps
                           JOIN classifier_positions p ON p.id = ps.position_id
                          WHERE p.version_id = $2 AND ps.service_id = s.id)
             AND NOT EXISTS (SELECT 1 FROM classifier_position_services ps
                               JOIN classifier_positions p ON p.id = ps.position_id
                              WHERE p.version_id = $1 AND ps.service_id = s.id)
-          ORDER BY s.title",
+          ORDER BY 2",
     )
     .bind(from)
     .bind(to)
@@ -126,14 +130,14 @@ pub async fn diff(pool: &PgPool, from: Uuid, to: Uuid) -> Result<Diff> {
     .await?;
 
     let services_removed: Vec<ServiceRef> = sqlx::query_as(
-        "SELECT s.id, s.title FROM services s
+        "SELECT s.id, COALESCE(s.source_title, s.title) AS title FROM services s
           WHERE EXISTS (SELECT 1 FROM classifier_position_services ps
                           JOIN classifier_positions p ON p.id = ps.position_id
                          WHERE p.version_id = $1 AND ps.service_id = s.id)
             AND NOT EXISTS (SELECT 1 FROM classifier_position_services ps
                               JOIN classifier_positions p ON p.id = ps.position_id
                              WHERE p.version_id = $2 AND ps.service_id = s.id)
-          ORDER BY s.title",
+          ORDER BY 2",
     )
     .bind(from)
     .bind(to)

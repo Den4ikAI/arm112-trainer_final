@@ -112,3 +112,22 @@ fn две_версии_отличаются_ожидаемым_образом() 
     assert_eq!(added_pos.len(), 2, "новых позиций");
     assert!(added_pos.iter().any(|p| p.number == "24120200"));
 }
+
+/// В v046_11 перед «Главной службой» стоит «Сценарий реагирования» —
+/// столбец технических кодов («15_10», «1_2»). Службой он не является,
+/// и оповещать по нему некого.
+#[test]
+fn сценарий_реагирования_не_служба() {
+    let Some(path) = find("refs") else { return };
+    let parsed = classifier::parse(&path).unwrap();
+
+    assert!(
+        parsed.services.iter().all(|s| s.title != "Сценарий реагирования"
+                                     && s.title != "Главная служба"),
+        "служебные столбцы не должны попадать в службы"
+    );
+    // Службы нашлись и после сдвинутого столбца
+    assert!(parsed.services.iter().any(|s| s.id == "mchs"));
+    let p = parsed.positions.iter().find(|p| p.number == "1010101").unwrap();
+    assert!(p.services.iter().all(|(id, _, _)| id != "scenarij-reagirovaniya"));
+}

@@ -107,6 +107,26 @@ test.describe('Карточка 112', () => {
     await expect(tag.getByRole('button')).toHaveCount(0);
   });
 
+  test('службы названы как в боевой системе, поиск находит их по-старому', async ({ page }) => {
+    await fillFireCard(page);
+
+    // На плашке — короткое имя, как на кадрах карточки: «Служба 101»,
+    // а не заголовок столбца классификатора «Классификатор МЧС»
+    const tag = page.getByTestId('service-mchs');
+    await expect(tag).toHaveText('Служба 101');
+
+    // В окне добавления — полное имя с кадра «СЛУЖБЫ 112», image1.
+    // Привычное «скорая» находит «Службу 103», прежнее «Классификатор
+    // МВД» — «Службу 102»
+    await page.getByRole('button', { name: 'Добавить службу' }).click();
+    const поиск = page.getByLabel('Поиск службы');
+    await поиск.fill('скорая');
+    await expect(page.getByRole('button', { name: /^Служба 103 \(ГБУ города Москвы/ })).toBeVisible();
+    await поиск.fill('Классификатор МВД');
+    await expect(page.getByRole('button', { name: /^Служба 102 \(Дежурная часть/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Служба 103/ })).toHaveCount(0);
+  });
+
   test('заявитель отвечает только на заданный вопрос', async ({ page }) => {
     const transcript = page.getByTestId('transcript');
     await expect(transcript).toContainText('Горит крыша частного дома');
@@ -744,8 +764,8 @@ test.describe('Опросные карты', () => {
     // на пешехода — скорая и полиция, пожарных классификатор не зовёт
     await второй.getByRole('button', { name: 'Наезд на пешехода', exact: true }).click();
     const службы = page.getByLabel('Список оповещения');
-    await expect(службы).toContainText('Классификатор СМП', { timeout: 10_000 });
-    await expect(службы).toContainText('Классификатор МВД');
+    await expect(службы).toContainText('Служба 103', { timeout: 10_000 });
+    await expect(службы).toContainText('Служба 102');
   });
 
   test('смена первого признака снимает неподходящий второй', async ({ page }, info) => {

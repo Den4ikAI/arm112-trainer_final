@@ -23,7 +23,14 @@ export interface IncidentType {
 
 export interface Service {
   id: string;
+  /** Как в окне «Добавьте службы» боевой системы, если снято с кадров. */
   title: string;
+  /** Как на плашке в полосе оповещения: «Служба 101». */
+  shortTitle: string;
+  /** Заголовок столбца классификатора: «Классификатор МЧС». */
+  sourceTitle: string | null;
+  /** Дополнительные слова для поиска: «скорая», «02». */
+  aliases: string[];
 }
 
 export interface SurveyQuestion {

@@ -242,7 +242,8 @@ async fn администратор_заводит_учётную_запись()
             "role": "student", "serviceId": "mchs", "workstation": "9"
         }))).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
-    assert_eq!(created["serviceTitle"], "Классификатор МЧС");
+    // Название с кадра боевой системы, а не заголовок столбца классификатора
+    assert!(created["serviceTitle"].as_str().unwrap().starts_with("Служба 101 ("), "{created}");
 
     // Новый человек сразу может войти
     let (status, _) = call(&app, Method::POST, "/api/auth/login", None,

@@ -58,7 +58,15 @@ async fn incident_types(State(state): State<AppState>) -> AppResult<Json<Vec<Inc
 #[serde(rename_all = "camelCase")]
 struct Service {
     id: String,
+    /// Как в окне «Добавьте службы» боевой системы, если название снято
+    /// с кадров; иначе — заголовок столбца классификатора
     title: String,
+    /// Как на плашке в полосе оповещения: «Служба 101», «Деп. ЖКХ»
+    short_title: String,
+    /// Заголовок столбца в XLSX классификатора: «Классификатор МЧС»
+    source_title: Option<String>,
+    /// Слова, по которым службу тоже находит поиск: «скорая», «02»
+    aliases: Vec<String>,
     is_primary: bool,
 }
 
@@ -74,7 +82,14 @@ struct Service {
 )]
 async fn services(State(state): State<AppState>) -> AppResult<Json<Vec<Service>>> {
     let rows = sqlx::query_as::<_, Service>(
-        "SELECT id, title, is_primary FROM services ORDER BY title",
+        "SELECT s.id, s.title,
+                COALESCE(n.short_title, s.title) AS short_title,
+                s.source_title,
+                COALESCE(n.aliases, '{}') AS aliases,
+                s.is_primary
+           FROM services s
+           LEFT JOIN service_names n ON n.service_id = s.id
+          ORDER BY s.title",
     )
     .fetch_all(&state.db)
     .await?;

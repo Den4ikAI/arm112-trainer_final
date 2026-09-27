@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useCatalog } from '@/entities/catalog/model';
+import type { Service } from '@/shared/api';
 import { Modal } from '@/shared/ui/Modal';
 import clsx from '@/shared/lib/clsx';
 import s from './ServicesBar.module.scss';
@@ -15,6 +16,18 @@ interface Props {
 }
 
 /**
+ * Поиск в окне «Добавьте службы»: по названию с кадра, по заголовку
+ * столбца классификатора и по дополнительным словам. Курсант, привыкший
+ * к «МЧС» или «скорой», должен найти «Службу 101» и «Службу 103».
+ */
+const matches = (sv: Service, query: string) => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [sv.title, sv.sourceTitle ?? '', ...sv.aliases]
+    .some((t) => t.toLowerCase().includes(q));
+};
+
+/**
  * Нижняя оранжевая полоса со списком оповещения.
  * Инструкция, раздел 6: в штатной ситуации список формируется автоматически
  * и править его не следует — ручное добавление оставлено для нештатных случаев.
@@ -24,6 +37,7 @@ export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, child
   const [query, setQuery] = useState('');
   const services = useCatalog((st) => st.services);
   const serviceTitle = useCatalog((st) => st.serviceTitle);
+  const serviceShort = useCatalog((st) => st.serviceShort);
 
   // Автоподобранную службу снять нельзя (инструкция, раздел 6),
   // поэтому наружу отдаём только добавленные вручную
@@ -36,8 +50,7 @@ export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, child
       : [...manual, id]);
   };
 
-  const shown = services.filter((sv) =>
-    sv.title.toLowerCase().includes(query.trim().toLowerCase()));
+  const shown = services.filter((sv) => matches(sv, query));
 
   return (
     <>
@@ -48,7 +61,9 @@ export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, child
           {serviceIds.map((id) => (
             <span key={id} className={clsx(s.tag, autoIds.includes(id) && s.auto)}
                   data-testid={`service-${id}`}>
-              {serviceTitle(id)}
+              {/* На плашке боевая система пишет короткое имя — «Служба 101»,
+                  «Деп. ЖКХ»; полное видно по наведению и в окне добавления */}
+              <span title={serviceTitle(id)}>{serviceShort(id)}</span>
               {mode === '112' && !autoIds.includes(id) && (
                 <button className={s.tagX} aria-label={`Убрать ${serviceTitle(id)}`}
                         onClick={() => toggle(id)}>×</button>

@@ -13,6 +13,10 @@
 //! `0=Г 1=п1 2=п2 3=п3 4=Номер 5=Группа(стат.) 6..8=Признаки
 //!  9=Доп.признаки 10=Итоговый тип 11=ЕКП35 12=Главная служба 13+=службы`
 //!
+//! В v046_11 перед «Главной службой» есть ещё «Сценарий реагирования» —
+//! службы сдвинуты на колонку. Службы ищутся по заголовкам, так что
+//! сдвиг не мешает; служебные колонки перечислены в `NOT_SERVICES`.
+//!
 //! Служба занимает **диапазон** колонок: от своего заголовка до следующего.
 //! Внутри диапазона каждая подколонка — отдельное условие оповещения
 //! («признак не выбран», «угроза людям», «пострадавшие»). Отсюда 104
@@ -28,6 +32,16 @@ use std::path::Path;
 
 /// Первая колонка, в которой начинаются службы.
 const FIRST_SERVICE_COL: usize = 12;
+
+/// Служебные колонки, которые в шапке стоят среди служб, но службами
+/// не являются.
+///
+/// «Главная служба» — код основной службы. «Сценарий реагирования» есть
+/// только в v046_11: столбец технических кодов сценариев («15_10»,
+/// «1_2») перед «Главной службой». Без этого исключения парсер заводил
+/// службу-призрак с тысячей «оповещений», и в сравнении версий она
+/// выглядела удалённой службой.
+const NOT_SERVICES: [&str; 2] = ["Главная служба", "Сценарий реагирования"];
 
 /// Индексы служебных колонок.
 mod col {
@@ -119,9 +133,7 @@ fn parse_service_columns(sheet: &Range<Data>) -> Result<Vec<ServiceColumn>> {
     for (n, &start) in heads.iter().enumerate() {
         let title = text(sheet, 0, start);
 
-        // «Главная служба» — служебная колонка с кодом основной службы,
-        // а не участник оповещения
-        if title.eq_ignore_ascii_case("Главная служба") {
+        if NOT_SERVICES.iter().any(|n| title.eq_ignore_ascii_case(n)) {
             continue;
         }
 
@@ -250,11 +262,20 @@ pub async fn store(pool: &PgPool, parsed: &Parsed, name: &str, source: &str) -> 
     let mut tx = pool.begin().await?;
 
     // Службы общие для всех версий: если появилась новая, добавляем,
-    // существующим обновляем название
+    // существующим обновляем заголовок столбца.
+    //
+    // Показываемое курсанту название — из `service_names`, снятое с кадров
+    // боевой системы («Служба 101 (ГУ МЧС …)» вместо «Классификатор МЧС»).
+    // Повторный импорт не должен возвращать заголовок столбца на экран
     for s in &parsed.services {
         sqlx::query(
-            "INSERT INTO services (id, title) VALUES ($1, $2)
-             ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title",
+            "INSERT INTO services (id, title, source_title)
+             VALUES ($1, COALESCE((SELECT title FROM service_names WHERE service_id = $1), $2), $2)
+             ON CONFLICT (id) DO UPDATE
+                SET source_title = EXCLUDED.source_title,
+                    title = COALESCE((SELECT n.title FROM service_names n
+                                       WHERE n.service_id = EXCLUDED.id),
+                                     EXCLUDED.source_title)",
         )
         .bind(&s.id)
         .bind(&s.title)
