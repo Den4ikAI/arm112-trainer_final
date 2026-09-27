@@ -66,6 +66,12 @@ pub struct CardBrief {
     pub outcome_type: Option<String>,
     pub status: String,
     pub operator: String,
+    /// Номер АРМ, с которого заведена карточка. В журнале — своя колонка
+    pub workstation: Option<String>,
+    /// Пострадавшие, как их отметил оператор 112. Журнал показывает
+    /// сохранённое в карточке, а не эталон сценария: ошибочная отметка
+    /// курсанта должна быть видна диспетчеру такой, какая она есть
+    pub victims: Option<i32>,
     /// Когда карточка поступила в ленту: в занятии ДДС — когда её
     /// выпустил поток занятия, иначе — когда оператор 112 её сохранил.
     /// От этого момента считаются нормативы ДДС
@@ -148,6 +154,7 @@ async fn list(
         SELECT c.id, c.number, c.created_at, c.saved_at, c.address, c.description,
                c.outcome_type, c.status::text AS status,
                COALESCE(u.fio, '') AS operator,
+               c.workstation, c.victims,
                arr.arrived_at,
                EXTRACT(EPOCH FROM (now() - arr.arrived_at))::bigint AS waiting_sec,
                own.opened, own.recorded

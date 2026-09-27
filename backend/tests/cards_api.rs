@@ -249,3 +249,33 @@ async fn служба_вне_списка_оповещения_отклоняе�
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "validation_error");
 }
+
+/// Замечание со стенда: в журнале «Постр.: Нет» и пустая колонка
+/// «АРМ», хотя в сохранённой карточке «Пострадавшие: 1» и АРМ 4.
+/// Журнал показывает то, что сохранено в карточке.
+#[tokio::test]
+async fn журнал_показывает_пострадавших_и_арм_из_карточки() {
+    let Some((app, pool)) = app().await else { return };
+    let tok = token(&app, "student1").await;
+    let Some(scenario) = sqlx::query_scalar::<_, uuid::Uuid>(
+        "SELECT id FROM scenarios WHERE ticket = 3 AND call_no = 1")
+        .fetch_optional(&pool).await.unwrap() else { return };
+
+    let (_, s) = call(&app, Method::POST, "/api/sessions", Some(&tok),
+        Some(json!({ "scenarioId": scenario.to_string(), "mode": "card112" }))).await;
+    let session = s["session"]["id"].as_str().unwrap();
+    call(&app, Method::PATCH, &format!("/api/sessions/{session}/card"), Some(&tok),
+        Some(json!({ "victims": 1, "typeIds": ["101"] }))).await;
+    let (_, saved) = call(&app, Method::POST, &format!("/api/sessions/{session}/save"),
+        Some(&tok), None).await;
+    let number = saved["card"]["number"].as_str().unwrap();
+
+    let teacher = token(&app, "teacher1").await;
+    let (_, feed) = call(&app, Method::GET, &format!("/api/cards?scope=all&q={number}"),
+        Some(&teacher), None).await;
+    let row = feed["items"].as_array().unwrap().iter()
+        .find(|c| c["number"] == number).expect("карточки нет в журнале");
+
+    assert_eq!(row["victims"], 1, "{row}");
+    assert_eq!(row["workstation"], saved["card"]["workstation"], "{row}");
+}

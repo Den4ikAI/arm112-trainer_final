@@ -60,8 +60,17 @@ const fmtWait = (sec: number | null): string => {
   return `${Math.floor(sec / 3600)} ч`;
 };
 
+/** Постраничный вывод: какая страница, сколько на ней и сколько всего. */
+export interface JournalPager {
+  /** С нуля, как у сервера */
+  page: number;
+  size: number;
+  total: number;
+  onPage: (page: number) => void;
+}
+
 /** Список происшествий — главный экран, снятый со скриншота журнала. */
-export const JournalTable = ({ rows }: { rows: JournalRow[] }) => {
+export const JournalTable = ({ rows, pager }: { rows: JournalRow[]; pager?: JournalPager }) => {
   const nav = useNavigate();
 
   return (
@@ -132,11 +141,37 @@ export const JournalTable = ({ rows }: { rows: JournalRow[] }) => {
         </table>
       </div>
 
-      <div className={s.pager}>
-        <span>Страница: 1</span>
-        <span>Записей на странице: 10</span>
-        <strong>1-{rows.length} из {rows.length}</strong>
-      </div>
+      <Pager rows={rows.length} pager={pager} />
+    </div>
+  );
+};
+
+/**
+ * Подвал журнала. Числа — настоящие: раньше подпись была вписана
+ * («Записей на странице: 10» при 50 строках), а пустой журнал
+ * показывал «1-0 из 0».
+ */
+const Pager = ({ rows, pager }: { rows: number; pager?: JournalPager }) => {
+  const page = pager?.page ?? 0;
+  const size = pager?.size ?? rows;
+  const total = pager?.total ?? rows;
+  const from = rows === 0 ? 0 : page * size + 1;
+  const to = rows === 0 ? 0 : page * size + rows;
+  const pages = Math.max(1, Math.ceil(total / Math.max(size, 1)));
+
+  return (
+    <div className={s.pager} data-testid="journal-pager">
+      <span>Страница: {page + 1} из {pages}</span>
+      <span>Записей на странице: {size}</span>
+      <strong>{from}-{to} из {total}</strong>
+      {pager && pages > 1 && (
+        <>
+          <button className={s.pageBtn} disabled={page === 0}
+                  aria-label="Предыдущая страница" onClick={() => pager.onPage(page - 1)}>‹</button>
+          <button className={s.pageBtn} disabled={page + 1 >= pages}
+                  aria-label="Следующая страница" onClick={() => pager.onPage(page + 1)}>›</button>
+        </>
+      )}
     </div>
   );
 };

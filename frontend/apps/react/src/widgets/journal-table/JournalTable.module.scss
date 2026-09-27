@@ -61,6 +61,19 @@
   color: var(--c-text-on-shell);
   font-size: var(--fs-sm);
   padding: var(--sp-3) 0;
+  align-items: center;
+}
+
+.pageBtn {
+  min-width: 28px;
+  padding: 0 var(--sp-2);
+  background: transparent;
+  color: var(--c-text-on-shell);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  cursor: pointer;
+
+  &:disabled { opacity: .4; cursor: default; }
 }
 
 /// Таблица журнала — 11 колонок, она физически шире телефона.
