@@ -6,6 +6,7 @@
 
 pub mod http;
 pub mod mock;
+pub mod voice;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -29,6 +30,12 @@ pub struct Transcript {
 #[async_trait]
 pub trait Asr: Send + Sync {
     async fn transcribe(&self, audio: &[u8]) -> Result<Transcript>;
+
+    /// Подключено настоящее распознавание. У заглушки — нет: её
+    /// «расшифровку» нельзя выдавать за слова курсанта
+    fn available(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
@@ -40,6 +47,16 @@ pub struct Audio {
 #[async_trait]
 pub trait Tts: Send + Sync {
     async fn synthesize(&self, text: &str, voice: &str) -> Result<Audio>;
+
+    /// Сам звук, WAV. У заглушки звука нет
+    async fn wav(&self, _text: &str, _voice: &str) -> Result<Vec<u8>> {
+        anyhow::bail!("синтез речи не подключён")
+    }
+
+    /// Подключён настоящий синтез
+    fn available(&self) -> bool {
+        false
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
@@ -116,6 +133,14 @@ pub struct MlSuite {
 
 impl MlSuite {
     pub fn build(provider: crate::config::MlProvider) -> Result<Self> {
+        let mut suite = Self::build_models(provider)?;
+        // Голос — отдельный сервер и от языковой модели не зависит:
+        // он нужен и на заглушке модели, и при модели во внешнем контуре
+        voice::attach(&mut suite);
+        Ok(suite)
+    }
+
+    fn build_models(provider: crate::config::MlProvider) -> Result<Self> {
         use crate::config::MlProvider as P;
         match provider {
             P::Mock => Ok(mock::suite()),

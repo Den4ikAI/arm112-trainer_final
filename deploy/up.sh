@@ -25,20 +25,37 @@ set +a
 
 # Модель включаем, только если файл весов на месте: без него сервер
 # модели не стартует, а тренажёр прекрасно работает и без неё
+profiles=()
 model="${MODEL_DIR:-/opt/arm112/model}/${MODEL_FILE:-full-mtp-q4_K_M.gguf}"
 if [ -n "${ML_BASE_URL:-}" ]; then
   # Модель уже развёрнута на другой машине контура — свой контейнер
   # модели не нужен
-  export ML_PROVIDER=http COMPOSE_PROFILES=
+  export ML_PROVIDER=http
   echo "модель по адресу $ML_BASE_URL — свой контейнер модели не поднимаю"
 elif [ -f "$model" ]; then
-  export ML_PROVIDER=http COMPOSE_PROFILES=model
+  export ML_PROVIDER=http
+  profiles+=(model)
   echo "модель найдена: $model — поднимаю вместе с ней"
 else
-  export ML_PROVIDER=mock COMPOSE_PROFILES=
+  export ML_PROVIDER=mock
   echo "файла модели нет ($model) — поднимаю без неё:"
   echo "  классификация, оценка и интерфейс работают, ответы модели — нет"
 fi
+
+# Голос — так же: свой контейнер, если веса на месте, или чужой адрес
+voice_dir="${VOICE_DIR:-/opt/arm112/voice}"
+if [ -n "${VOICE_BASE_URL:-}" ]; then
+  echo "голос по адресу $VOICE_BASE_URL — свой контейнер голоса не поднимаю"
+elif [ -d "$voice_dir/gigaam-v3-onnx" ] && [ -d "$voice_dir/TeraTTSv2" ]; then
+  export VOICE_BASE_URL=http://voice:8091
+  profiles+=(voice)
+  echo "веса голоса найдены: $voice_dir — поднимаю голос"
+else
+  echo "весов голоса нет ($voice_dir) — разговор со старшим бригады будет текстом"
+fi
+
+COMPOSE_PROFILES=$(IFS=,; echo "${profiles[*]}")
+export COMPOSE_PROFILES
 
 docker compose up -d --build --remove-orphans
 

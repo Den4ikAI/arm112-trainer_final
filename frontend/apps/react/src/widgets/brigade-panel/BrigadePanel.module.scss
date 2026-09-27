@@ -29,6 +29,25 @@
 
 .answer { font-style: italic; }
 
+// Идёт запись: кнопку не спутать с обычной
+.live {
+  background: var(--c-accent);
+  color: var(--c-text-invert);
+  border-color: var(--c-accent);
+}
+
+.sound {
+  float: right;
+  font-weight: 400;
+  font-size: var(--fs-sm);
+  display: inline-flex;
+  gap: var(--sp-1);
+  align-items: center;
+}
+
+.dialog { display: grid; gap: 2px; font-size: var(--fs-sm); }
+.who { color: #4b4b4b; }
+
 // Входящий звонок должен бросаться в глаза: диспетчер в это время
 // может смотреть в другую часть карточки
 .incoming {

@@ -1,0 +1,10 @@
+# Сервер голоса: всё на процессоре, без PyTorch
+onnx-asr[cpu,hub]==0.12.0
+onnxruntime>=1.19
+numpy>=1.24
+soundfile>=0.12
+fastapi>=0.110
+uvicorn>=0.29
+num2words>=0.5.13
+# Рантайму TeraTTS для ударений нужен только токенизатор из transformers
+transformers>=4.40

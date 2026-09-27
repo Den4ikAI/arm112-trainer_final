@@ -416,7 +416,8 @@ export interface Brigade {
   canAssign: boolean;
   assignment: { brigadeNo: number; assignedAt: string } | null;
   reports: BrigadeReport[];
-  calls: { at: string; learned: string | null }[];
+  /** `said` — что диспетчер сказал старшему голосом; без голоса нет. */
+  calls: { at: string; learned: string | null; said: string | null }[];
   debrief: { findings: DdsFinding[]; score: number | null; pending: number };
 }
 
@@ -513,3 +514,14 @@ export interface CardReview {
   attempts: Attempt[];
   canGrade: boolean;
 }
+
+/** Что из голоса подключено на сервере. */
+export interface VoiceStatus {
+  asr: boolean;
+  tts: boolean;
+  voices: string[];
+}
+
+/** Собеседник: старший бригады или вышестоящий начальник. */
+export type VoiceRole = 'brigade' | 'chief';
+

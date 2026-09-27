@@ -275,6 +275,13 @@ async fn звонок_старшему_раскрывает_наступивше
     assert_eq!(ответ["text"], "Старший бригады 2: выехали на вызов.");
     assert_eq!(ответ["brigade"]["reports"][0]["channel"], "outgoing");
     assert_eq!(ответ["brigade"]["calls"].as_array().unwrap().len(), 2);
+    assert!(ответ["brigade"]["calls"][0]["said"].is_null(), "без голоса реплики нет");
+
+    // Голосом: реплика диспетчера остаётся в разговоре — преподаватель
+    // видит, как курсант ведёт разговор
+    let (_, ответ) = call(&app, Method::POST, &звонок, Some(&курсант),
+        Some(json!({ "serviceId": с.service, "said": "  Доложите обстановку.  " }))).await;
+    assert_eq!(ответ["brigade"]["calls"][2]["said"], "Доложите обстановку.");
 
     // Узнанное звонком старший сам уже не повторяет
     let _замок = ДОСТАВКА.lock().await;

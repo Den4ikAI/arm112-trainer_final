@@ -24,6 +24,9 @@ deploy/up.sh
               ┌─────▼─────┐        ┌───────┐
               │  backend  │───────▶│ model │  llama.cpp + GigaChat 3.1
               └─────┬─────┘  8090  └───────┘  (только если есть веса)
+                    │   │    8091  ┌───────┐
+                    │   └─────────▶│ voice │  GigaAM v3 + TeraTTSv2
+                    │              └───────┘  (только если есть веса)
                     │ 5432
                 ┌───▼───┐
                 │  db   │  PostgreSQL 16
@@ -36,6 +39,7 @@ deploy/up.sh
 | `backend` | сервер тренажёра, release-сборка | нет | `backups` — ежесуточные копии базы |
 | `db` | PostgreSQL 16 | нет | `db-data` |
 | `model` | llama.cpp с нашим патчем MTP | нет | каталог весов с ВМ, только чтение |
+| `voice` | распознавание и синтез речи на процессоре | нет | каталог весов голоса, только чтение; `voice-cache` — синтезированные фразы |
 
 Наружу открыт один порт. Сервер, база и модель видны только внутри
 сети compose.
@@ -50,6 +54,10 @@ deploy/up.sh
 оценка, журнал, карточки, занятия, прогноз — всё работает, нет только
 ответов модели при подготовке и правке учебных вызовов и словесной
 сводки по группе.
+
+**Голос необязателен.** `up.sh` поднимает его, только если находит
+веса в `VOICE_DIR`. Без голоса диспетчер говорит со старшим бригады
+текстом — кнопки «Сказать голосом» просто нет.
 
 ## Требования к ВМ
 
@@ -112,6 +120,26 @@ rsync -avP /путь/к/full-mtp-q4_K_M.gguf \
 её адрес в `deploy/.env` — `ML_BASE_URL=http://адрес:порт` (сервер,
 совместимый с OpenAI API). `up.sh` тогда не поднимает свой контейнер
 модели.
+
+### 3а. Веса голоса (если нужен голос)
+
+Обе модели — ONNX, работают на процессоре. Около 2 ГБ. На ВМ:
+
+```bash
+sudo mkdir -p /opt/arm112/voice && sudo chown "$USER" /opt/arm112/voice
+pip install huggingface_hub
+python3 - <<'EOF'
+from huggingface_hub import snapshot_download
+snapshot_download('istupakov/gigaam-v3-onnx', local_dir='/opt/arm112/voice/gigaam-v3-onnx',
+                  allow_patterns=['*e2e_rnnt*', 'config.json', 'LICENSE.txt'])
+snapshot_download('TeraSpace/TeraTTSv2', local_dir='/opt/arm112/voice/TeraTTSv2')
+EOF
+```
+
+ВМ без интернета — скачать там, где он есть, и скопировать каталог
+`rsync`-ом, как веса модели. Каталог задаётся в `deploy/.env`
+(`VOICE_DIR`), потоки — `VOICE_THREADS` (4 по умолчанию: ядра делятся
+с моделью и сервером). Замер — `backend/docs/замеры/ГОЛОС.md`.
 
 ### 4. Запуск
 

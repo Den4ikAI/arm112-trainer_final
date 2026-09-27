@@ -63,3 +63,4 @@ transcript/session.jsonl
 friend/
 # Ночные заметки для команды, не для сдачи
 НОЧЬ-*.md
+__pycache__/

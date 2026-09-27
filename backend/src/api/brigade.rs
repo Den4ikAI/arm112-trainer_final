@@ -71,6 +71,8 @@ pub struct CallView {
     pub at: DateTime<Utc>,
     /// Что узнал: наступивший этап или ничего нового
     pub learned: Option<String>,
+    /// Что диспетчер сказал старшему, если говорил голосом
+    pub said: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -107,6 +109,10 @@ pub struct NewAssignment {
 #[serde(rename_all = "camelCase")]
 pub struct CallRequest {
     pub service_id: String,
+    /// Что диспетчер сказал старшему — распознанная голосовая реплика.
+    /// Без голоса не приходит
+    #[serde(default)]
+    pub said: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -270,7 +276,7 @@ pub async fn load(
                 .fetch_all(pool)
                 .await?;
             let calls: Vec<CallView> = sqlx::query_as(
-                "SELECT at, learned::text AS learned FROM brigade_calls
+                "SELECT at, learned::text AS learned, said FROM brigade_calls
                   WHERE assignment_id = $1 ORDER BY at",
             )
             .bind(id)
@@ -545,13 +551,23 @@ pub async fn call(
         None => brigade::no_change_text(brigade_no),
     };
 
+    // Реплику храним как есть, только обрезаем: распознавание может
+    // вернуть и минуту речи, а в журнал разговора она всё равно не влезет
+    let said: Option<String> = req
+        .said
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .map(|t| t.chars().take(1000).collect());
+
     sqlx::query(
-        "INSERT INTO brigade_calls (assignment_id, user_id, learned)
-         VALUES ($1, $2, $3::response_status)",
+        "INSERT INTO brigade_calls (assignment_id, user_id, learned, said)
+         VALUES ($1, $2, $3::response_status, $4)",
     )
     .bind(assignment_id)
     .bind(user.id)
     .bind(&learned)
+    .bind(&said)
     .execute(&state.db)
     .await?;
 
@@ -560,7 +576,7 @@ pub async fn call(
         audit::Event::new("brigade.call")
             .from_user(&user)
             .about("card", id)
-            .with(json!({ "serviceId": service_id, "learned": learned })),
+            .with(json!({ "serviceId": service_id, "learned": learned, "said": said })),
     )
     .await;
 

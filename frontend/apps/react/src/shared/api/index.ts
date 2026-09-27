@@ -1,10 +1,10 @@
 /** Эндпоинты сервера. Пути — как в backend/src/api. */
-import { api, setToken } from './client';
+import { api, getToken, setToken, ApiError as ClientError } from './client';
 import type {
   AdminUser, AuditPage, Brigade, Card, CardBrief, CardDetail, ClassifierVersion,
   ClassifyResult, Grade, GroupBrief, Health, IncidentType, JobView,
   ScenarioFull, ScenarioPublic, Service, SessionState, SurveyCard, TrainingSession,
-  TranscriptLine, TurnResult, User,
+  TranscriptLine, TurnResult, User, VoiceRole, VoiceStatus,
 } from './types';
 
 export * from './types';
@@ -362,9 +362,9 @@ export const cards = {
   assignBrigade: (id: string, serviceId: string, brigadeNo: number) =>
     api.post<Brigade>(`/api/cards/${id}/brigade`, { serviceId, brigadeNo }),
   /** Диспетчер сам звонит старшему и узнаёт текущий этап. */
-  callBrigade: (id: string, serviceId: string) =>
+  callBrigade: (id: string, serviceId: string, said?: string) =>
     api.post<{ text: string; learned: string | null; brigade: Brigade }>(
-      `/api/cards/${id}/brigade/call`, { serviceId }),
+      `/api/cards/${id}/brigade/call`, { serviceId, said }),
 };
 
 export const admin = {
@@ -430,3 +430,46 @@ export const reports = {
     }
   },
 };
+
+/**
+ * Запрос с телом не в JSON: аудио туда и обратно. Общий клиент умеет
+ * только JSON, а звук ему незачем пропускать через JSON.parse.
+ */
+const rawRequest = async (path: string, init: RequestInit): Promise<Response> => {
+  const token = getToken();
+  const res = await fetch(path, {
+    ...init,
+    headers: { ...(init.headers ?? {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  if (!res.ok) {
+    if (res.status === 401) setToken(null);
+    let data: { error?: string; detail?: string } | null = null;
+    try { data = await res.json(); } catch { /* тело не JSON */ }
+    throw new ClientError(res.status, data?.error ?? 'unknown', data?.detail);
+  }
+  return res;
+};
+
+/**
+ * Голос. Не подключён — `status` честно говорит «нет», остальные
+ * вызовы отвечают 503, и разговор идёт текстом.
+ */
+export const voice = {
+  status: () => api.get<VoiceStatus>('/api/voice/status'),
+  /** Распознать реплику, WAV. */
+  recognize: async (wav: Blob) => {
+    const res = await rawRequest('/api/voice/asr',
+      { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+    return (await res.json()) as { text: string; durationMs: number };
+  },
+  /** Озвучить реплику собеседника. Ответ — WAV. */
+  speak: async (text: string, role: VoiceRole) => {
+    const res = await rawRequest('/api/voice/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice: role }),
+    });
+    return res.blob();
+  },
+};
+

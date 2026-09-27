@@ -35,6 +35,11 @@ pub enum AppError {
     #[error("auto_service_removal")]
     AutoServiceRemoval,
 
+    /// Внешний компонент не подключён или не отвечает — например,
+    /// сервер голоса. Клиент должен перейти на запасной путь
+    #[error("unavailable: {0}")]
+    Unavailable(String),
+
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 
@@ -59,6 +64,9 @@ impl IntoResponse for AppError {
             Self::AutoServiceRemoval => (
                 StatusCode::UNPROCESSABLE_ENTITY, "auto_service_removal", json!({}),
             ),
+            Self::Unavailable(m) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "unavailable", json!({ "detail": m }))
+            }
             Self::Db(e) => {
                 tracing::error!(error = %e, "ошибка базы данных");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal", json!({}))

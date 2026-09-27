@@ -50,6 +50,7 @@ use utoipa::{
         (name = "Отчёты", description = "По занятию и по группе"),
         (name = "Администрирование", description = "Журнал действий и учётные записи"),
         (name = "Вызовы", description = "Подготовка и правка учебных вызовов"),
+        (name = "Голос", description = "Распознавание реплики и озвучивание собеседника"),
         (name = "Состояние", description = "Живость сервиса"),
     ),
     paths(
@@ -119,6 +120,9 @@ use utoipa::{
         crate::api::chief::start,
         crate::api::chief::say,
         crate::api::chief::finish,
+        crate::api::voice::status,
+        crate::api::voice::asr,
+        crate::api::voice::tts,
         crate::api::health::health,
     ),
     modifiers(&BearerAuth),

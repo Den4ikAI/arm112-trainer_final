@@ -751,6 +751,7 @@ GET    /api/admin/metrics        (Prometheus-формат)
 422 comment_required | status_not_allowed | auto_service_removal
 429 rate_limited
 500 internal
+503 unavailable          — сервер голоса не подключён или не отвечает
 ```
 
 ---

@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError, cards, channel, type Brigade, type DdsFindingKind } from '@/shared/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError, cards, channel, type Brigade, type DdsFindingKind, type VoiceStatus } from '@/shared/api';
 import clsx from '@/shared/lib/clsx';
+import {
+  canRecord, recognize, setSoundOn, soundOn, speak, startRecording, stopSpeaking,
+  voiceStatus, type Recording,
+} from '@/shared/lib/voice';
 import s from './BrigadePanel.module.scss';
 
 interface Props {
@@ -38,7 +42,11 @@ const errorText = (e: unknown) =>
  * сообщение 691): старший сам звонит в ДДС с докладом, или диспетчер
  * сам набирает старшего и уточняет ход работ. Статусы после этого
  * диспетчер ставит сам, в плашке службы, — по факту полученных сведений.
- * Звука здесь нет: доклад приходит текстом, как входящий звонок.
+ *
+ * Разговор голосом, если подключён сервер голоса: диспетчер говорит
+ * в микрофон, реплика распознаётся и уходит вместе со звонком, ответ
+ * старшего и его доклады озвучиваются. Нет голоса или микрофона — всё
+ * то же текстом: голос дополняет занятие, а не держит его.
  */
 export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
   const [brigade, setBrigade] = useState<Brigade | null>(null);
@@ -47,6 +55,25 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
   const [incoming, setIncoming] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [voiceSt, setVoiceSt] = useState<VoiceStatus | null>(null);
+  const [recording, setRecording] = useState<Recording | null>(null);
+  const [said, setSaid] = useState('');
+  const [sound, setSound] = useState(soundOn);
+
+  useEffect(() => {
+    let alive = true;
+    void voiceStatus().then((st) => { if (alive) setVoiceSt(st); });
+    return () => { alive = false; };
+  }, []);
+
+  // Ушли с карточки — запись и озвучивание обрываем. Запись держим
+  // ещё и в ref: очистка эффекта по `recording` сработала бы и при
+  // обычной остановке и оборвала бы её посреди распознавания
+  const live = useRef<Recording | null>(null);
+  useEffect(() => () => {
+    live.current?.cancel();
+    stopSpeaking();
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -62,7 +89,9 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
   // список докладов и разбор всё равно перечитываются через REST
   useEffect(() => channel.on((e) => {
     if (e.type === 'brigade.report' && e.cardId === cardId && e.serviceId === serviceId) {
-      setIncoming(String(e.text ?? ''));
+      const text = String(e.text ?? '');
+      setIncoming(text);
+      void speak(text, 'brigade');
       void reload();
     }
   }), [cardId, serviceId, reload]);
@@ -83,12 +112,56 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
     setBrigade(await cards.assignBrigade(cardId, serviceId, choice));
   });
 
-  const call = () => run(async () => {
-    const r = await cards.callBrigade(cardId, serviceId);
+  const call = (spoken?: string) => run(async () => {
+    const r = await cards.callBrigade(cardId, serviceId, spoken);
     setAnswer(r.text);
     setIncoming('');
     setBrigade(r.brigade);
+    void speak(r.text, 'brigade');
   });
+
+  // Нажал — говорит, нажал ещё раз — реплика распознаётся и звонок
+  // уходит вместе с ней. Не расслышали — звонка нет, можно повторить
+  const talk = async () => {
+    if (!recording) {
+      try {
+        stopSpeaking();
+        const rec = await startRecording();
+        live.current = rec;
+        setRecording(rec);
+        setError('');
+      } catch {
+        setError('Нет доступа к микрофону — позвоните кнопкой');
+      }
+      return;
+    }
+    const rec = recording;
+    live.current = null;
+    setRecording(null);
+    setBusy(true);
+    let text = '';
+    try {
+      text = await recognize(await rec.stop());
+    } catch (e) {
+      setBusy(false);
+      setError(errorText(e) + ' — позвоните кнопкой');
+      return;
+    }
+    setBusy(false);
+    if (!text) {
+      setError('Не расслышано — повторите');
+      return;
+    }
+    setSaid(text);
+    await call(text);
+  };
+
+  const toggleSound = (on: boolean) => {
+    setSound(on);
+    setSoundOn(on);
+  };
+
+  const voiceTalk = !!voiceSt?.asr && canRecord();
 
   if (!brigade) return null;
   const { assignment, reports, debrief } = brigade;
@@ -101,6 +174,13 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
           <span className={s.assigned}>
             {' '}№ {assignment.brigadeNo}, направлена в {hhmmss(assignment.assignedAt)}
           </span>
+        )}
+        {voiceSt?.tts && (
+          <label className={s.sound}>
+            <input type="checkbox" data-testid="brigade-sound" checked={sound}
+                   onChange={(e) => toggleSound(e.target.checked)} />
+            звук
+          </label>
         )}
       </div>
 
@@ -124,11 +204,25 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
 
       {assignment && (
         <div className={s.row}>
-          <button className={s.btn} data-testid="brigade-call" disabled={busy}
+          <button className={s.btn} data-testid="brigade-call" disabled={busy || !!recording}
                   onClick={() => void call()}>
             Позвонить старшему
           </button>
-          {answer && <span className={s.answer} data-testid="brigade-answer">{answer}</span>}
+          {voiceTalk && (
+            <button className={clsx(s.btn, recording && s.live)} data-testid="brigade-talk"
+                    disabled={busy} aria-pressed={!!recording}
+                    title="Сказать старшему голосом: нажмите, говорите, нажмите ещё раз"
+                    onClick={() => void talk()}>
+              {recording ? '■ Закончить' : '🎤 Сказать голосом'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {assignment && (said || answer) && (
+        <div className={s.dialog}>
+          {said && <div data-testid="brigade-said"><span className={s.who}>Вы:</span> {said}</div>}
+          {answer && <div className={s.answer} data-testid="brigade-answer">{answer}</div>}
         </div>
       )}
 

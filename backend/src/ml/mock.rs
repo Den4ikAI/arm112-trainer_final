@@ -263,7 +263,7 @@ impl Llm for MockLlm {
 
 /// Стабильный хеш строки: нужен, чтобы заглушки давали одинаковый
 /// результат между запусками.
-fn stable_hash(s: &str) -> u32 {
+pub(crate) fn stable_hash(s: &str) -> u32 {
     s.bytes().fold(2166136261u32, |h, b| {
         (h ^ b as u32).wrapping_mul(16777619)
     })

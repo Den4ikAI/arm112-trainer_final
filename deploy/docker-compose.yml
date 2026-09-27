@@ -4,9 +4,10 @@
 #   backend сервер тренажёра (Rust)                      только внутри
 #   db      PostgreSQL 16                                только внутри
 #   model   llama.cpp + GigaChat 3.1 с MTP (профиль model) только внутри
+#   voice   распознавание и синтез речи (профиль voice)   только внутри
 #
 # Поднимать через deploy/up.sh: он генерирует секреты при первом запуске
-# и сам решает, включать ли модель — по наличию файла весов.
+# и сам решает, включать ли модель и голос — по наличию весов.
 #
 # restart: unless-stopped у всех — стенд должен пережить перезагрузку ВМ
 # и несколько дней экспертизы без участия человека.
@@ -48,6 +49,9 @@ services:
       # указать модель, развёрнутую на другой машине контура
       ML_BASE_URL: ${ML_BASE_URL:-http://model:8090}
       ML_MODEL: local
+      # Сервер голоса. Пусто — голоса нет, разговор идёт текстом;
+      # up.sh ставит адрес своего контейнера, если нашёл веса голоса
+      VOICE_BASE_URL: ${VOICE_BASE_URL:-}
       # ТЗ: резервное копирование не реже раза в сутки
       BACKUP_DIR: /backups
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
@@ -102,6 +106,30 @@ services:
       retries: 20
       start_period: 180s
 
+  # Голос поднимается только с профилем voice — его включает up.sh,
+  # когда находит веса. Как и модель, сервер от него не зависит:
+  # нет голоса — диспетчер говорит со старшим бригады текстом
+  voice:
+    profiles: ["voice"]
+    build:
+      context: ..
+      dockerfile: deploy/voice.Dockerfile
+    image: arm112-voice
+    restart: unless-stopped
+    environment:
+      # Шесть ядер из ТЗ делятся с моделью, сервером и базой
+      VOICE_THREADS: ${VOICE_THREADS:-4}
+    volumes:
+      - ${VOICE_DIR:-/opt/arm112/voice}:/models:ro
+      - voice-cache:/cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8091/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
 volumes:
   db-data:
   backups:
+  voice-cache:
