@@ -184,6 +184,28 @@ const UsersTab = () => {
 
   useEffect(() => { void reload(); }, [reload]);
 
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // С подтверждением: удаление записи с историей её обезличивает,
+  // и вернуть человека можно только из резервной копии
+  const remove = async (u: AdminUser) => {
+    const ok = window.confirm(
+      `Удалить учётную запись ${u.login} (${u.fio})?\n\n` +
+      'Если у неё есть история обучения, данные сначала сохранятся в резервную ' +
+      'копию, а запись будет обезличена: оценки и журнал действий останутся.',
+    );
+    if (!ok) return;
+    try {
+      const r = await admin.deleteUser(u.id);
+      setNotice(r.mode === 'deleted'
+        ? `Запись ${u.login} удалена: истории у неё не было.`
+        : `Запись ${u.login} обезличена, данные сохранены в резервную копию.`);
+      await reload();
+    } catch (e) {
+      setError(e instanceof ApiError ? (e.detail ?? e.message) : 'Не удалось удалить');
+    }
+  };
+
   const toggle = async (u: AdminUser) => {
     try {
       await admin.setActive(u.id, !u.isActive);
@@ -196,6 +218,7 @@ const UsersTab = () => {
   return (
     <section className={s.panel}>
       {error && <div className={s.error} role="alert">{error}</div>}
+      {notice && <div className={s.note} role="status" data-testid="user-notice">{notice}</div>}
 
       <div className={s.toolbar}>
         <button className={s.primary} data-testid="add-user"
@@ -227,6 +250,10 @@ const UsersTab = () => {
                 <td>
                   <button className={s.link} onClick={() => void toggle(u)}>
                     {u.isActive ? 'отключить' : 'включить'}
+                  </button>{' '}
+                  <button className={s.link} data-testid={`delete-${u.login}`}
+                          onClick={() => void remove(u)}>
+                    удалить
                   </button>
                 </td>
               </tr>
@@ -235,11 +262,12 @@ const UsersTab = () => {
         </table>
       </div>
 
-      {/* Учётные записи не удаляются: на них ссылаются занятия,
-          карточки и аудит, и эта история должна остаться читаемой */}
+      {/* ТЗ запрещает удалять критически важные данные без резервной
+          копии: история обучения сохраняется, человек исчезает */}
       <p className={s.note}>
-        Учётные записи не удаляются, а отключаются: на них ссылаются
-        занятия, карточки и записи журнала действий.
+        Запись без истории удаляется сразу. Запись с историей обучения
+        сначала копируется в резервную копию, затем обезличивается: оценки,
+        карточки и журнал действий остаются читаемыми.
       </p>
     </section>
   );

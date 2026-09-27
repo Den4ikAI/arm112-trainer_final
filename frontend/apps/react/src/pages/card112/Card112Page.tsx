@@ -19,12 +19,12 @@ export const Card112Page = () => {
   const { number = '' } = useParams();
   const nav = useNavigate();
   const {
-    card, scenario, classify, revealed, transcript, grade, error, startedAt,
-    edit, editAddress, toggleType, setAnswer, setManualServices, ask, save, flush, resume,
+    card, scenario, classify, revealed, transcript, grade, closed, error, startedAt,
+    edit, editAddress, toggleType, setAnswer, setManualServices, ask, save, flush, resume, reset,
   } = useTraining();
   const applicantStatuses = useCatalog((st) => st.applicantStatuses);
 
-  const elapsed = useTimer(!grade, startedAt);
+  const elapsed = useTimer(!grade && !closed, startedAt);
 
   // После обновления страницы, повторного входа или в новой вкладке
   // вызов продолжается с того же места: сервер помнит карточку,
@@ -44,6 +44,13 @@ export const Card112Page = () => {
   const auto = classify?.services.map((x) => x.serviceId) ?? [];
 
   useEffect(() => { if (grade) nav('/debrief'); }, [grade, nav]);
+
+  // Марафон: разбора между вызовами нет — сразу к следующему вызову
+  useEffect(() => {
+    if (!closed) return;
+    reset();
+    nav('/journal');
+  }, [closed, reset, nav]);
 
   // Уход со страницы не должен терять последние правки
   useEffect(() => () => { void flush(); }, [flush]);

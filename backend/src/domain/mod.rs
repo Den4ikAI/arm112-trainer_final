@@ -6,6 +6,7 @@ pub mod brigade;
 pub mod chief;
 pub mod card_status;
 pub mod classify;
+pub mod drill;
 pub mod forecast;
 pub mod grade;
 pub mod response;

@@ -144,6 +144,13 @@
 
 .empty { color: var(--c-text-muted); font-size: 13px; }
 
+// Балл по каждому вызову в протоколе: «1: 80»
+.callScore {
+  display: inline-block;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; }
 }

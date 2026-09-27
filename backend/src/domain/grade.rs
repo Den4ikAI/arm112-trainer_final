@@ -34,7 +34,7 @@ pub enum FindingKind {
 
 impl FindingKind {
     /// Веса из BACKEND.md, раздел 7.
-    fn weight(self) -> i32 {
+    pub fn weight(self) -> i32 {
         match self {
             Self::Ok => 0,
             Self::Guessed | Self::Extra => 1,
@@ -79,6 +79,11 @@ pub struct Grade {
     pub over_norm: bool,
     pub services: ServiceDiff,
     pub score: i32,
+    /// Сегмент карточки, которым ограничен разбор блица. В базе не
+    /// хранится: разбор пишется полный, а ограничивается при показе
+    /// (`domain::drill::restrict`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment: Option<String>,
 }
 
 /// Подписи полей адреса и отметок. Взяты с кадров карточки.
@@ -452,6 +457,7 @@ pub async fn grade(input: GradeInput<'_>) -> Result<Grade> {
             extra,
         },
         score,
+        segment: None,
     })
 }
 
@@ -510,6 +516,7 @@ pub async fn load(pool: &PgPool, session_id: Uuid) -> Result<Option<Grade>> {
         over_norm,
         services: serde_json::from_value(services)?,
         score,
+        segment: None,
     }))
 }
 

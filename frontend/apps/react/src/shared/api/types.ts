@@ -166,6 +166,8 @@ export interface Grade {
   overNorm: boolean;
   services: { expected: string[]; actual: string[]; missed: string[]; extra: string[] };
   score: number;
+  /** Сегмент блица: разбор ограничен им, и балл — по нему. */
+  segment?: 'address' | 'type' | 'services' | 'statuses';
 }
 
 export interface TranscriptLine {

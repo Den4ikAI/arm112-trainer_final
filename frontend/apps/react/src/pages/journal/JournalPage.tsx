@@ -3,8 +3,10 @@ import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTa
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
-import { ApiError, cards, channel, lessons, scenarios as scenariosApi, sessions,
-         type CardBrief, type LessonBrief, type ScenarioBrief, type SessionState } from '@/shared/api';
+import { ApiError, cards, channel, lessons, scenarios as scenariosApi, sessions, SEGMENT_LABEL,
+         type CardBrief, type LessonBrief, type Protocol, type ScenarioBrief,
+         type SessionState } from '@/shared/api';
+import { fmt } from '@/shared/lib/useTimer';
 import { useNavigate } from 'react-router-dom';
 import { useClock } from '@/shared/lib/useClock';
 import { scenarioTitle } from '@/shared/lib/scenarioTitle';
@@ -51,6 +53,62 @@ const toRow = (c: CardBrief): JournalRow => {
  */
 const PAGE_SIZE = 10;
 
+/**
+ * Плашка марафона или блица: что за упражнение, сколько пройдено,
+ * а когда марафон закончен — его итоги.
+ */
+const DrillBanner = ({ lesson, row }: { lesson: LessonBrief; row: Protocol['rows'][number] | null }) => {
+  const segment = lesson.segment ? SEGMENT_LABEL[lesson.segment] : null;
+  const пройдено = row ? `${row.done} из ${row.total}` : null;
+
+  if (lesson.kind === 'blitz') {
+    return (
+      <div className={s.lesson} role="status" data-testid="lesson-banner">
+        Идёт блиц «{lesson.title}»: оценивается только «{segment}».
+        Разбор — сразу после каждого задания.
+        {пройдено && ` Пройдено ${пройдено}.`}
+      </div>
+    );
+  }
+
+  // Марафон
+  if (row && row.total > 0 && row.done === row.total && !row.hidden) {
+    return (
+      <div className={s.lesson} role="status" data-testid="marathon-result">
+        <div>
+          Марафон «{lesson.title}» пройден: средний балл{' '}
+          <b>{row.avgScore == null ? '—' : Math.round(row.avgScore)}</b>,
+          время {fmt(row.totalSec)}, грубых ошибок {row.grossCount}.
+        </div>
+        <ol className={s.drillList}>
+          {row.calls.map((c) => (
+            <li key={c.seq}>
+              Вызов {c.seq}: <b>{c.score ?? '—'}</b> баллов
+              {c.elapsedSec != null && `, ${fmt(c.elapsedSec)}`}
+              {c.gross.length > 0 && (
+                // Полные названия служб длинные: первые три, остальное числом
+                <span title={c.gross.join('\n')}>
+                  {' — грубые ошибки: '}
+                  {c.gross.slice(0, 3).map((g) => g.replace(/\s*\(.*\)$/, '')).join(', ')}
+                  {c.gross.length > 3 && ` и ещё ${c.gross.length - 3}`}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
+    );
+  }
+  return (
+    <div className={s.lesson} role="status" data-testid="lesson-banner">
+      Идёт марафон «{lesson.title}»
+      {row && row.total > 0 && `: вызов ${Math.min(row.done + 1, row.total)} из ${row.total}`}.
+      Вызовы идут по порядку, у каждого одна попытка. Разбор и рекомендации —
+      после последнего вызова.
+    </div>
+  );
+};
+
 /** Главный экран: поиск, список происшествий, часы. Плюс запуск учебного вызова. */
 export const JournalPage = () => {
   const [query, setQuery] = useState('');
@@ -61,6 +119,8 @@ export const JournalPage = () => {
   // Идущее занятие по группе курсанта. Пока оно идёт, и список вызовов,
   // и лента ограничены его материалом — курсант должен понимать почему
   const [lesson, setLesson] = useState<LessonBrief | null>(null);
+  // Марафон и блиц: сколько пройдено, а после марафона — его итоги
+  const [protocol, setProtocol] = useState<Protocol | null>(null);
   const [error, setError] = useState<string | null>(null);
   const start = useTraining((st) => st.start);
   const resume = useTraining((st) => st.resume);
@@ -100,6 +160,11 @@ export const JournalPage = () => {
         const незакончен = await sessions.active().catch(() => undefined);
         if (alive) setUnfinished(незакончен ?? null);
         if (alive) setLesson(идущие[0] ?? null);
+        const идёт = идущие[0];
+        const итоги = идёт && идёт.kind !== 'training' && идёт.mode === 'card112'
+          ? await lessons.protocol(идёт.id).catch(() => null)
+          : null;
+        if (alive) setProtocol(итоги);
       }
 
       // Говорим, что именно не открылось, а не «что-то сломалось»
@@ -198,7 +263,11 @@ export const JournalPage = () => {
             </button>
           ))}
           {scenarios.length === 0 && !error && (
-            <p className={s.launcherEmpty}>Вызовов пока нет.</p>
+            <p className={s.launcherEmpty}>
+              {lesson?.kind === 'marathon'
+                ? 'Все вызовы марафона пройдены.'
+                : 'Вызовов пока нет.'}
+            </p>
           )}
         </div>
       </section>
@@ -214,13 +283,16 @@ export const JournalPage = () => {
       )}
 
       {error && <div className={s.error} role="status">{error}</div>}
-      {lesson && (
+      {lesson && lesson.kind === 'training' && (
         <div className={s.lesson} role="status" data-testid="lesson-banner">
           Идёт занятие «{lesson.title}».{' '}
           {lesson.mode === 'dds'
             ? 'В журнале только карточки занятия, касающиеся вашей службы.'
             : 'В списке учебных вызовов только вызовы занятия.'}
         </div>
+      )}
+      {lesson && lesson.kind !== 'training' && (
+        <DrillBanner lesson={lesson} row={protocol?.rows[0] ?? null} />
       )}
 
       <JournalTable rows={rows}

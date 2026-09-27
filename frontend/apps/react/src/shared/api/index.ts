@@ -83,6 +83,14 @@ export interface LessonBrief {
   typeIds: string[];
   /** Режим ДДС: через сколько секунд службе приходит следующая карточка. */
   cardIntervalSec: number;
+  /** Обычное занятие, марафон (экзамен на 5–10 вызовов) или блиц (один сегмент). */
+  kind: LessonKind;
+  /** Сегмент блица. */
+  segment: BlitzSegment | null;
+  /** Сколько вызовов раздаётся, если они не выбраны поимённо. */
+  callCount: number | null;
+  /** Вызовы, выбранные преподавателем, по порядку. */
+  scenarioIds: string[];
   startedAt: string | null;
   finishedAt: string | null;
   members: number;
@@ -99,6 +107,60 @@ export interface LessonProgress {
 
 export type LessonFull = LessonBrief & { progress: LessonProgress[] };
 
+export type LessonKind = 'training' | 'marathon' | 'blitz';
+export type BlitzSegment = 'address' | 'type' | 'services' | 'statuses';
+
+/** Подписи сегментов блица — те же, что отдаёт сервер в протоколе. */
+export const SEGMENT_LABEL: Record<BlitzSegment, string> = {
+  address: 'Адрес',
+  type: 'Тип происшествия и опросная карта',
+  services: 'Службы',
+  statuses: 'Статусы по докладам',
+};
+
+/** Вызов в итоговом протоколе занятия. */
+export interface ProtocolCall {
+  seq: number;
+  scenarioId: string;
+  ticket: number | null;
+  callNo: number | null;
+  legend: string;
+  sessionId: string | null;
+  cardId: string | null;
+  finished: boolean;
+  /** В блице — по сегменту. Пусто, пока марафон закрывает разбор. */
+  score: number | null;
+  elapsedSec: number | null;
+  overNorm: boolean | null;
+  /** Грубые ошибки — подписи полей. */
+  gross: string[];
+  expertScore: number | null;
+}
+
+export interface ProtocolRow {
+  userId: string;
+  fio: string;
+  calls: ProtocolCall[];
+  done: number;
+  total: number;
+  avgScore: number | null;
+  totalSec: number;
+  grossCount: number;
+  /** Баллы закрыты: марафон курсанта ещё идёт. */
+  hidden: boolean;
+}
+
+export interface Protocol {
+  lessonId: string;
+  title: string;
+  kind: LessonKind;
+  mode: 'card112' | 'dds';
+  segment: BlitzSegment | null;
+  segmentLabel: string | null;
+  finished: boolean;
+  rows: ProtocolRow[];
+}
+
 export const lessons = {
   list: () => api.get<LessonBrief[]>('/api/lessons'),
   one: (id: string) => api.get<LessonFull>(`/api/lessons/${id}`),
@@ -108,7 +170,13 @@ export const lessons = {
     typeIds?: string[];
     source?: 'generated' | 'by_students' | 'mixed';
     cardIntervalSec?: number;
+    kind?: LessonKind;
+    segment?: BlitzSegment;
+    callCount?: number;
+    scenarioIds?: string[];
   }) => api.post<LessonBrief>('/api/lessons', body),
+  /** Итоговый протокол: преподавателю — все, курсанту — он сам. */
+  protocol: (id: string) => api.get<Protocol>(`/api/lessons/${id}/protocol`),
   start: (id: string) => api.post<LessonFull>(`/api/lessons/${id}/start`),
   finish: (id: string) => api.post<LessonFull>(`/api/lessons/${id}/finish`),
   remove: (id: string) => api.del<void>(`/api/lessons/${id}`),
@@ -259,8 +327,9 @@ export const sessions = {
       `/api/sessions/${id}/ask`, { factId }),
   patchCard: (id: string, patch: Record<string, unknown>) =>
     api.patch<{ card: Card; classify: ClassifyResult }>(`/api/sessions/${id}/card`, patch),
+  /** `grade` пуст, пока разбор закрывает марафон. */
   save: (id: string) =>
-    api.post<{ card: Card; grade: Grade }>(`/api/sessions/${id}/save`),
+    api.post<{ card: Card; grade: Grade | null }>(`/api/sessions/${id}/save`),
   grade: (id: string) => api.get<Grade>(`/api/sessions/${id}/grade`),
   transcript: (id: string) => api.get<TranscriptLine[]>(`/api/sessions/${id}/transcript`),
   /** Незаконченный вызов курсанта; `undefined` — такого нет. */
@@ -320,6 +389,12 @@ export const admin = {
   }) => api.post<AdminUser>('/api/admin/users', body),
   setActive: (id: string, active: boolean) =>
     api.post<void>(`/api/admin/users/${id}/active`, { active }),
+  /**
+   * Удалить учётную запись. Без истории — стирается; с историей —
+   * резервная копия и обезличивание.
+   */
+  deleteUser: (id: string) =>
+    api.del<{ mode: 'deleted' | 'anonymized'; backupId: string | null }>(`/api/admin/users/${id}`),
 
   versions: () => api.get<ClassifierVersion[]>('/api/admin/classifier-versions'),
   activateVersion: (id: string) =>

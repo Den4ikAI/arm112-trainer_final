@@ -49,6 +49,20 @@ pub struct NewLesson {
     /// карточка. Не задан — 60 секунд, наше допущение
     #[serde(default)]
     pub card_interval_sec: Option<i32>,
+    /// Вид занятия: `training` — обычное, `marathon` — экзамен на
+    /// 5–10 вызовов подряд, `blitz` — серия заданий на один сегмент
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// Сегмент блица: `address`, `type`, `services` у приёма вызова,
+    /// `statuses` у ДДС
+    #[serde(default)]
+    pub segment: Option<String>,
+    /// Сколько вызовов раздать, если они не выбраны поимённо
+    #[serde(default)]
+    pub call_count: Option<i32>,
+    /// Вызовы, выбранные преподавателем, в порядке прохождения
+    #[serde(default)]
+    pub scenario_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema, sqlx::FromRow)]
@@ -63,6 +77,14 @@ pub struct LessonBrief {
     pub type_ids: Vec<String>,
     /// Режим ДДС: интервал поступления карточек службе, секунды
     pub card_interval_sec: i32,
+    /// `training`, `marathon` или `blitz`
+    pub kind: String,
+    /// Сегмент блица
+    pub segment: Option<String>,
+    /// Сколько вызовов раздаётся, если не выбраны поимённо
+    pub call_count: Option<i32>,
+    /// Вызовы, выбранные преподавателем, по порядку
+    pub scenario_ids: Vec<Uuid>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Сколько человек в группе
@@ -110,6 +132,83 @@ const РЕЖИМЫ: [&str; 2] = ["card112", "dds"];
 const ИНТЕРВАЛ_ПО_УМОЛЧАНИЮ: i32 = 60;
 const ИНТЕРВАЛ_ПРЕДЕЛЫ: (i32, i32) = (10, 900);
 const ИСТОЧНИКИ: [&str; 3] = ["generated", "by_students", "mixed"];
+const ВИДЫ: [&str; 3] = ["training", "marathon", "blitz"];
+
+/// Проверить вид занятия и вернуть сегмент и число вызовов.
+///
+/// Марафон — только приём вызова: у ДДС карточки и так идут потоком,
+/// а «экзамен на 5–10 карточек» в пожелании команды — про карточку 112.
+fn правила_вида(req: &NewLesson, kind: &str) -> AppResult<(Option<String>, Option<i32>)> {
+    use crate::domain::drill::{BLITZ_CALLS, DEFAULT_CALLS, MARATHON_CALLS, SEGMENTS_112, SEGMENT_DDS};
+
+    if kind == "marathon" && req.mode != "card112" {
+        return Err(AppError::Validation(
+            "марафон — экзамен по приёму вызова: режим «card112»".into(),
+        ));
+    }
+
+    let сегмент = match kind {
+        "blitz" => {
+            let s = req.segment.clone().unwrap_or_default();
+            let годен = if req.mode == "dds" {
+                s == SEGMENT_DDS
+            } else {
+                SEGMENTS_112.contains(&s.as_str())
+            };
+            if !годен {
+                return Err(AppError::Validation(if req.mode == "dds" {
+                    "сегмент блица в режиме ДДС — «statuses» (статусы по докладам)".into()
+                } else {
+                    "сегмент блица — «address», «type» или «services»".into()
+                }));
+            }
+            Some(s)
+        }
+        _ if req.segment.is_some() => {
+            return Err(AppError::Validation("сегмент задаётся только блицу".into()));
+        }
+        _ => None,
+    };
+
+    // У ДДС материал — карточки служб группы, вызовы не раздаются
+    if req.mode == "dds" {
+        if !req.scenario_ids.is_empty() || req.call_count.is_some() {
+            return Err(AppError::Validation(
+                "в режиме ДДС материал — карточки служб группы, вызовы не выбираются".into(),
+            ));
+        }
+        return Ok((сегмент, None));
+    }
+
+    let пределы = match kind {
+        "marathon" => MARATHON_CALLS,
+        "blitz" => BLITZ_CALLS,
+        // Обычное занятие — как раньше: до десяти вызовов
+        _ => (1, 10),
+    };
+    let n = if !req.scenario_ids.is_empty() {
+        req.scenario_ids.len()
+    } else if let Some(n) = req.call_count {
+        n.max(0) as usize
+    } else if kind == "training" {
+        return Ok((None, None));
+    } else {
+        DEFAULT_CALLS
+    };
+    if !(пределы.0..=пределы.1).contains(&n) {
+        let что = match kind {
+            "marathon" => "В марафоне",
+            "blitz" => "В блице",
+            _ => "В занятии",
+        };
+        return Err(AppError::Validation(format!(
+            "{что} от {} до {} вызовов, а задано {n}",
+            пределы.0, пределы.1
+        )));
+    }
+
+    Ok((сегмент, Some(n as i32)))
+}
 
 /// Занятие ведёт тот, кто его создал. Администратор видит любое:
 /// ему положены системные журналы, но не чужая учебная работа.
@@ -167,6 +266,30 @@ pub async fn create(
         )));
     }
 
+    let kind = req.kind.clone().unwrap_or_else(|| "training".into());
+    if !ВИДЫ.contains(&kind.as_str()) {
+        return Err(AppError::Validation(
+            "вид занятия — «training», «marathon» или «blitz»".into(),
+        ));
+    }
+    let (segment, call_count) = правила_вида(&req, &kind)?;
+
+    // Выбранные поимённо вызовы должны существовать и быть выверены:
+    // черновик курсанту не выдаётся
+    if !req.scenario_ids.is_empty() {
+        let годных: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT id) FROM scenarios WHERE id = ANY($1) AND status = 'approved'",
+        )
+        .bind(&req.scenario_ids)
+        .fetch_one(&state.db)
+        .await?;
+        if годных != req.scenario_ids.len() as i64 {
+            return Err(AppError::Validation(
+                "среди выбранных вызовов есть неутверждённые, несуществующие или повторы".into(),
+            ));
+        }
+    }
+
     let есть_группа: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM training_groups WHERE id = $1)")
             .bind(req.group_id)
@@ -178,8 +301,9 @@ pub async fn create(
 
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO lessons (group_id, teacher_id, title, mode, type_ids, source,
-                              card_interval_sec)
-         VALUES ($1, $2, $3, $4::session_mode, $5, $6::lesson_source, $7)
+                              card_interval_sec, kind, segment, call_count, scenario_ids)
+         VALUES ($1, $2, $3, $4::session_mode, $5, $6::lesson_source, $7,
+                 $8::lesson_kind, $9, $10, $11)
          RETURNING id",
     )
     .bind(req.group_id)
@@ -189,6 +313,10 @@ pub async fn create(
     .bind(&req.type_ids)
     .bind(&source)
     .bind(интервал)
+    .bind(&kind)
+    .bind(&segment)
+    .bind(call_count)
+    .bind(&req.scenario_ids)
     .fetch_one(&state.db)
     .await?;
 
@@ -197,7 +325,8 @@ pub async fn create(
         audit::Event::new("lesson.create")
             .from_user(&user)
             .about("lesson", id)
-            .with(json!({ "title": req.title, "mode": req.mode, "typeIds": req.type_ids })),
+            .with(json!({ "title": req.title, "mode": req.mode, "typeIds": req.type_ids,
+                          "kind": kind, "segment": segment, "callCount": call_count })),
     )
     .await;
 
@@ -224,11 +353,11 @@ pub async fn start(
     user.require(&[Role::Teacher, Role::Admin])?;
     своё(&state.db, id, &user).await?;
 
-    type Занятие = (String, String, Vec<String>, Uuid, bool, i32);
-    let (mode, source, type_ids, group_id, начато, интервал): Занятие =
+    type Занятие = (String, String, Vec<String>, Uuid, bool, i32, String, Option<i32>, Vec<Uuid>);
+    let (mode, source, type_ids, group_id, начато, интервал, kind, call_count, выбраны): Занятие =
         sqlx::query_as(
             "SELECT mode::text, source::text, type_ids, group_id, started_at IS NOT NULL,
-                    card_interval_sec
+                    card_interval_sec, kind::text, call_count, scenario_ids
                FROM lessons WHERE id = $1",
         )
         .bind(id)
@@ -240,7 +369,28 @@ pub async fn start(
     }
 
     let роздано = if mode == "card112" {
-        раздать_вызовы(&state.db, id, group_id, &type_ids).await?
+        // Обычному занятию — до десяти вызовов, как и раньше; марафону
+        // и блицу — сколько задал преподаватель
+        let сколько = call_count.map(|n| n as i64).unwrap_or(10);
+        let вызовы = подобрать_вызовы(&state.db, &type_ids, &выбраны, сколько).await?;
+
+        // Марафон — экзамен на 5–10 вызовов. Подобралось меньше —
+        // запускать нечестно: это уже другой экзамен
+        let нужно = match kind.as_str() {
+            "marathon" => Some(crate::domain::drill::MARATHON_CALLS.0),
+            "blitz" => Some(crate::domain::drill::BLITZ_CALLS.0),
+            _ => None,
+        };
+        if let Some(нужно) = нужно {
+            if !вызовы.is_empty() && вызовы.len() < нужно {
+                return Err(AppError::Validation(format!(
+                    "утверждённых вызовов нашлось {}, а нужно не меньше {нужно}: \
+                     подготовьте ещё или выберите другие категории",
+                    вызовы.len()
+                )));
+            }
+        }
+        раздать_вызовы(&state.db, id, group_id, &вызовы, kind == "marathon").await?
     } else {
         раздать_карточки(&state.db, id, group_id, &type_ids, &source, интервал).await?
     };
@@ -291,20 +441,9 @@ async fn раздать_вызовы(
     pool: &sqlx::PgPool,
     lesson_id: Uuid,
     group_id: Uuid,
-    type_ids: &[String],
+    вызовы: &[Uuid],
+    по_порядку: bool,
 ) -> AppResult<i64> {
-    // Больше десяти вызовов за занятие не отработать, а раздача
-    // растёт как произведение на число курсантов
-    let вызовы: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM scenarios
-          WHERE status = 'approved'
-            AND ($1::text[] = '{}' OR expected->'typeIds' ?| $1)
-          ORDER BY random() LIMIT 10",
-    )
-    .bind(type_ids)
-    .fetch_all(pool)
-    .await?;
-
     if вызовы.is_empty() {
         return Ok(0);
     }
@@ -322,16 +461,23 @@ async fn раздать_вызовы(
 
     let mut роздано = 0i64;
     for участник in &участники {
-        for вызов in &вызовы {
+        // Марафон у всех в одном порядке — как экзаменационный билет;
+        // в остальных видах порядок у каждого свой
+        let mut свои: Vec<Uuid> = вызовы.to_vec();
+        if !по_порядку {
+            перемешать(&mut свои);
+        }
+        for (n, вызов) in свои.iter().enumerate() {
             sqlx::query(
-                "INSERT INTO assignments (lesson_id, group_id, user_id, scenario_id, created_by)
-                 VALUES ($1, $2, $3, $4, $5)",
+                "INSERT INTO assignments (lesson_id, group_id, user_id, scenario_id, created_by, seq)
+                 VALUES ($1, $2, $3, $4, $5, $6)",
             )
             .bind(lesson_id)
             .bind(group_id)
             .bind(участник)
             .bind(вызов)
             .bind(teacher)
+            .bind(n as i32 + 1)
             .execute(pool)
             .await?;
             роздано += 1;
@@ -341,6 +487,51 @@ async fn раздать_вызовы(
     // Группа без людей — это не повод считать занятие пустым:
     // материал подобран, просто некому его отдать
     Ok(if участники.is_empty() { вызовы.len() as i64 } else { роздано })
+}
+
+/// Перемешать без отдельной зависимости: криптостойкость здесь не
+/// нужна, нужен только разный порядок у соседей.
+fn перемешать(v: &mut [Uuid]) {
+    for i in (1..v.len()).rev() {
+        let j = (Uuid::new_v4().as_u128() % (i as u128 + 1)) as usize;
+        v.swap(i, j);
+    }
+}
+
+/// Подобрать вызовы занятия.
+///
+/// Выбранные преподавателем — ровно они и в его порядке. Иначе —
+/// случайные утверждённые по категориям занятия: больше десяти за
+/// занятие не отработать, а раздача растёт как произведение на число
+/// курсантов.
+async fn подобрать_вызовы(
+    pool: &sqlx::PgPool,
+    type_ids: &[String],
+    выбраны: &[Uuid],
+    сколько: i64,
+) -> AppResult<Vec<Uuid>> {
+    if !выбраны.is_empty() {
+        // Выверенность проверена при создании, но между созданием и
+        // запуском вызов могли снять в архив — такой не раздаём
+        let годные: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM scenarios WHERE id = ANY($1) AND status = 'approved'",
+        )
+        .bind(выбраны)
+        .fetch_all(pool)
+        .await?;
+        return Ok(выбраны.iter().copied().filter(|v| годные.contains(v)).collect());
+    }
+
+    Ok(sqlx::query_scalar(
+        "SELECT id FROM scenarios
+          WHERE status = 'approved'
+            AND ($1::text[] = '{}' OR expected->'typeIds' ?| $1)
+          ORDER BY random() LIMIT $2",
+    )
+    .bind(type_ids)
+    .bind(сколько.clamp(1, 10))
+    .fetch_all(pool)
+    .await?)
 }
 
 /// Статусы, которыми служба заканчивает работу по карточке.
@@ -533,7 +724,8 @@ pub async fn list(State(state): State<AppState>, user: AuthUser) -> AppResult<Js
 const ОСНОВА: &str = "
     SELECT l.id, l.title, l.group_id, g.title AS group_title,
            l.mode::text AS mode, l.source::text AS source, l.type_ids,
-           l.card_interval_sec, l.started_at, l.finished_at,
+           l.card_interval_sec, l.kind::text AS kind, l.segment, l.call_count,
+           l.scenario_ids, l.started_at, l.finished_at,
            (SELECT count(*) FROM group_members m WHERE m.group_id = l.group_id) AS members,
            (SELECT count(*) FROM assignments a WHERE a.lesson_id = l.id)
          + (SELECT count(*) FROM lesson_cards c WHERE c.lesson_id = l.id) AS items

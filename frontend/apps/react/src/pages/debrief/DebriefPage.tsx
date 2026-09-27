@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTraining } from '@/entities/incident/model';
 import { useCatalog } from '@/entities/catalog/model';
-import type { Finding } from '@/shared/api';
+import { SEGMENT_LABEL, type Finding } from '@/shared/api';
 import { fmt } from '@/shared/lib/useTimer';
 import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import clsx from '@/shared/lib/clsx';
@@ -56,6 +56,8 @@ export const DebriefPage = () => {
     );
   }
 
+  // Блиц: разбор и балл — только по сегменту карточки
+  const segment = result.segment ? SEGMENT_LABEL[result.segment] : null;
   const guessed = result.findings.filter((f) => f.kind === 'guessed');
   const problems = result.findings.filter((f) => f.kind !== 'ok' && f.kind !== 'guessed');
   const ok = result.findings.filter((f) => f.kind === 'ok');
@@ -64,8 +66,14 @@ export const DebriefPage = () => {
     <div className={s.page}>
       <header className={s.head}>
         <div>
-          <h1 className={s.title}>Разбор вызова</h1>
+          <h1 className={s.title}>{segment ? 'Разбор блица' : 'Разбор вызова'}</h1>
           <div className={s.sub}>{scenarioTitle(scenario)}</div>
+          {segment && (
+            <div className={s.sub} data-testid="blitz-segment">
+              Оценивается только «{segment}». Остальные поля карточки в балл не входят,
+              время — тоже.
+            </div>
+          )}
         </div>
         <div className={s.scoreBox} data-testid="score">
           <div className={s.score}>{result.score}</div>
@@ -79,7 +87,8 @@ export const DebriefPage = () => {
 
       <div className={s.metrics}>
         <Metric label="Время заполнения" value={fmt(result.elapsedSec)}
-                danger={result.overNorm} note={`норматив ${fmt(result.normSec)}`} />
+                danger={result.overNorm}
+                note={segment ? 'в блице не оценивается' : `норматив ${fmt(result.normSec)}`} />
         {/* Единица — вопрос заявителю, а не поле карточки. Раньше из
             числа вопросов вычиталось число угаданных полей, а один
             вопрос раскрывает несколько полей — на стенде вышло «−1 / 5» */}
@@ -90,11 +99,11 @@ export const DebriefPage = () => {
             6 / 5»: лишняя служба смешивалась с нужными, а «оповещены»
             выдавало выбор службы за подтверждённый приём — его
             ставит диспетчер ДДС, а не курсант 112 */}
-        <Metric label="Требуемые службы направлены"
+        {(!result.segment || result.segment === 'services') && <Metric label="Требуемые службы направлены"
                 value={`${result.services.expected.length - result.services.missed.length} / ${result.services.expected.length}`}
                 note={result.services.extra.length > 0
                   ? `лишних: ${result.services.extra.length}` : 'лишних нет'}
-                danger={result.services.missed.length > 0} />
+                danger={result.services.missed.length > 0} />}
       </div>
 
       {guessed.length > 0 && (
@@ -158,7 +167,7 @@ export const DebriefPage = () => {
       </section>
 
       <button className={s.again} onClick={() => { reset(); nav('/journal'); }}>
-        Вернуться в журнал
+        {segment ? 'К следующему заданию' : 'Вернуться в журнал'}
       </button>
     </div>
   );

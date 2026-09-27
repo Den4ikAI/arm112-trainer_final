@@ -178,6 +178,16 @@ async fn list_scenarios(
     .fetch_all(&state.db)
     .await?;
 
+    // В марафоне курсант видит только следующий вызов: порядок
+    // строгий, а список из десяти кнопок подсказывал бы, что можно
+    // начать с любого
+    if user.role == crate::api::auth::Role::Student {
+        if let Some(next) = crate::api::drill::marathon_next(&state.db, user.id).await? {
+            let items = items.into_iter().filter(|s| Some(s.id) == next).collect();
+            return Ok(Json(items));
+        }
+    }
+
     Ok(Json(items))
 }
 
@@ -233,6 +243,9 @@ async fn create(
     }
 
     let (assignment_id, norm_sec) = assignment_for(&state.db, &user, sid, req.assignment_id, norm_sec).await?;
+    if let Some(a) = assignment_id {
+        crate::api::drill::check_start(&state.db, a, user.id).await?;
+    }
 
     let mut tx = state.db.begin().await?;
 
@@ -640,7 +653,9 @@ async fn patch_card(
 #[serde(rename_all = "camelCase")]
 pub struct SaveResponse {
     pub card: CardView,
-    pub grade: Grade,
+    /// Разбор. Пусто, пока его закрывает марафон: разбор и
+    /// рекомендации откроются после последнего вызова
+    pub grade: Option<Grade>,
 }
 
 /// Сохранение карточки завершает занятие и сразу считает разбор.
@@ -767,16 +782,21 @@ async fn save(
         ws::routes::card_topics(&card.service_ids, Some(id)),
     ));
 
+    // Балл в событии — тот же, что курсант увидит на экране: канал
+    // слушают и сам курсант, и его группа, и в марафоне он не должен
+    // открывать то, что закрыто в разборе
+    let grade = crate::api::drill::present(&state.db, id, &user, g).await?;
     state.ws.publish(
         ws::Event::new(
             "session.finished",
-            serde_json::json!({ "sessionId": id, "userId": user.id, "score": g.score }),
+            serde_json::json!({ "sessionId": id, "userId": user.id,
+                                "score": grade.as_ref().map(|g| g.score) }),
         )
         .to(format!("user:{}", user.id))
         .to_all(ws::routes::group_topics(&state.db, user.id).await),
     );
 
-    Ok(Json(SaveResponse { card, grade: g }))
+    Ok(Json(SaveResponse { card, grade }))
 }
 
 /// Разбор доступен только после сохранения: пока курсант не закончил,
@@ -800,11 +820,14 @@ async fn grade_view(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Grade>> {
     own_session(&state.db, id, &user).await?;
-    grade::load(&state.db, id)
+    let g = grade::load(&state.db, id)
         .await
         .map_err(AppError::Other)?
+        .ok_or(AppError::NotFound)?;
+    crate::api::drill::present(&state.db, id, &user, g)
+        .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or_else(|| AppError::Conflict("разбор марафона откроется после последнего вызова".into()))
 }
 
 #[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
@@ -905,7 +928,7 @@ async fn active(
     .await?;
 
     match id {
-        Some(id) => Ok(Json(load_state(&state.db, id).await?).into_response()),
+        Some(id) => Ok(Json(load_state(&state.db, id, &user).await?).into_response()),
         None => Ok(StatusCode::NO_CONTENT.into_response()),
     }
 }
@@ -931,10 +954,10 @@ async fn state_view(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<SessionState>> {
     own_session(&state.db, id, &user).await?;
-    Ok(Json(load_state(&state.db, id).await?))
+    Ok(Json(load_state(&state.db, id, &user).await?))
 }
 
-async fn load_state(pool: &sqlx::PgPool, id: Uuid) -> AppResult<SessionState> {
+async fn load_state(pool: &sqlx::PgPool, id: Uuid, viewer: &AuthUser) -> AppResult<SessionState> {
     let session = load_session_view(pool, id).await?;
 
     let card_id: Uuid = sqlx::query_scalar("SELECT id FROM cards WHERE session_id = $1")
@@ -995,7 +1018,11 @@ async fn load_state(pool: &sqlx::PgPool, id: Uuid) -> AppResult<SessionState> {
         Some(classify(pool, version_id, &card.type_ids, &answers_to_map(&answers)).await?)
     };
 
-    let grade = grade::load(pool, id).await.map_err(AppError::Other)?;
+    // Марафон разбор не показывает и после обновления страницы
+    let grade = match grade::load(pool, id).await.map_err(AppError::Other)? {
+        Some(g) => crate::api::drill::present(pool, id, viewer, g).await?,
+        None => None,
+    };
 
     Ok(SessionState {
         scenario: ScenarioPublic {

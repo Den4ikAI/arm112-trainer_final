@@ -50,6 +50,12 @@ interface TrainingState {
   transcript: Array<{ who: string; text: string; atSec: number }>;
   revealed: string[];
   grade: Grade | null;
+  /**
+   * Карточка сохранена, а разбор закрыт: идёт марафон, и разбор
+   * откроется после последнего вызова. Экран уходит в журнал к
+   * следующему вызову, а не на разбор.
+   */
+  closed: boolean;
   /** Когда вызов начат — от этого момента идёт таймер, и после F5 тоже. */
   startedAt: string | null;
   saving: boolean;
@@ -155,6 +161,8 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
       transcript: st.transcript,
       revealed: st.scenario.questions.filter((q) => q.revealed).map((q) => q.factId),
       grade: st.grade,
+      // Сохранённый вызов без разбора — марафон: продолжать нечего
+      closed: st.session.finishedAt != null && st.grade == null,
       startedAt: st.session.startedAt,
       error: null,
     });
@@ -168,6 +176,7 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     transcript: [],
     revealed: [],
     grade: null,
+    closed: false,
     startedAt: null,
     saving: false,
     error: null,
@@ -189,6 +198,7 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
         transcript: [{ who: 'заявитель', text: r.scenario.legend, atSec: 0 }],
         revealed: [],
         grade: null,
+        closed: false,
         startedAt: r.session.startedAt,
         error: null,
       });
@@ -268,7 +278,7 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
       try {
         await get().flush();
         const r = await sessions.save(sessionId);
-        set({ card: r.card, grade: r.grade, saving: false });
+        set({ card: r.card, grade: r.grade, closed: r.grade == null, saving: false });
       } catch (e) {
         set({ saving: false, error: e instanceof ApiError ? e.message : 'не удалось сохранить' });
         throw e;
@@ -281,7 +291,7 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
       remember(null);
       set({
         sessionId: null, card: null, scenario: null, classify: null,
-        transcript: [], revealed: [], grade: null, startedAt: null,
+        transcript: [], revealed: [], grade: null, closed: false, startedAt: null,
         saving: false, error: null,
       });
     },

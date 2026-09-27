@@ -15,7 +15,7 @@ use argon2::Argon2;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use password_hash::PasswordHasher;
@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/admin/audit", get(audit_log))
         .route("/api/admin/users", get(list_users).post(create_user))
         .route("/api/admin/users/{id}/active", post(set_active))
+        .route("/api/admin/users/{id}", delete(delete_user))
         .route("/api/admin/classifier-versions", get(versions))
         .route("/api/admin/classifier-versions/{id}/activate", post(activate_version))
         .route("/api/classifier/versions/{a}/diff/{b}", get(version_diff))
@@ -197,6 +198,9 @@ async fn list_users(
                 (SELECT count(*) FROM sessions se WHERE se.user_id = u.id) AS sessions
            FROM users u
            LEFT JOIN services s ON s.id = u.service_id
+          -- Удалённые обезличены и в списке не нужны: их история видна
+          -- в отчётах и журнале действий
+          WHERE u.deleted_at IS NULL
           ORDER BY u.role, u.login",
     )
     .fetch_all(&state.db)
@@ -338,7 +342,10 @@ async fn set_active(
         ));
     }
 
-    let updated = sqlx::query("UPDATE users SET is_active = $2 WHERE id = $1")
+    // Удалённую запись обратно не включаем: она обезличена
+    let updated = sqlx::query(
+        "UPDATE users SET is_active = $2 WHERE id = $1 AND deleted_at IS NULL",
+    )
         .bind(id)
         .bind(req.active)
         .execute(&state.db)
@@ -358,6 +365,207 @@ async fn set_active(
     .await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Deleted {
+    /// `deleted` — записи не было истории, она стёрта; `anonymized` —
+    /// история есть, запись обезличена после резервной копии
+    pub mode: String,
+    /// Резервная копия данных записи — таблица `user_backups`
+    pub backup_id: Option<Uuid>,
+}
+
+/// Есть ли у записи история: учебная работа, действия, материалы.
+/// Такую нельзя стирать — на неё ссылаются оценки и журнал действий.
+async fn has_history(pool: &sqlx::PgPool, id: Uuid) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sessions WHERE user_id = $1)
+             OR EXISTS (SELECT 1 FROM cards WHERE created_by = $1)
+             OR EXISTS (SELECT 1 FROM response_entries WHERE user_id = $1)
+             OR EXISTS (SELECT 1 FROM lessons WHERE teacher_id = $1)
+             OR EXISTS (SELECT 1 FROM training_groups WHERE teacher_id = $1)
+             OR EXISTS (SELECT 1 FROM assignments WHERE created_by = $1 OR user_id = $1)
+             OR EXISTS (SELECT 1 FROM scenarios WHERE created_by = $1 OR approved_by = $1)
+             OR EXISTS (SELECT 1 FROM expert_grades WHERE teacher_id = $1)
+             OR EXISTS (SELECT 1 FROM audit_log WHERE user_id = $1)",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Удалить учётную запись.
+///
+/// ТЗ запрещает удалять критически важные данные без резервного
+/// копирования. Поэтому:
+///
+/// * записи без истории (завели и ни разу не вошли) удаляются сразу —
+///   терять нечего;
+/// * запись с историей сначала копируется в `user_backups`, затем
+///   обезличивается: ФИО и логин заменяются, вход закрыт, из групп
+///   человек убран. Оценки, карточки и журнал действий остаются и
+///   читаются — ссылки на запись не рвутся.
+///
+/// Свою запись и последнего администратора удалить нельзя: система
+/// осталась бы без управления.
+#[utoipa::path(
+    delete,
+    path = "/api/admin/users/{id}",
+    tag = "Администрирование",
+    params(("id" = String, Path, description = "Идентификатор пользователя")),
+    responses(
+        (status = 200, description = "Запись удалена или обезличена", body = Deleted),
+        (status = 400, description = "Свою запись или последнего администратора удалить нельзя"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+        (status = 404, description = "Нет такой записи"),
+    ),
+)]
+pub async fn delete_user(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Deleted>> {
+    user.require(&[Role::Admin])?;
+    if id == user.id {
+        return Err(AppError::Validation("нельзя удалить собственную учётную запись".into()));
+    }
+
+    let row: Option<(String, String, String, Option<String>, Option<String>, bool, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as(
+            "SELECT login, fio, role::text, service_id, workstation, is_active, created_at
+               FROM users WHERE id = $1 AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(&state.db)
+        .await?;
+    let Some((login, fio, role, service_id, workstation, is_active, created_at)) = row else {
+        return Err(AppError::NotFound);
+    };
+
+    if role == "admin" {
+        let других: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM users
+              WHERE role = 'admin' AND is_active AND deleted_at IS NULL AND id <> $1",
+        )
+        .bind(id)
+        .fetch_one(&state.db)
+        .await?;
+        if других == 0 {
+            return Err(AppError::Validation(
+                "это последний администратор: без него системой некому управлять".into(),
+            ));
+        }
+    }
+
+    if !has_history(&state.db, id).await? {
+        // Ссылки, которых нет в проверке истории (членство в группе,
+        // прогнозы), уходят каскадом. Нашлась ссылка без каскада —
+        // значит, история всё-таки есть: идём по пути обезличивания
+        let mut tx = state.db.begin().await?;
+        match sqlx::query("DELETE FROM users WHERE id = $1").bind(id).execute(&mut *tx).await {
+            Ok(_) => {
+                tx.commit().await?;
+                audit::log(
+                    &state.db,
+                    audit::Event::new("user.delete")
+                        .from_user(&user)
+                        .about("user", id)
+                        .with(json!({ "mode": "deleted", "login": login, "role": role })),
+                )
+                .await;
+                return Ok(Json(Deleted { mode: "deleted".into(), backup_id: None }));
+            }
+            Err(sqlx::Error::Database(e)) if e.is_foreign_key_violation() => {
+                tx.rollback().await?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    // Резервная копия — до обезличивания и в той же транзакции:
+    // не записалась копия — не трогаем и запись
+    let groups: Vec<String> = sqlx::query_scalar(
+        "SELECT g.title FROM group_members m JOIN training_groups g ON g.id = m.group_id
+          WHERE m.user_id = $1 ORDER BY g.title",
+    )
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let sessions: Vec<(Uuid, Option<Uuid>, chrono::DateTime<chrono::Utc>, Option<i32>)> = sqlx::query_as(
+        "SELECT s.id, s.scenario_id, s.started_at, g.score
+           FROM sessions s LEFT JOIN grades g ON g.session_id = s.id
+          WHERE s.user_id = $1 ORDER BY s.started_at",
+    )
+    .bind(id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let data = json!({
+        "user": {
+            "id": id, "login": login, "fio": fio, "role": role,
+            "serviceId": service_id, "workstation": workstation,
+            "isActive": is_active, "createdAt": created_at,
+        },
+        "groups": groups,
+        "sessions": sessions.iter().map(|(sid, scenario, at, score)| json!({
+            "id": sid, "scenarioId": scenario, "startedAt": at, "score": score,
+        })).collect::<Vec<_>>(),
+    });
+
+    let backup_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO user_backups (user_id, data, created_by) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(id)
+    .bind(&data)
+    .bind(user.id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Пароль — хеш случайной строки: вход закрыт наверняка, а код,
+    // который разбирает хеш, не спотыкается о пустое значение
+    let hash = Argon2::default()
+        .hash_password(Uuid::new_v4().to_string().as_bytes())
+        .map_err(|e| AppError::Other(anyhow::anyhow!("не удалось захешировать пароль: {e}")))?
+        .to_string();
+
+    sqlx::query(
+        "UPDATE users
+            SET login = $2, fio = 'Удалённая учётная запись', password_hash = $3,
+                workstation = NULL, is_active = false, deleted_at = now()
+          WHERE id = $1",
+    )
+    .bind(id)
+    .bind(format!("удалён-{}", id.simple()))
+    .bind(&hash)
+    .execute(&mut *tx)
+    .await?;
+
+    // Из групп убираем: иначе обезличенная запись висела бы в ходе
+    // занятий и в списках преподавателя
+    sqlx::query("DELETE FROM group_members WHERE user_id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    // ФИО в журнал не пишем — оно и так в резервной копии, а журнал
+    // действий читают шире
+    audit::log(
+        &state.db,
+        audit::Event::new("user.delete")
+            .from_user(&user)
+            .about("user", id)
+            .with(json!({ "mode": "anonymized", "role": role, "backupId": backup_id })),
+    )
+    .await;
+
+    Ok(Json(Deleted { mode: "anonymized".into(), backup_id: Some(backup_id) }))
 }
 
 #[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]

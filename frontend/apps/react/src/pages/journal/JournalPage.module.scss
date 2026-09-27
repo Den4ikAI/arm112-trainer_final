@@ -85,6 +85,13 @@
   font-size: 13px;
 }
 
+// Итоги марафона: по вызову на строку
+.drillList {
+  margin: var(--sp-2) 0 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
 .continue {
   border: 1px solid var(--c-blue);
   background: transparent;

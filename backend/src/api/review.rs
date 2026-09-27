@@ -198,8 +198,17 @@ pub async fn view(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<CardReview>> {
     crate::api::cards::visible_card(&state.db, id, &user).await?;
+    // Марафон закрывает разбор целиком: балл, анализ текста и оценка
+    // преподавателя — тоже разбор, а он откроется после последнего вызова
+    let attempts = if crate::api::drill::closed_for_card(&state.db, id, &user).await? {
+        Vec::new()
+    } else {
+        let mut all = attempts(&state.db, id, &user).await?;
+        crate::api::drill::segment_scores(&state.db, id, &mut all).await?;
+        all
+    };
     Ok(Json(CardReview {
-        attempts: attempts(&state.db, id, &user).await?,
+        attempts,
         can_grade: user.role == Role::Teacher,
     }))
 }
