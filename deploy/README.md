@@ -100,13 +100,18 @@ sudo mkdir -p /opt/arm112/model && sudo chown "$USER" /opt/arm112/model
 С машины, где лежат веса:
 
 ```bash
-rsync -avP /media/denis/work4/llm/gigachat3.1/full-mtp-q4_K_M.gguf \
+rsync -avP /путь/к/full-mtp-q4_K_M.gguf \
   <пользователь>@<адрес-ВМ>:/opt/arm112/model/
 ```
 
 6,45 ГБ: на канале 100 Мбит/с это около десяти минут.
 
 Каталог и имя файла задаются в `deploy/.env` (`MODEL_DIR`, `MODEL_FILE`).
+
+Модель уже развёрнута на другой машине контура? Шаг не нужен: укажите
+её адрес в `deploy/.env` — `ML_BASE_URL=http://адрес:порт` (сервер,
+совместимый с OpenAI API). `up.sh` тогда не поднимает свой контейнер
+модели.
 
 ### 4. Запуск
 

@@ -26,7 +26,12 @@ set +a
 # Модель включаем, только если файл весов на месте: без него сервер
 # модели не стартует, а тренажёр прекрасно работает и без неё
 model="${MODEL_DIR:-/opt/arm112/model}/${MODEL_FILE:-full-mtp-q4_K_M.gguf}"
-if [ -f "$model" ]; then
+if [ -n "${ML_BASE_URL:-}" ]; then
+  # Модель уже развёрнута на другой машине контура — свой контейнер
+  # модели не нужен
+  export ML_PROVIDER=http COMPOSE_PROFILES=
+  echo "модель по адресу $ML_BASE_URL — свой контейнер модели не поднимаю"
+elif [ -f "$model" ]; then
   export ML_PROVIDER=http COMPOSE_PROFILES=model
   echo "модель найдена: $model — поднимаю вместе с ней"
 else
