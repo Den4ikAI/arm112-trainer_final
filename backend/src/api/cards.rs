@@ -591,7 +591,16 @@ pub(crate) async fn visible_card(pool: &sqlx::PgPool, id: Uuid, user: &AuthUser)
              WHERE c.id = $1
                AND (c.created_by = $2
                     OR EXISTS (SELECT 1 FROM card_services cs
-                                WHERE cs.card_id = c.id AND cs.service_id = $3)))",
+                                WHERE cs.card_id = c.id AND cs.service_id = $3))
+               -- Карточка идущего занятия курсанта, время которой ещё не
+               -- пришло, не видна и по прямой ссылке — как и в ленте
+               AND NOT EXISTS (
+                     SELECT 1 FROM lesson_cards lc
+                       JOIN lessons l ON l.id = lc.lesson_id
+                       JOIN group_members m ON m.group_id = l.group_id
+                      WHERE lc.card_id = c.id AND m.user_id = $2
+                        AND l.started_at IS NOT NULL AND l.finished_at IS NULL
+                        AND lc.release_at > now()))",
     )
     .bind(id)
     .bind(user.id)

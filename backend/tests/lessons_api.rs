@@ -577,6 +577,13 @@ async fn карточки_занятия_ддс_приходят_потоком(
     assert!(сейчас["items"][0]["waitingSec"].as_i64().unwrap() < 30);
     assert_eq!(сейчас["items"][0]["opened"], false);
 
+    // И по прямой ссылке невыпущенную не открыть: иначе курсант
+    // увидел бы, что его ждёт, раньше срока
+    let другая = if видна == первая.to_string() { вторая } else { первая };
+    let (status, _) = call(&app, Method::GET, &format!("/api/cards/{другая}"),
+        Some(&курсант), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
     // Время второй пришло: она в ленте, и о ней разослано событие
     let hub = arm112::ws::Hub::new();
     let mut слушатель = hub.subscribe();
@@ -591,7 +598,6 @@ async fn карточки_занятия_ддс_приходят_потоком(
     ожидали.sort();
     assert_eq!(все, ожидали);
 
-    let другая = if видна == первая.to_string() { вторая } else { первая };
     let mut объявлена = false;
     while let Ok(e) = слушатель.try_recv() {
         if e.kind == "card.dispatched" && e.payload["cardId"] == другая.to_string() {
