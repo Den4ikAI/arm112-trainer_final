@@ -223,6 +223,8 @@ async fn create(
         user.require(&[crate::api::auth::Role::Teacher, crate::api::auth::Role::Admin])?;
     }
 
+    let (assignment_id, norm_sec) = assignment_for(&state.db, &user, sid, req.assignment_id, norm_sec).await?;
+
     let mut tx = state.db.begin().await?;
 
     let session_id: Uuid = sqlx::query_scalar(
@@ -231,7 +233,7 @@ async fn create(
     )
     .bind(user.id)
     .bind(sid)
-    .bind(req.assignment_id)
+    .bind(assignment_id)
     .bind(req.mode)
     .bind(norm_sec)
     .fetch_one(&mut *tx)
@@ -342,6 +344,69 @@ async fn create(
             },
         }),
     ))
+}
+
+/// К какому заданию относится попытка, и какой у неё норматив.
+///
+/// Клиент задание не присылает: курсант берёт вызов из общего
+/// списка, а тот при идущем занятии уже сужен до его заданий. Пока
+/// связь ждали от клиента, её не было ни у одной попытки, и ход
+/// занятия у преподавателя всегда показывал ноль начатых вызовов.
+/// Поэтому задание находим сами — по идущему занятию курсанта и
+/// сценарию.
+///
+/// Присланное явно проверяем: попытка, записанная в чужое задание
+/// или задание по другому вызову, испортила бы отчёт занятия.
+///
+/// Норматив задания, если преподаватель его задал, главнее
+/// сценарного — для того он в задании и хранится.
+async fn assignment_for(
+    pool: &sqlx::PgPool,
+    user: &AuthUser,
+    scenario_id: Uuid,
+    requested: Option<Uuid>,
+    scenario_norm: i32,
+) -> AppResult<(Option<Uuid>, i32)> {
+    let found: Option<(Uuid, Option<i32>)> = match requested {
+        Some(id) => {
+            let row: Option<(Uuid, Option<i32>)> = sqlx::query_as(
+                "SELECT a.id, a.norm_sec FROM assignments a
+                  WHERE a.id = $1 AND a.scenario_id = $2
+                    AND (a.user_id = $3 OR a.group_id IN (
+                         SELECT group_id FROM group_members WHERE user_id = $3))",
+            )
+            .bind(id)
+            .bind(scenario_id)
+            .bind(user.id)
+            .fetch_optional(pool)
+            .await?;
+            if row.is_none() {
+                return Err(AppError::Validation(
+                    "задание не ваше или выдано по другому вызову".into(),
+                ));
+            }
+            row
+        }
+        None => {
+            sqlx::query_as(
+                "SELECT a.id, a.norm_sec FROM assignments a
+                   JOIN lessons l ON l.id = a.lesson_id
+                  WHERE a.scenario_id = $1 AND a.user_id = $2
+                    AND l.started_at IS NOT NULL AND l.finished_at IS NULL
+                  ORDER BY l.started_at DESC
+                  LIMIT 1",
+            )
+            .bind(scenario_id)
+            .bind(user.id)
+            .fetch_optional(pool)
+            .await?
+        }
+    };
+
+    Ok(match found {
+        Some((id, norm)) => (Some(id), norm.unwrap_or(scenario_norm)),
+        None => (None, scenario_norm),
+    })
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]

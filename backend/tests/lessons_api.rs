@@ -609,3 +609,49 @@ async fn карточки_занятия_ддс_приходят_потоком(
     call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
     прибрать_отдельно(&pool, &о, &[первая, вторая]).await;
 }
+
+/// Попытка по вызову из занятия записывается в задание, хотя клиент
+/// задание не присылает.
+///
+/// Раньше связь ждали от клиента, а он её не слал: ход занятия у
+/// преподавателя показывал ноль начатых вызовов при любой работе.
+#[tokio::test]
+async fn попытка_по_вызову_занятия_попадает_в_задание() {
+    let Some((app, pool)) = app().await else { return };
+    let teacher = токен(&app, "teacher1").await;
+    let о = отдельно(&pool).await;
+
+    let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
+        Some(json!({ "groupId": о.group_id, "title": "Попытки", "mode": "card112" }))).await;
+    let id = занятие["id"].as_str().unwrap().to_string();
+    call(&app, Method::POST, &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
+
+    let (задание, сценарий): (Uuid, Uuid) = sqlx::query_as(
+        "SELECT id, scenario_id FROM assignments WHERE lesson_id = $1::uuid AND user_id = $2 LIMIT 1")
+        .bind(&id).bind(о.user_id).fetch_one(&pool).await.unwrap();
+
+    let курсант = токен(&app, &о.login).await;
+    let (status, начато) = call(&app, Method::POST, "/api/sessions", Some(&курсант),
+        Some(json!({ "scenarioId": сценарий, "mode": "card112" }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{начато}");
+
+    let привязано: Option<Uuid> = sqlx::query_scalar(
+        "SELECT assignment_id FROM sessions WHERE id = $1::uuid")
+        .bind(начато["session"]["id"].as_str().unwrap())
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(привязано, Some(задание), "попытка не связана с заданием занятия");
+
+    let (_, ход) = call(&app, Method::GET, &format!("/api/lessons/{id}"),
+        Some(&teacher), None).await;
+    assert_eq!(ход["progress"][0]["started"], 1, "преподаватель должен видеть начатый вызов: {ход}");
+
+    // Чужое задание явно указать нельзя
+    let (status, _) = call(&app, Method::POST, "/api/sessions", Some(&токен(&app, "student1").await),
+        Some(json!({ "scenarioId": сценарий, "mode": "card112", "assignmentId": задание }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "попытка записалась в чужое задание");
+
+    call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1").bind(о.user_id)
+        .execute(&pool).await.ok();
+    прибрать_отдельно(&pool, &о, &[]).await;
+}
