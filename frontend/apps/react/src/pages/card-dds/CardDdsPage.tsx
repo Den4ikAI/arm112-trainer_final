@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { cards, channel, type CardDetail } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
+import { AttemptReview } from '@/widgets/attempt-review/AttemptReview';
 import { BrigadePanel } from '@/widgets/brigade-panel/BrigadePanel';
 import { CallBar } from '@/widgets/call-bar/CallBar';
 import { CardHeader } from '@/widgets/card-header/CardHeader';
@@ -112,6 +113,11 @@ export const CardDdsPage = () => {
           {own && card.services.some((sv) => sv.serviceId === own) && (
             <BrigadePanel cardId={card.id} serviceId={own} stamp={card} />
           )}
+
+          {/* Разбор попыток по карточке: преподаватель видит всех и ставит
+              экспертную оценку, курсант — только свою попытку */}
+          <AttemptReview cardId={card.id} />
+
         </div>
 
         <div className={s.right}>

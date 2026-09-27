@@ -718,6 +718,20 @@ async fn save(
         tracing::warn!(session = %id, error = %e, "рекомендации не обновлены");
     }
 
+    // Нейросетевой разбор описания — в очередь: на процессоре это
+    // десятки секунд, а разбор правил курсант должен увидеть сразу
+    if let Err(e) = crate::domain::text_analysis::enqueue(
+        &state.db,
+        crate::domain::text_analysis::Kind::Card112,
+        card_id,
+        None,
+        Some(user.id),
+    )
+    .await
+    {
+        tracing::warn!(session = %id, error = %e, "анализ текста не поставлен в очередь");
+    }
+
     let card = load_card(&state.db, card_id).await?;
 
     // Сохранение карточки — основное действие оператора, и именно его

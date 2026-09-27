@@ -111,6 +111,10 @@ pub struct StudentRow {
     pub avg_score: Option<f64>,
     pub over_norm: i64,
     pub guessed: i64,
+    /// Средний экспертный балл по вызовам, которые оценил преподаватель
+    pub avg_expert_score: Option<f64>,
+    /// Сколько вызовов оценено экспертно
+    pub expert_graded: i64,
 }
 
 /// Полный отчёт. Пока это та же статистика — отдельного блока сверх
@@ -203,7 +207,8 @@ pub async fn stats(pool: &PgPool, input: &Value) -> Result<GroupStats> {
 
     // Каждый участник в списке, даже если ещё ни разу не занимался:
     // преподавателю нужно видеть, кто не приступал
-    let students: Vec<StudentRow> = sqlx::query_as::<_, (Uuid, String, i64, Option<f64>, i64, i64)>(
+    #[allow(clippy::type_complexity)]
+    let students: Vec<StudentRow> = sqlx::query_as::<_, (Uuid, String, i64, Option<f64>, i64, i64, Option<f64>, i64)>(
         "SELECT u.id, u.fio,
                 count(gr.id),
                 avg(gr.score)::float8,
@@ -212,13 +217,19 @@ pub async fn stats(pool: &PgPool, input: &Value) -> Result<GroupStats> {
                 COALESCE(sum((
                   SELECT count(*) FROM jsonb_array_elements(gr.findings) AS f
                    WHERE f ->> 'kind' = 'guessed'
-                )), 0)::bigint
+                )), 0)::bigint,
+                (avg(eg.score) FILTER (WHERE gr.id IS NOT NULL))::float8,
+                count(eg.id) FILTER (WHERE gr.id IS NOT NULL)
            FROM group_members m
            JOIN users u ON u.id = m.user_id
            LEFT JOIN sessions s ON s.user_id = u.id
            LEFT JOIN grades gr ON gr.session_id = s.id
                 AND ($2::timestamptz IS NULL OR gr.created_at >= $2)
                 AND ($3::timestamptz IS NULL OR gr.created_at < $3)
+           -- У вызова одна карточка, у карточки не больше одной
+           -- экспертной оценки вызова: строки не множатся
+           LEFT JOIN cards c ON c.session_id = s.id
+           LEFT JOIN expert_grades eg ON eg.kind = 'card112' AND eg.card_id = c.id
           WHERE m.group_id = $1
           GROUP BY u.id, u.fio
           ORDER BY u.fio",
@@ -229,8 +240,10 @@ pub async fn stats(pool: &PgPool, input: &Value) -> Result<GroupStats> {
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(user_id, fio, sessions, avg_score, over_norm, guessed)| StudentRow {
-        user_id, fio, sessions, avg_score, over_norm, guessed,
+    .map(|(user_id, fio, sessions, avg_score, over_norm, guessed, avg_expert_score, expert_graded)| {
+        StudentRow {
+            user_id, fio, sessions, avg_score, over_norm, guessed, avg_expert_score, expert_graded,
+        }
     })
     .collect();
 

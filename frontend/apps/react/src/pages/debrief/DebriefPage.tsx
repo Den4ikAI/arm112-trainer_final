@@ -8,6 +8,7 @@ import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import clsx from '@/shared/lib/clsx';
 import { MyForecast } from '@/widgets/forecast/MyForecast';
 import { MyAdvice } from '@/widgets/advice/MyAdvice';
+import { AttemptReview } from '@/widgets/attempt-review/AttemptReview';
 import s from './DebriefPage.module.scss';
 
 const KIND_LABEL: Record<Finding['kind'], string> = {
@@ -23,7 +24,7 @@ const KIND_LABEL: Record<Finding['kind'], string> = {
  * значение совпало с эталоном, но заявитель его не сообщал.
  */
 export const DebriefPage = () => {
-  const { grade: result, scenario, transcript, revealed, reset, sessionId, resume } = useTraining();
+  const { grade: result, scenario, transcript, revealed, reset, sessionId, resume, card } = useTraining();
   const serviceTitle = useCatalog((st) => st.serviceTitle);
   const nav = useNavigate();
 
@@ -74,6 +75,7 @@ export const DebriefPage = () => {
 
       {sessionId && <MyForecast sessionId={sessionId} actual={result.score} />}
       {sessionId && <MyAdvice sessionId={sessionId} />}
+      {card && <AttemptReview cardId={card.id} only="card112" />}
 
       <div className={s.metrics}>
         <Metric label="Время заполнения" value={fmt(result.elapsedSec)}

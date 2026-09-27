@@ -35,6 +35,11 @@ pub struct SessionReport {
     pub findings: Vec<Finding>,
     pub services: grade::ServiceDiff,
     pub grammar: Grammar,
+    /// Экспертная оценка преподавателя — рядом с автоматической, а не
+    /// вместо неё
+    pub expert: Option<crate::api::review::ExpertView>,
+    /// Нейросетевой анализ описания: замечания с цитатами и вердиктами
+    pub text_analysis: Option<crate::domain::text_analysis::AnalysisView>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -129,9 +134,9 @@ pub async fn build(state: &AppState, session_id: Uuid) -> Result<SessionReport> 
         return Err(anyhow!("занятие ещё не сохранено, разбора нет"));
     };
 
-    let (card_number, description, descriptive): (String, String, Option<String>) =
+    let (card_id, card_number, description, descriptive): (Uuid, String, String, Option<String>) =
         sqlx::query_as(
-            "SELECT number, description, address ->> 'descriptive'
+            "SELECT id, number, description, address ->> 'descriptive'
                FROM cards WHERE session_id = $1",
         )
         .bind(session_id)
@@ -141,6 +146,16 @@ pub async fn build(state: &AppState, session_id: Uuid) -> Result<SessionReport> 
 
     let actions = actions(pool, session_id, &g).await?;
     let grammar = check_grammar(state, &description, descriptive.as_deref()).await?;
+    let expert = crate::api::review::expert_for_session(pool, session_id)
+        .await
+        .map_err(|e| anyhow!(e.to_string()))?;
+    let text_analysis = crate::domain::text_analysis::view(
+        pool,
+        crate::domain::text_analysis::Kind::Card112,
+        card_id,
+        None,
+    )
+    .await?;
 
     Ok(SessionReport {
         session_id,
@@ -164,6 +179,8 @@ pub async fn build(state: &AppState, session_id: Uuid) -> Result<SessionReport> 
         findings: g.findings,
         services: g.services,
         grammar,
+        expert,
+        text_analysis,
     })
 }
 
@@ -263,6 +280,14 @@ pub fn to_csv(r: &SessionReport) -> String {
         format!("{:+}", r.timing.diff_sec),
     ));
     lines.push(meta("Балл", r.score.to_string()));
+    lines.push(meta(
+        "Экспертный балл",
+        r.expert.as_ref().map(|e| e.score.to_string()).unwrap_or_default(),
+    ));
+    lines.push(meta(
+        "Комментарий преподавателя",
+        r.expert.as_ref().map(|e| e.comment.clone()).unwrap_or_default(),
+    ));
     lines.push(meta("Замечаний по грамматике", r.grammar.total.to_string()));
     lines.push(csv::row([""]));
 
@@ -289,6 +314,26 @@ pub fn to_csv(r: &SessionReport) -> String {
             ]));
         }
     }
+    // Замечания модели — в том же разделе, что и разбор правил, но под
+    // своим видом и с вердиктом преподавателя: в Excel их легко
+    // отфильтровать и не спутать с замечаниями правил
+    if let Some(a) = &r.text_analysis {
+        for f in &a.findings {
+            let verdict = match f.verdict.as_deref() {
+                Some("confirmed") => "подтверждено преподавателем",
+                Some("rejected") => "отклонено преподавателем",
+                _ => "не проверено преподавателем",
+            };
+            lines.push(csv::row([
+                "нейросеть",
+                analysis_kind_label(&f.finding.kind),
+                "Описание со слов заявителя",
+                f.finding.quote_source.as_deref().unwrap_or(""),
+                f.finding.quote_input.as_deref().unwrap_or(""),
+                &format!("{} ({verdict})", f.finding.text),
+            ]));
+        }
+    }
     lines.push(csv::row([""]));
 
     lines.push(csv::row(["Секунда", "Действие", "Текст"]));
@@ -307,6 +352,17 @@ fn kind_label(kind: &crate::domain::grade::FindingKind) -> &'static str {
         K::Wrong => "ошибка",
         K::Missing => "не заполнено",
         K::Extra => "лишнее",
+    }
+}
+
+fn analysis_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "missing" => "не записано",
+        "contradiction" => "противоречие",
+        "invented" => "не сообщалось",
+        "no_reason" => "нет причины",
+        "inconsistent" => "расходится с докладом",
+        _ => "замечание",
     }
 }
 

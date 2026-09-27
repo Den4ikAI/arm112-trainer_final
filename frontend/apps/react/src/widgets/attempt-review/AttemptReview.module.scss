@@ -1,0 +1,84 @@
+/* Цвет текста задаём явно, как у рекомендаций: блок стоит и на тёмном
+   фоне разбора, и на светлой карточке ДДС */
+.wrap {
+  margin: var(--sp-3) 0;
+  color: var(--c-text);
+}
+
+.attempt {
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-2);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}
+
+.title { margin: 0 0 var(--sp-2); font-size: 14px; font-weight: 600; color: var(--c-text); }
+.subtitle { margin: var(--sp-3) 0 var(--sp-1); font-size: 13px; font-weight: 600; color: var(--c-text); }
+
+.scores { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.score { min-width: 140px; padding: var(--sp-2); background: var(--c-surface-2); }
+.scoreValue { font-size: 22px; font-weight: 600; }
+
+.comment { margin: var(--sp-2) 0 0; font-size: 13px; white-space: pre-wrap; }
+
+.list { margin: 0 0 var(--sp-2); padding: 0; list-style: none; font-size: 13px; }
+
+.item {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--sp-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.badge { color: var(--c-danger); font-weight: 600; font-size: 12px; }
+.quote { color: var(--c-text-muted); font-size: 12px; margin-top: 2px; }
+.verdictRow { display: flex; gap: var(--sp-2); align-items: center; margin-top: 4px; font-size: 12px; }
+
+.linkBtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-accent, #1565c0);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:disabled { color: var(--c-text-muted); text-decoration: none; cursor: default; }
+}
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  align-items: flex-end;
+  margin-top: var(--sp-2);
+}
+
+.field { display: flex; flex-direction: column; gap: 2px; }
+.field:nth-child(2) { flex: 1; min-width: 220px; }
+
+.input {
+  padding: 4px 6px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.button {
+  padding: 5px 12px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  font-size: 13px;
+  cursor: pointer;
+
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+.note { margin: var(--sp-1) 0; color: var(--c-text-muted); font-size: 12px; }
+.muted { color: var(--c-text-muted); font-size: 12px; }
+.ok { color: var(--c-ok, #2e7d32); font-weight: 600; }
+.bad { color: var(--c-danger); font-size: 12px; }

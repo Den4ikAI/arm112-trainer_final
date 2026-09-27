@@ -417,3 +417,51 @@ export interface Brigade {
   calls: { at: string; learned: string | null }[];
   debrief: { findings: DdsFinding[]; score: number | null; pending: number };
 }
+
+// ─── Разбор попытки: нейросетевой анализ текста и экспертная оценка ──
+
+export type TextFindingKind =
+  | 'missing' | 'contradiction' | 'invented'   // оператор 112
+  | 'no_reason' | 'inconsistent';              // диспетчер ДДС
+
+export interface ReviewedFinding {
+  kind: TextFindingKind;
+  text: string;
+  /** Фрагмент текста курсанта, дословно */
+  quoteInput: string | null;
+  /** Фрагмент того, что курсант слышал: реплика заявителя, доклад */
+  quoteSource: string | null;
+  verdict: 'confirmed' | 'rejected' | null;
+}
+
+export interface TextAnalysis {
+  id: string;
+  status: 'queued' | 'ready' | 'unavailable' | 'failed';
+  findings: ReviewedFinding[];
+  /** Сколько замечаний модели отброшено: цитата не нашлась */
+  dropped: number;
+  note: string | null;
+  modelMs: number | null;
+  finishedAt: string | null;
+}
+
+export interface ExpertGrade {
+  score: number;
+  comment: string;
+  teacher: string;
+  updatedAt: string;
+}
+
+export interface Attempt {
+  kind: 'card112' | 'dds';
+  serviceId: string | null;
+  student: { id: string; fio: string } | null;
+  autoScore: number | null;
+  analysis: TextAnalysis | null;
+  expert: ExpertGrade | null;
+}
+
+export interface CardReview {
+  attempts: Attempt[];
+  canGrade: boolean;
+}

@@ -217,6 +217,26 @@ export const advice = {
     api.get<{ efficacy: AdviceEfficacy; recent: CheckedAdvice[] }>(`/api/advice/group/${id}`),
 };
 
+/** Попытка внутри карточки: вызов 112 или работа службы ДДС. */
+export interface ReviewTarget {
+  kind: 'card112' | 'dds';
+  serviceId?: string | null;
+}
+
+/** Разбор попытки: автоматический балл, анализ текста, экспертная оценка. */
+export const review = {
+  get: (cardId: string) =>
+    api.get<import('./types').CardReview>(`/api/cards/${cardId}/review`),
+  setExpert: (cardId: string, target: ReviewTarget, score: number, comment: string) =>
+    api.post<import('./types').ExpertGrade>(`/api/cards/${cardId}/review/expert`,
+      { ...target, score, comment }),
+  setVerdict: (cardId: string, analysisId: string, index: number,
+               verdict: 'confirmed' | 'rejected' | null) =>
+    api.post<void>(`/api/cards/${cardId}/review/verdict`, { analysisId, index, verdict }),
+  analyse: (cardId: string, target: ReviewTarget) =>
+    api.post<void>(`/api/cards/${cardId}/review/analyse`, target),
+};
+
 export const sessions = {
   create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112') =>
     api.post<{ session: TrainingSession; card: Card; scenario: ScenarioPublic }>(

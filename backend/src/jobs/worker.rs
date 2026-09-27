@@ -65,15 +65,45 @@ async fn take_one(pool: &PgPool) -> anyhow::Result<Option<Job>> {
     Ok(row.map(|(id, kind, input)| Job { id, kind, input }))
 }
 
-async fn execute(state: &AppState, job: &Job) -> anyhow::Result<Value> {
+pub async fn execute(state: &AppState, job: &Job) -> anyhow::Result<Value> {
     tracing::info!(id = %job.id, kind = %job.kind, "выполняю задачу");
 
     match job.kind.as_str() {
         "report.group" => reports::group::build(state, &job.input).await,
         "insights.group" => group_insights(&state.db, &state.ml, &job.input).await,
         "scenario.generate" => generate_scenarios(state, &job.input).await,
+        crate::domain::text_analysis::JOB_KIND => analyse_text(state, &job.input).await,
         other => anyhow::bail!("неизвестный вид задачи: {other}"),
     }
+}
+
+/// Нейросетевой анализ ручного ввода курсанта.
+///
+/// На заглушке модель не зовём и честно пишем, что её нет: заглушка
+/// не умеет читать текст, а выдуманные ею замечания преподаватель
+/// принял бы за настоящие.
+async fn analyse_text(state: &AppState, input: &Value) -> anyhow::Result<Value> {
+    use crate::domain::text_analysis;
+
+    let id: Uuid = input
+        .get("analysisId")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .context("в задаче нет analysisId")?;
+
+    let status = if state.config.ml_provider == crate::config::MlProvider::Mock {
+        text_analysis::mark_unavailable(
+            &state.db,
+            id,
+            "языковая модель не подключена (ML_PROVIDER=mock)",
+        )
+        .await?;
+        "unavailable"
+    } else {
+        text_analysis::run(&state.db, state.ml.llm.as_ref(), id).await?
+    };
+
+    Ok(json!({ "analysisId": id, "status": status }))
 }
 
 /// Сводка по типичным ошибкам группы. Статистику считаем сами,

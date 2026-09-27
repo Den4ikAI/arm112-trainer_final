@@ -10,4 +10,5 @@ pub mod grade;
 pub mod response;
 pub mod scenario_edit;
 pub mod scenario_gen;
+pub mod text_analysis;
 pub mod version_diff;

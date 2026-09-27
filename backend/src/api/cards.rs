@@ -442,6 +442,26 @@ async fn add_response(
     )
     .await;
 
+    // Работа службы по карточке закончена (или карточка отклонена) —
+    // пора разобрать комментарии диспетчера. Раньше незачем: ход работ
+    // ещё идёт, и разбор устарел бы со следующим статусом
+    if matches!(
+        entry.status.as_str(),
+        "Работы завершены" | "Отказ от выполнения работ" | "Не принята"
+    ) {
+        if let Err(e) = crate::domain::text_analysis::enqueue(
+            &state.db,
+            crate::domain::text_analysis::Kind::Dds,
+            id,
+            Some(&entry.service_id),
+            Some(user.id),
+        )
+        .await
+        {
+            tracing::warn!(card = %id, error = %e, "анализ комментариев не поставлен в очередь");
+        }
+    }
+
     // Другие диспетчеры той же карточки и преподаватель видят
     // движение сразу, без обновления страницы
     let (session_id, services): (Option<Uuid>, Vec<String>) = sqlx::query_as(
