@@ -3,6 +3,7 @@ import {
   review, type Attempt, type CardReview, type ReviewedFinding, type TextFindingKind,
 } from '@/shared/api';
 import { useCatalog } from '@/entities/catalog/model';
+import { ChiefReviewList } from '@/entities/chief/ChiefReviewList';
 import s from './AttemptReview.module.scss';
 
 const KIND_LABEL: Record<TextFindingKind, string> = {
@@ -49,7 +50,8 @@ export const AttemptReview = ({ cardId, only }: {
 
   useEffect(() => { void load(); }, [load]);
 
-  const waiting = !!data?.attempts.some((a) => a.analysis?.status === 'queued');
+  const waiting = !!data?.attempts.some(
+    (a) => a.analysis?.status === 'queued' || !!a.chief?.review?.pending);
   useEffect(() => {
     if (!waiting) return;
     const t = setInterval(() => void load(), POLL_MS);
@@ -107,6 +109,23 @@ const AttemptBlock = ({ cardId, attempt, canGrade, onChange }: {
                       await review.setExpert(cardId, target, score, comment);
                       await onChange();
                     }} />
+      )}
+
+      {attempt.kind === 'dds' && attempt.chief && (
+        <>
+          <h3 className={s.subtitle}>Доклад начальнику</h3>
+          {attempt.chief.review
+            ? <ChiefReviewList review={attempt.chief.review} />
+            : <p className={s.muted}>Звонок ещё идёт: разбор появится после «Принял».</p>}
+          <details className={s.muted}>
+            <summary>Разговор ({attempt.chief.lines.length} реплик)</summary>
+            <ol className={s.list} data-testid="chief-transcript">
+              {attempt.chief.lines.map((l, i) => (
+                <li key={i}>{l.who === 'chief' ? 'Начальник' : 'Диспетчер'}: {l.text}</li>
+              ))}
+            </ol>
+          </details>
+        </>
       )}
 
       <h3 className={s.subtitle}>Анализ текста (нейросеть)</h3>

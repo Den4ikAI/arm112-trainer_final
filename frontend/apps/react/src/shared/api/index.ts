@@ -237,6 +237,19 @@ export const review = {
     api.post<void>(`/api/cards/${cardId}/review/analyse`, target),
 };
 
+/** Доклад диспетчера ДДС вышестоящему начальнику. */
+export const chief = {
+  get: (cardId: string, serviceId?: string) =>
+    api.get<import('./types').ChiefReport | null>(
+      `/api/cards/${cardId}/chief${serviceId ? `?serviceId=${encodeURIComponent(serviceId)}` : ''}`),
+  start: (cardId: string) =>
+    api.post<import('./types').ChiefReport>(`/api/cards/${cardId}/chief/start`, {}),
+  say: (cardId: string, text: string) =>
+    api.post<import('./types').ChiefReport>(`/api/cards/${cardId}/chief/say`, { text }),
+  finish: (cardId: string) =>
+    api.post<import('./types').ChiefReport>(`/api/cards/${cardId}/chief/finish`, {}),
+};
+
 export const sessions = {
   create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112') =>
     api.post<{ session: TrainingSession; card: Card; scenario: ScenarioPublic }>(

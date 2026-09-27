@@ -1,0 +1,20 @@
+.wrap { font-size: 13px; color: var(--c-text); }
+
+.summary { margin: 0 0 var(--sp-1); font-weight: 600; }
+.muted { color: var(--c-text-muted); font-weight: 400; }
+
+.list { margin: 0; padding: 0; list-style: none; }
+
+.item {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: var(--sp-2);
+  padding: 4px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.reported { color: var(--c-ok, #2e7d32); font-weight: 600; font-size: 12px; }
+.missing { color: var(--c-text-muted); font-weight: 600; font-size: 12px; }
+.wrong { color: var(--c-danger); font-weight: 600; font-size: 12px; }
+
+.quote { color: var(--c-text-muted); font-size: 12px; margin-top: 2px; }

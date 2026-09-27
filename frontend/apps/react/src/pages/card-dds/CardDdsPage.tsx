@@ -7,6 +7,7 @@ import { AttemptReview } from '@/widgets/attempt-review/AttemptReview';
 import { BrigadePanel } from '@/widgets/brigade-panel/BrigadePanel';
 import { CallBar } from '@/widgets/call-bar/CallBar';
 import { CardHeader } from '@/widgets/card-header/CardHeader';
+import { ChiefReport } from '@/widgets/chief-report/ChiefReport';
 import { ServiceTab } from '@/widgets/status-history/ServiceTab';
 import { SurveyCardView } from '@/widgets/survey-card/SurveyCardView';
 import s from './CardDdsPage.module.scss';
@@ -113,6 +114,10 @@ export const CardDdsPage = () => {
           {own && card.services.some((sv) => sv.serviceId === own) && (
             <BrigadePanel cardId={card.id} serviceId={own} stamp={card} />
           )}
+
+          {/* Доклад начальнику ведёт диспетчер своей службы; преподаватель
+              видит его в разборе попытки ниже */}
+          {user?.role === 'student' && addressed && <ChiefReport cardId={card.id} />}
 
           {/* Разбор попыток по карточке: преподаватель видит всех и ставит
               экспертную оценку, курсант — только свою попытку */}

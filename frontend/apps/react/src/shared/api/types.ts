@@ -459,6 +459,52 @@ export interface Attempt {
   autoScore: number | null;
   analysis: TextAnalysis | null;
   expert: ExpertGrade | null;
+  /** Доклад начальнику — только у попыток ДДС, последний звонок. */
+  chief?: ChiefReport | null;
+}
+
+/** Реплика в звонке начальнику. */
+export interface ChiefLine {
+  who: 'dispatcher' | 'chief';
+  text: string;
+  /** О каком сведении спросил начальник; нет — приветствие или «Принял». */
+  topic: string | null;
+  modelMs: number | null;
+  at: string;
+}
+
+/** Сведение доклада: что в карточке и как доложено. */
+export interface ChiefItem {
+  key: string;
+  title: string;
+  expected: string;
+  status: 'reported' | 'missing' | 'wrong';
+  quote: string | null;
+}
+
+export interface ChiefReviewResult {
+  items: ChiefItem[];
+  /** model — доложенное отмечала модель, rules — ключевые слова. */
+  mode: 'model' | 'rules';
+  dropped: number;
+  reported: number;
+  total: number;
+  note: string | null;
+  /** Разбор пока по ключевым словам — модель его ещё уточняет. */
+  pending: boolean;
+  modelMs: number | null;
+}
+
+/** Звонок диспетчера ДДС вышестоящему начальнику. */
+export interface ChiefReport {
+  id: string;
+  serviceId: string;
+  student: string;
+  startedAt: string;
+  finishedAt: string | null;
+  lines: ChiefLine[];
+  review: ChiefReviewResult | null;
+  maxQuestions: number;
 }
 
 export interface CardReview {

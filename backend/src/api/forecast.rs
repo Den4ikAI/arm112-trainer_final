@@ -207,6 +207,8 @@ fn предел(key: &str) -> Option<(f64, f64)> {
         "brigade.work_sec" => (5.0, 3600.0),
         "brigade.report_delay_sec" => (0.0, 3600.0),
         "brigade.update_norm_sec" => (5.0, 600.0),
+        // 0 или 1: модель в самом разговоре с начальником (domain::chief)
+        "chief.live_model" => (0.0, 1.0),
         _ => return None,
     })
 }

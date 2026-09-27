@@ -284,7 +284,7 @@ pub fn messages(kind: Kind, m: &Material) -> Value {
 /// Приведение к виду, в котором ищется цитата: регистр, «ё», знаки
 /// препинания и пробелы не должны решать, нашлась она или нет. Модель
 /// охотно меняет «ё» на «е» и теряет запятые — это не выдумка.
-fn normalize(s: &str) -> String {
+pub(crate) fn normalize(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut space = true;
     for c in s.chars().flat_map(char::to_lowercase) {
@@ -300,7 +300,7 @@ fn normalize(s: &str) -> String {
     out.trim_end().to_string()
 }
 
-fn found_in(quote: &str, haystack: &str) -> bool {
+pub(crate) fn found_in(quote: &str, haystack: &str) -> bool {
     let q = normalize(quote);
     q.chars().count() >= MIN_QUOTE_CHARS && haystack.contains(&q)
 }

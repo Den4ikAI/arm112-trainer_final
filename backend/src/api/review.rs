@@ -66,6 +66,9 @@ pub struct Attempt {
     pub auto_score: Option<i32>,
     pub analysis: Option<AnalysisView>,
     pub expert: Option<ExpertView>,
+    /// Доклад начальнику — только у попыток ДДС, последний звонок
+    /// этого курсанта. Балл правил он не меняет: разбор идёт рядом
+    pub chief: Option<crate::domain::chief::ChiefView>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -150,6 +153,7 @@ async fn attempts(pool: &PgPool, card_id: Uuid, user: &AuthUser) -> AppResult<Ve
                     .await
                     .map_err(AppError::Other)?,
                 expert: expert(pool, Kind::Card112, card_id, None).await?,
+                chief: None,
                 student: Some(student),
             });
         }
@@ -166,6 +170,9 @@ async fn attempts(pool: &PgPool, card_id: Uuid, user: &AuthUser) -> AppResult<Ve
                 .await
                 .map_err(AppError::Other)?,
             expert: expert(pool, Kind::Dds, card_id, Some(&service_id)).await?,
+            chief: crate::domain::chief::latest(pool, card_id, &service_id, Some(student.id))
+                .await
+                .map_err(AppError::Other)?,
             service_id: Some(service_id),
             student: Some(student),
         });

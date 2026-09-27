@@ -1,0 +1,60 @@
+// Под стать панели бригады: второй собеседник диспетчера стоит рядом
+.panel {
+  display: grid;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  background: #e6e6e6;
+  padding: var(--sp-2);
+  font-size: var(--fs-md);
+  color: #212121;
+}
+
+.head { font-weight: 700; }
+.live { font-weight: 400; color: #2e7d32; }
+
+.row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-2); }
+.hint { font-size: var(--fs-sm); color: #555; align-self: center; }
+
+.btn {
+  border: 1px solid #b0b0b0;
+  background: #efefef;
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+  color: #212121;
+
+  &:disabled { opacity: .6; }
+}
+
+.micOn {
+  @extend .btn;
+  background: #c62828;
+  border-color: #c62828;
+  color: #fff;
+}
+
+.input {
+  flex: 1;
+  min-width: 200px;
+  border: 1px solid #b0b0b0;
+  background: #fff;
+  padding: var(--sp-1) var(--sp-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  resize: vertical;
+}
+
+.lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.who { font-weight: 600; }
+.chief { background: #fff; padding: 4px var(--sp-2); }
+.me { padding: 4px var(--sp-2); }
+
+.error { margin: 0; color: #c62828; font-size: var(--fs-sm); }
