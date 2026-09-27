@@ -60,3 +60,4 @@ models/
 # Полный журнал сессии — 32 МБ вывода команд. Читаемая выжимка
 # (transcript/dialog.md) в репозитории остаётся.
 transcript/session.jsonl
+friend/
