@@ -35,6 +35,9 @@ export const LessonsPage = () => {
   const [form, setForm] = useState({
     groupId: '', title: '', mode: 'card112' as 'card112' | 'dds',
     typeIds: [] as string[],
+    // Режим ДДС: карточки приходят потоком (ответ заказчика 23.09), темп
+    // заказчик не задал. 60 секунд — наше допущение, см. PROVENANCE.md
+    cardIntervalSec: 60,
   });
 
   const reload = useCallback(async (pick?: string) => {
@@ -86,6 +89,7 @@ export const LessonsPage = () => {
       const созданное = await lessons.create({
         groupId: form.groupId, title: form.title.trim(),
         mode: form.mode, typeIds: form.typeIds,
+        ...(form.mode === 'dds' ? { cardIntervalSec: form.cardIntervalSec } : {}),
       });
       setForm((f) => ({ ...f, title: '' }));
       await reload(созданное.id);
@@ -156,6 +160,17 @@ export const LessonsPage = () => {
                 <option value="dds">Работа со статусами (ДДС)</option>
               </select>
             </label>
+
+            {form.mode === 'dds' && (
+              <label className={s.field}>
+                <span>Новая карточка каждой службе — раз в, секунд</span>
+                <input type="number" min={10} max={900} step={10}
+                       value={form.cardIntervalSec} aria-label="Интервал карточек"
+                       data-testid="lesson-interval"
+                       onChange={(e) => setForm({
+                         ...form, cardIntervalSec: Number(e.target.value) })} />
+              </label>
+            )}
 
             <fieldset className={s.types}>
               {/* ТЗ: «выбор категории событий исходя из темы занятий
@@ -234,6 +249,10 @@ export const LessonsPage = () => {
                   <div><dt>Курсантов</dt><dd>{current.members}</dd></div>
                   <div><dt>{current.mode === 'dds' ? 'Карточек в наборе' : 'Роздано вызовов'}</dt>
                        <dd>{current.items}</dd></div>
+                  {current.mode === 'dds' && (
+                    <div><dt>Поступление</dt>
+                         <dd>службе — по карточке раз в {current.cardIntervalSec} с</dd></div>
+                  )}
                 </dl>
 
                 <div className={s.actions}>

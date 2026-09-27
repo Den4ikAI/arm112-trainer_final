@@ -117,9 +117,12 @@ async fn прибрать(pool: &PgPool, с: &Стенд) {
     sqlx::query("DELETE FROM services WHERE id = $1").bind(&с.service).execute(pool).await.ok();
 }
 
+/// Первая запись — статус и текст: так требует заказчик (чат, 27.09),
+/// статус без текста разбор засчитывает замечанием.
 async fn принять(app: &Router, с: &Стенд, токен: &str) {
     let (status, ответ) = call(app, Method::POST, &format!("/api/cards/{}/responses", с.card),
-        Some(токен), Some(json!({ "serviceId": с.service, "status": "Принята" }))).await;
+        Some(токен), Some(json!({ "serviceId": с.service, "status": "Принята",
+                                  "comment": "Принято в работу" }))).await;
     assert_eq!(status, StatusCode::CREATED, "{ответ}");
 }
 
@@ -396,5 +399,128 @@ async fn ход_занятия_ддс_получает_балл() {
     ] {
         sqlx::query(sql).bind(группа).execute(&pool).await.ok();
     }
+    прибрать(&pool, &с).await;
+}
+
+// ─── Приём карточки: открытие и первая запись ───────────────────────
+
+/// Карточка поступила давно: сдвигаем сохранение, а не ждём.
+async fn поступила(pool: &PgPool, с: &Стенд, секунд_назад: i64) {
+    sqlx::query("UPDATE cards SET saved_at = now() - make_interval(secs => $2) WHERE id = $1")
+        .bind(с.card).bind(секунд_назад as f64).execute(pool).await.unwrap();
+}
+
+fn виды(вид: &Value) -> Vec<String> {
+    вид["debrief"]["findings"].as_array().unwrap().iter()
+        .map(|f| f["kind"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn записи(pool: &PgPool, с: &Стенд, статус: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM response_entries
+          WHERE card_id = $1 AND service_id = $2 AND status = $3::response_status")
+        .bind(с.card).bind(&с.service).bind(статус)
+        .fetch_one(pool).await.unwrap()
+}
+
+/// Открытие оставляет «Получена службой» один раз. Преподаватель,
+/// открывший карточку, норматив диспетчера не выполняет.
+#[tokio::test]
+async fn открытие_карточки_отмечается_один_раз() {
+    let Some((app, pool, _)) = app().await else { return };
+    let с = стенд(&pool).await;
+    let курсант = токен(&app, &с.login).await;
+    let teacher = токен(&app, "teacher1").await;
+    let путь = format!("/api/cards/{}/opened", с.card);
+
+    let (status, _) = call(&app, Method::POST, &путь, Some(&teacher), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(записи(&pool, &с, "Получена службой").await, 0, "преподаватель следа не оставляет");
+
+    for _ in 0..2 {
+        let (status, _) = call(&app, Method::POST, &путь, Some(&курсант), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+    assert_eq!(записи(&pool, &с, "Получена службой").await, 1);
+
+    // Открытие — системная запись, первичные статусы всё ещё доступны
+    let (_, карточка) = call(&app, Method::GET, &format!("/api/cards/{}", с.card),
+        Some(&курсант), None).await;
+    let своя = карточка["services"].as_array().unwrap().iter()
+        .find(|x| x["serviceId"] == с.service.as_str()).unwrap();
+    assert_eq!(своя["allowedNext"], json!(["Принята", "Не принята"]));
+
+    прибрать(&pool, &с).await;
+}
+
+/// Ответ заказчика 27.09: 30 секунд на открытие, 3 минуты на первую
+/// запись со статусом и текстом — считая от поступления карточки.
+#[tokio::test]
+async fn нормативы_приёма_в_разборе() {
+    let Some((app, pool, _)) = app().await else { return };
+    let с = стенд(&pool).await;
+    let курсант = токен(&app, &с.login).await;
+
+    // Только что поступила — судить рано
+    let вид = бригада(&app, &с, &курсант).await;
+    assert!(виды(&вид).is_empty(), "{вид}");
+    assert_eq!(вид["debrief"]["pending"], 2);
+
+    // Прошла минута без открытия — замечание по открытию, запись ещё ждёт
+    поступила(&pool, &с, 60).await;
+    let вид = бригада(&app, &с, &курсант).await;
+    assert_eq!(виды(&вид), vec!["openedLate"]);
+
+    // Открыл и принял без текста через четыре минуты после поступления
+    поступила(&pool, &с, 240).await;
+    call(&app, Method::POST, &format!("/api/cards/{}/opened", с.card), Some(&курсант), None).await;
+    call(&app, Method::POST, &format!("/api/cards/{}/responses", с.card),
+        Some(&курсант), Some(json!({ "serviceId": с.service, "status": "Принята" }))).await;
+    let вид = бригада(&app, &с, &курсант).await;
+    let mut итог = виды(&вид);
+    итог.sort();
+    assert_eq!(итог, vec!["firstRecordLate", "firstRecordNoText", "openedLate"]);
+    let запись = вид["debrief"]["findings"].as_array().unwrap().iter()
+        .find(|f| f["kind"] == "firstRecordLate").unwrap();
+    assert!(запись["lagSec"].as_i64().unwrap() >= 240);
+
+    прибрать(&pool, &с).await;
+}
+
+/// В занятии нормативы считаются от выпуска карточки в поток, а не от
+/// давнего сохранения: старая карточка занятия не просрочена с первой
+/// секунды.
+#[tokio::test]
+async fn в_занятии_нормативы_от_выпуска_карточки() {
+    let Some((app, pool, _)) = app().await else { return };
+    let с = стенд(&pool).await;
+    let курсант = токен(&app, &с.login).await;
+    поступила(&pool, &с, 3 * 24 * 3600).await;
+
+    let учитель: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'teacher1'")
+        .fetch_one(&pool).await.unwrap();
+    let занятие: Uuid = sqlx::query_scalar(
+        "WITH г AS (INSERT INTO training_groups (title, teacher_id) VALUES ($1, $2) RETURNING id)
+         INSERT INTO lessons (group_id, teacher_id, title, mode, started_at)
+         SELECT id, $2, 'Поток', 'dds', now() FROM г RETURNING id")
+        .bind(format!("поток-{}", Uuid::new_v4().simple()))
+        .bind(учитель)
+        .fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO lesson_cards (lesson_id, card_id, release_at) VALUES ($1, $2, now())")
+        .bind(занятие).bind(с.card).execute(&pool).await.unwrap();
+
+    let вид = бригада(&app, &с, &курсант).await;
+    assert!(виды(&вид).is_empty(), "карточка только что выпущена: {вид}");
+
+    // Выпуск минуту назад — открытие просрочено
+    sqlx::query("UPDATE lesson_cards SET release_at = now() - interval '60 seconds'
+                  WHERE lesson_id = $1")
+        .bind(занятие).execute(&pool).await.unwrap();
+    let вид = бригада(&app, &с, &курсант).await;
+    assert_eq!(виды(&вид), vec!["openedLate"]);
+
+    sqlx::query("DELETE FROM training_groups WHERE id = (SELECT group_id FROM lessons WHERE id = $1)")
+        .bind(занятие).execute(&pool).await.ok();
     прибрать(&pool, &с).await;
 }

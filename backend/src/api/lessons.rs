@@ -45,6 +45,10 @@ pub struct NewLesson {
     /// Откуда брать карточки в режиме ДДС: `generated`, `by_students`, `mixed`
     #[serde(default)]
     pub source: Option<String>,
+    /// Режим ДДС: через сколько секунд службе приходит следующая
+    /// карточка. Не задан — 60 секунд, наше допущение
+    #[serde(default)]
+    pub card_interval_sec: Option<i32>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema, sqlx::FromRow)]
@@ -57,6 +61,8 @@ pub struct LessonBrief {
     pub mode: String,
     pub source: String,
     pub type_ids: Vec<String>,
+    /// Режим ДДС: интервал поступления карточек службе, секунды
+    pub card_interval_sec: i32,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Сколько человек в группе
@@ -93,6 +99,16 @@ pub struct LessonFull {
 }
 
 const РЕЖИМЫ: [&str; 2] = ["card112", "dds"];
+
+/// Интервал поступления карточек в занятии ДДС, секунды.
+///
+/// Поток карточек — ответ заказчика (чат задачи, 23.09.2026, сообщение
+/// 709), а темп он не задал. 60 секунд — наше допущение: при нормативах
+/// 30 секунд на открытие и 3 минуты на первую запись у диспетчера
+/// одновременно копится очередь из нескольких карточек, как в ответе и
+/// описано. Пределы — та же проверка в базе.
+const ИНТЕРВАЛ_ПО_УМОЛЧАНИЮ: i32 = 60;
+const ИНТЕРВАЛ_ПРЕДЕЛЫ: (i32, i32) = (10, 900);
 const ИСТОЧНИКИ: [&str; 3] = ["generated", "by_students", "mixed"];
 
 /// Занятие ведёт тот, кто его создал. Администратор видит любое:
@@ -143,6 +159,14 @@ pub async fn create(
         ));
     }
 
+    let интервал = req.card_interval_sec.unwrap_or(ИНТЕРВАЛ_ПО_УМОЛЧАНИЮ);
+    if !(ИНТЕРВАЛ_ПРЕДЕЛЫ.0..=ИНТЕРВАЛ_ПРЕДЕЛЫ.1).contains(&интервал) {
+        return Err(AppError::Validation(format!(
+            "интервал поступления карточек — от {} до {} секунд",
+            ИНТЕРВАЛ_ПРЕДЕЛЫ.0, ИНТЕРВАЛ_ПРЕДЕЛЫ.1
+        )));
+    }
+
     let есть_группа: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM training_groups WHERE id = $1)")
             .bind(req.group_id)
@@ -153,8 +177,9 @@ pub async fn create(
     }
 
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO lessons (group_id, teacher_id, title, mode, type_ids, source)
-         VALUES ($1, $2, $3, $4::session_mode, $5, $6::lesson_source)
+        "INSERT INTO lessons (group_id, teacher_id, title, mode, type_ids, source,
+                              card_interval_sec)
+         VALUES ($1, $2, $3, $4::session_mode, $5, $6::lesson_source, $7)
          RETURNING id",
     )
     .bind(req.group_id)
@@ -163,6 +188,7 @@ pub async fn create(
     .bind(&req.mode)
     .bind(&req.type_ids)
     .bind(&source)
+    .bind(интервал)
     .fetch_one(&state.db)
     .await?;
 
@@ -198,9 +224,11 @@ pub async fn start(
     user.require(&[Role::Teacher, Role::Admin])?;
     своё(&state.db, id, &user).await?;
 
-    let (mode, source, type_ids, group_id, начато): (String, String, Vec<String>, Uuid, bool) =
+    type Занятие = (String, String, Vec<String>, Uuid, bool, i32);
+    let (mode, source, type_ids, group_id, начато, интервал): Занятие =
         sqlx::query_as(
-            "SELECT mode::text, source::text, type_ids, group_id, started_at IS NOT NULL
+            "SELECT mode::text, source::text, type_ids, group_id, started_at IS NOT NULL,
+                    card_interval_sec
                FROM lessons WHERE id = $1",
         )
         .bind(id)
@@ -214,7 +242,7 @@ pub async fn start(
     let роздано = if mode == "card112" {
         раздать_вызовы(&state.db, id, group_id, &type_ids).await?
     } else {
-        раздать_карточки(&state.db, id, group_id, &type_ids, &source).await?
+        раздать_карточки(&state.db, id, group_id, &type_ids, &source, интервал).await?
     };
 
     // Пустое занятие запускать бессмысленно: курсанты увидят
@@ -331,12 +359,19 @@ const НА_СЛУЖБУ: i64 = 5;
 ///
 /// Каждой службе — до пяти карточек, в случайном порядке: ТЗ (§10)
 /// говорит о «формировании системой случайной карточки события».
+///
+/// Карточки приходят потоком: первая — сразу, следующие — через
+/// `интервал` секунд каждая (ответ заказчика 23.09, сообщение 709).
+/// Очередь своя у каждой службы: n-я карточка службы приходит через
+/// (n−1)·интервал. Карточка нескольких служб приходит по самой ранней
+/// из своих очередей — строка в `lesson_cards` у неё одна.
 async fn раздать_карточки(
     pool: &sqlx::PgPool,
     lesson_id: Uuid,
     group_id: Uuid,
     type_ids: &[String],
     source: &str,
+    интервал: i32,
 ) -> AppResult<i64> {
     // «Сформированные обучающимися» — те, что заполнены в занятиях
     // по карточке 112; «созданные системой» — заведённые без занятия
@@ -347,8 +382,10 @@ async fn раздать_карточки(
     };
 
     let запрос = format!(
-        "INSERT INTO lesson_cards (lesson_id, card_id)
-         SELECT DISTINCT $1::uuid, card_id FROM (
+        "INSERT INTO lesson_cards (lesson_id, card_id, release_at)
+         SELECT $1::uuid, card_id,
+                now() + make_interval(secs => (min(n) - 1) * $5::float8)
+           FROM (
              SELECT cs.card_id,
                     row_number() OVER (PARTITION BY cs.service_id ORDER BY random()) AS n
                FROM card_services cs
@@ -366,6 +403,7 @@ async fn раздать_карточки(
                          AND r.status::text IN ({ЗАКРЫВАЮЩИЕ}))
          ) t
          WHERE n <= $4
+         GROUP BY card_id
          ON CONFLICT DO NOTHING"
     );
 
@@ -374,6 +412,7 @@ async fn раздать_карточки(
         .bind(type_ids)
         .bind(group_id)
         .bind(НА_СЛУЖБУ)
+        .bind(интервал as f64)
         .execute(pool)
         .await?
         .rows_affected();
@@ -494,7 +533,7 @@ pub async fn list(State(state): State<AppState>, user: AuthUser) -> AppResult<Js
 const ОСНОВА: &str = "
     SELECT l.id, l.title, l.group_id, g.title AS group_title,
            l.mode::text AS mode, l.source::text AS source, l.type_ids,
-           l.started_at, l.finished_at,
+           l.card_interval_sec, l.started_at, l.finished_at,
            (SELECT count(*) FROM group_members m WHERE m.group_id = l.group_id) AS members,
            (SELECT count(*) FROM assignments a WHERE a.lesson_id = l.id)
          + (SELECT count(*) FROM lesson_cards c WHERE c.lesson_id = l.id) AS items

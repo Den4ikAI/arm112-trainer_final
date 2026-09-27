@@ -32,6 +32,8 @@ const toRow = (c: CardBrief): JournalRow => {
     address,
     serviceStatus: c.status,
     waitingSec: c.waitingSec,
+    opened: c.opened ?? null,
+    recorded: c.recorded ?? null,
     operator: c.operator,
     workstation: '',
     description: c.description,

@@ -20,7 +20,13 @@ const KIND: Record<DdsFindingKind, string> = {
   notByFact: 'не по факту',
   missed: 'статус не проставлен',
   noBrigade: 'бригада не назначена',
+  openedLate: 'карточка открыта позже 30 с',
+  firstRecordLate: 'первая запись позже 3 мин',
+  firstRecordNoText: 'первая запись без текста',
 };
+
+/** Замечания по приёму карточки считаются от её поступления, а не от доклада. */
+const INTAKE: DdsFindingKind[] = ['openedLate', 'firstRecordLate', 'firstRecordNoText'];
 
 const errorText = (e: unknown) =>
   e instanceof ApiError ? (e.detail ?? 'Не удалось') : 'Нет связи с сервером';
@@ -159,7 +165,8 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
           <div key={`${f.kind}-${f.stage}`} data-testid="dds-finding"
                className={clsx(s.finding, f.kind === 'ok' ? s.good : s.bad)}>
             <strong>{f.stage}</strong> — {KIND[f.kind]}
-            {f.lagSec != null && f.kind !== 'notByFact' && `, через ${f.lagSec} с после доклада`}
+            {f.lagSec != null && f.kind !== 'notByFact'
+              && `, через ${f.lagSec} с после ${INTAKE.includes(f.kind) ? 'поступления' : 'доклада'}`}
             {f.consequence && <div className={s.consequence}>{f.consequence}</div>}
           </div>
         ))}

@@ -1,7 +1,8 @@
 //! Сторож нормативов.
 //!
 //! Каждые пять секунд пересчитывает статус сохранённых карточек по
-//! статусам реагирования служб. Норматив подтверждения — 30 секунд,
+//! статусам реагирования служб. Нормативы — 30 секунд на открытие
+//! карточки и 3 минуты на первую запись (ответ заказчика в чате 27.09),
 //! порог «не завершено» — 48 часов (памятка ДДС).
 //!
 //! Пересчёт, а не набор переходов: задача идемпотентна, переживает
@@ -49,6 +50,8 @@ pub async fn sweep(pool: &PgPool, hub: &Hub) -> anyhow::Result<usize> {
     // два коротких запроса погоды не делают
     let norms = Norms {
         ack_sec: crate::reports::forecast::setting(pool, "norm.ack_sec", 30.0).await as i64,
+        first_record_sec: crate::reports::forecast::setting(
+            pool, "norm.first_record_sec", 180.0).await as i64,
         completion_hours: crate::reports::forecast::setting(
             pool, "norm.completion_hours", 48.0).await as i64,
     };

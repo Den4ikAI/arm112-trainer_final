@@ -194,6 +194,7 @@ fn предел(key: &str) -> Option<(f64, f64)> {
         "forecast.lambda" => (0.0, 10.0),
         "attestation.threshold" => (1.0, 100.0),
         "norm.ack_sec" => (5.0, 600.0),
+        "norm.first_record_sec" => (10.0, 3600.0),
         "norm.completion_hours" => (1.0, 720.0),
         "advice.window" => (2.0, 20.0),
         // Шкала работ учебной бригады ДДС. Минимум — чтобы этап не

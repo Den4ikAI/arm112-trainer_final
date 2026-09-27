@@ -79,6 +79,8 @@ export interface LessonBrief {
   mode: 'card112' | 'dds';
   source: 'generated' | 'by_students' | 'mixed';
   typeIds: string[];
+  /** Режим ДДС: через сколько секунд службе приходит следующая карточка. */
+  cardIntervalSec: number;
   startedAt: string | null;
   finishedAt: string | null;
   members: number;
@@ -103,6 +105,7 @@ export const lessons = {
     mode: 'card112' | 'dds';
     typeIds?: string[];
     source?: 'generated' | 'by_students' | 'mixed';
+    cardIntervalSec?: number;
   }) => api.post<LessonBrief>('/api/lessons', body),
   start: (id: string) => api.post<LessonFull>(`/api/lessons/${id}/start`),
   finish: (id: string) => api.post<LessonFull>(`/api/lessons/${id}/finish`),
@@ -237,6 +240,11 @@ export const cards = {
       `/api/cards${qs.size ? `?${qs}` : ''}`);
   },
   one: (id: string) => api.get<CardDetail>(`/api/cards/${id}`),
+  /**
+   * Диспетчер открыл карточку своей службы: сервер отмечает «Получена
+   * службой» один раз. От этого считается норматив 30 секунд.
+   */
+  opened: (id: string) => api.post<void>(`/api/cards/${id}/opened`),
   addResponse: (id: string, body: {
     serviceId: string; status: string; orderNo?: string; comment?: string;
   }) => api.post<import('./types').ResponseEntry>(`/api/cards/${id}/responses`, body),

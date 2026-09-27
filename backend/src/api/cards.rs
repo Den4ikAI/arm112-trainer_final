@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/cards", get(list))
         .route("/api/cards/{id}", get(one))
         .route("/api/cards/{id}/responses", post(add_response))
+        .route("/api/cards/{id}/opened", post(opened))
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -65,9 +66,18 @@ pub struct CardBrief {
     pub outcome_type: Option<String>,
     pub status: String,
     pub operator: String,
-    /// Секунды с момента сохранения без подтверждения диспетчером.
-    /// Норматив — 30 секунд (памятка ДДС).
+    /// Когда карточка поступила в ленту: в занятии ДДС — когда её
+    /// выпустил поток занятия, иначе — когда оператор 112 её сохранил.
+    /// От этого момента считаются нормативы ДДС
+    pub arrived_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Секунды с поступления. Нормативы (ответ заказчика в чате 27.09):
+    /// 30 секунд на открытие, 3 минуты на первую запись
     pub waiting_sec: Option<i64>,
+    /// Своя служба курсанта открыла карточку. `None` — у пользователя
+    /// нет службы или она не в списке оповещения
+    pub opened: Option<bool>,
+    /// Своя служба сделала первую запись — содержательный статус
+    pub recorded: Option<bool>,
 }
 
 #[derive(Serialize, utoipa::ToSchema)]
@@ -130,15 +140,32 @@ async fn list(
     };
 
     // Незаполненная карточка в журнале не нужна: она ещё пишется
+    //
+    // Поступление — момент, от которого считаются нормативы. В занятии
+    // старая карточка выходит в поток заново, и 30 секунд должны идти
+    // от её появления в ленте, а не от давнего сохранения
     let sql = "
         SELECT c.id, c.number, c.created_at, c.saved_at, c.address, c.description,
                c.outcome_type, c.status::text AS status,
                COALESCE(u.fio, '') AS operator,
-               CASE WHEN c.saved_at IS NULL THEN NULL
-                    ELSE EXTRACT(EPOCH FROM (now() - c.saved_at))::bigint
-               END AS waiting_sec
+               arr.arrived_at,
+               EXTRACT(EPOCH FROM (now() - arr.arrived_at))::bigint AS waiting_sec,
+               own.opened, own.recorded
           FROM cards c
           LEFT JOIN users u ON u.id = c.created_by
+          CROSS JOIN LATERAL (
+                SELECT COALESCE(
+                         (SELECT lc.release_at FROM lesson_cards lc
+                           WHERE lc.lesson_id = $7 AND lc.card_id = c.id),
+                         c.saved_at) AS arrived_at) arr
+          LEFT JOIN LATERAL (
+                SELECT COALESCE(bool_or(re.status <> 'Добавлена'), false) AS opened,
+                       COALESCE(bool_or(re.status NOT IN ('Добавлена', 'Получена службой')),
+                                false) AS recorded
+                  FROM response_entries re
+                 WHERE re.card_id = c.id AND re.service_id = $8) own
+                 ON EXISTS (SELECT 1 FROM card_services cs
+                             WHERE cs.card_id = c.id AND cs.service_id = $8)
          WHERE c.saved_at IS NOT NULL
            AND ($1::text IS NULL OR EXISTS (
                  SELECT 1 FROM card_services cs
@@ -149,8 +176,9 @@ async fn list(
                 OR lower(c.description) LIKE $4
                 OR lower(c.address::text) LIKE $4)
            AND ($7::uuid IS NULL OR c.id IN (
-                 SELECT card_id FROM lesson_cards WHERE lesson_id = $7))
-         ORDER BY c.saved_at DESC
+                 SELECT card_id FROM lesson_cards
+                  WHERE lesson_id = $7 AND release_at <= now()))
+         ORDER BY arr.arrived_at DESC
          LIMIT $5 OFFSET $6";
 
     let service_filter = (scope == "service").then(|| user.service_id.clone()).flatten();
@@ -164,6 +192,7 @@ async fn list(
         .bind(size)
         .bind(offset)
         .bind(lesson)
+        .bind(user.service_id.as_deref().filter(|_| user.role == Role::Student))
         .fetch_all(&state.db)
         .await?;
 
@@ -179,7 +208,8 @@ async fn list(
                  OR lower(c.description) LIKE $4
                  OR lower(c.address::text) LIKE $4)
             AND ($5::uuid IS NULL OR c.id IN (
-                  SELECT card_id FROM lesson_cards WHERE lesson_id = $5))",
+                  SELECT card_id FROM lesson_cards
+                   WHERE lesson_id = $5 AND release_at <= now()))",
     )
     .bind(&service_filter)
     .bind(own_filter)
@@ -438,6 +468,108 @@ async fn add_response(
     }
 
     Ok((StatusCode::CREATED, Json(entry)))
+}
+
+/// Диспетчер открыл карточку своей службы.
+///
+/// Ответ заказчика в чате задачи 27.09.2026: 30 секунд даётся с момента
+/// поступления карточки в список до её открытия. Чтобы норматив можно
+/// было проверить, открытие оставляет системную запись «Получена
+/// службой» — статус из памятки ДДС, который раньше нигде не ставился.
+///
+/// Идемпотентно: запись делается только при первом открытии. Открытие
+/// преподавателем или курсантом чужой службы следа не оставляет —
+/// норматив касается диспетчера, которому карточка адресована.
+#[utoipa::path(
+    post,
+    path = "/api/cards/{id}/opened",
+    tag = "Журнал",
+    params(
+        ("id" = String, Path, description = "Идентификатор карточки"),
+    ),
+    responses(
+        (status = 204, description = "Открытие учтено или учитывать нечего"),
+        (status = 401, description = "Требуется вход"),
+        (status = 404, description = "Карточка не найдена"),
+    ),
+)]
+async fn opened(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<StatusCode> {
+    visible_card(&state.db, id, &user).await?;
+
+    let Some(service_id) = user.service_id.as_deref().filter(|_| user.role == Role::Student)
+    else {
+        return Ok(StatusCode::NO_CONTENT);
+    };
+
+    let operator: String = sqlx::query_scalar("SELECT fio FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await?
+        .unwrap_or_default();
+
+    // Два открытия подряд (две вкладки, повторный рендер) не должны дать
+    // две записи: блокировка на пару карточка—служба до конца транзакции
+    let mut tx = state.db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
+        .bind(format!("card.opened:{id}:{service_id}"))
+        .execute(&mut *tx)
+        .await?;
+    let at: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+        "INSERT INTO response_entries (card_id, service_id, status, operator, user_id)
+         SELECT $1, $2, 'Получена службой', $3, $4
+          WHERE EXISTS (SELECT 1 FROM card_services WHERE card_id = $1 AND service_id = $2)
+            AND NOT EXISTS (SELECT 1 FROM response_entries
+                             WHERE card_id = $1 AND service_id = $2
+                               AND status <> 'Добавлена')
+         RETURNING at",
+    )
+    .bind(id)
+    .bind(service_id)
+    .bind(&operator)
+    .bind(user.id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    let Some(at) = at else {
+        return Ok(StatusCode::NO_CONTENT);
+    };
+
+    audit::log(
+        &state.db,
+        audit::Event::new("card.opened")
+            .from_user(&user)
+            .about("card", id)
+            .with(serde_json::json!({ "serviceId": service_id })),
+    )
+    .await;
+
+    // Журнал преподавателя видит открытие сразу — как и любой статус
+    let (session_id, services): (Option<Uuid>, Vec<String>) = sqlx::query_as(
+        "SELECT c.session_id,
+                array(SELECT service_id FROM card_services WHERE card_id = c.id)
+           FROM cards c WHERE c.id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+    state.ws.publish(ws::routes::card_event(
+        "response.recorded",
+        serde_json::json!({
+            "cardId": id,
+            "serviceId": service_id,
+            "status": "Получена службой",
+            "at": at,
+            "operator": operator,
+        }),
+        ws::routes::card_topics(&services, session_id),
+    ));
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Карточку видно, если она профильная для службы пользователя,

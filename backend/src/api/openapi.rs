@@ -71,6 +71,7 @@ use utoipa::{
         crate::api::cards::list,
         crate::api::cards::one,
         crate::api::cards::add_response,
+        crate::api::cards::opened,
         crate::api::reports::list_groups,
         crate::api::reports::session,
         crate::api::reports::group_report,

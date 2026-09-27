@@ -168,6 +168,67 @@ async fn chain(pool: &PgPool, card_id: Uuid, service_id: &str) -> AppResult<Vec<
     Ok(rows.into_iter().map(|(status, at)| brigade::Status { status, at }).collect())
 }
 
+/// Приём карточки службой: когда поступила, когда открыта, первая запись.
+///
+/// Поступление — момент, когда карточка встала строкой в список ДДС.
+/// В занятии это выпуск карточки потоком занятия (`lesson_cards.
+/// release_at`): туда идут и старые карточки, и от их сохранения
+/// нормативы вышли бы с первой секунды. Вне занятия — сохранение
+/// карточки оператором 112. Несохранённую не оцениваем.
+///
+/// Если карточка побывала в нескольких занятиях, берём последний
+/// наступивший выпуск.
+async fn intake(
+    pool: &PgPool,
+    card_id: Uuid,
+    service_id: &str,
+    statuses: &[brigade::Status],
+) -> AppResult<Option<brigade::Intake>> {
+    let arrived_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT COALESCE(
+                  (SELECT max(lc.release_at) FROM lesson_cards lc
+                    WHERE lc.card_id = c.id AND lc.release_at <= now()),
+                  c.saved_at)
+           FROM cards c WHERE c.id = $1",
+    )
+    .bind(card_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    let Some(arrived_at) = arrived_at else {
+        return Ok(None);
+    };
+
+    let first: Option<(String, DateTime<Utc>, Option<String>)> = sqlx::query_as(
+        "SELECT status::text, at, comment FROM response_entries
+          WHERE card_id = $1 AND service_id = $2
+            AND status::text NOT IN ('Добавлена', 'Получена службой')
+          ORDER BY at, id LIMIT 1",
+    )
+    .bind(card_id)
+    .bind(service_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(Some(brigade::Intake {
+        arrived_at,
+        // Статус, поставленный без открытия, — тоже открытие: иначе его
+        // не поставить. Такое бывает у записей, сделанных до того, как
+        // появилась отметка «Получена службой»
+        opened_at: statuses
+            .iter()
+            .find(|s| s.status != "Добавлена")
+            .map(|s| s.at),
+        first_record: first.map(|(status, at, comment)| brigade::FirstRecord {
+            status,
+            at,
+            with_text: comment.is_some_and(|c| !c.trim().is_empty()),
+        }),
+        open_norm_sec: setting(pool, "norm.ack_sec", 30.0).await as i64,
+        first_record_norm_sec: setting(pool, "norm.first_record_sec", 180.0).await as i64,
+    }))
+}
+
 /// Этап из базы: stage, text, due_at, delivered_at, channel.
 type ReportRow = (String, String, DateTime<Utc>, Option<DateTime<Utc>>, Option<String>);
 
@@ -221,6 +282,7 @@ pub async fn load(
     };
 
     let norm = setting(pool, "brigade.update_norm_sec", 30.0).await as i64;
+    let intake = intake(pool, card_id, service_id, &statuses).await?;
     let debrief = brigade::grade(&brigade::Input {
         accepted_at,
         assigned_at: assignment.as_ref().map(|a| a.2),
@@ -234,6 +296,7 @@ pub async fn load(
             .collect(),
         statuses,
         update_norm_sec: norm,
+        intake,
         now: Utc::now(),
     });
 

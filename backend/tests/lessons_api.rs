@@ -536,3 +536,70 @@ async fn занятие_ддс_без_работы_не_стартует() {
 
     прибрать_отдельно(&pool, &о, &[закрытая]).await;
 }
+
+/// Карточки занятия ДДС приходят потоком (ответ заказчика 23.09,
+/// сообщение 709): первая — сразу, следующая — через интервал,
+/// заданный преподавателем. До выпуска карточки в ленте нет, после —
+/// есть, и о её появлении приходит событие.
+#[tokio::test]
+async fn карточки_занятия_ддс_приходят_потоком() {
+    let Some((app, pool)) = app().await else { return };
+    let teacher = токен(&app, "teacher1").await;
+    let о = отдельно(&pool).await;
+    let первая = карточка_для(&pool, &о.service, false).await;
+    let вторая = карточка_для(&pool, &о.service, false).await;
+    let курсант = токен(&app, &о.login).await;
+    let лента = "/api/cards?scope=service";
+
+    // Интервал вне пределов не принимается
+    let (status, _) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
+        Some(json!({ "groupId": о.group_id, "title": "Поток", "mode": "dds",
+                     "cardIntervalSec": 5 }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
+        Some(json!({ "groupId": о.group_id, "title": "Поток", "mode": "dds",
+                     "cardIntervalSec": 600 }))).await;
+    assert_eq!(занятие["cardIntervalSec"], 600);
+    let id = занятие["id"].as_str().unwrap().to_string();
+    let (status, начато) = call(&app, Method::POST,
+        &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
+    assert_eq!(status, StatusCode::OK, "{начато}");
+    assert_eq!(начато["items"], 2, "в материал попали обе карточки");
+
+    // Сразу видна одна: вторая придёт через десять минут
+    let (_, сейчас) = call(&app, Method::GET, лента, Some(&курсант), None).await;
+    assert_eq!(номера(&сейчас).len(), 1, "{сейчас}");
+    assert_eq!(сейчас["total"], 1);
+    let видна = номера(&сейчас)[0].clone();
+    assert!(видна == первая.to_string() || видна == вторая.to_string());
+    // Ждёт она с момента выпуска, а не с сохранения
+    assert!(сейчас["items"][0]["waitingSec"].as_i64().unwrap() < 30);
+    assert_eq!(сейчас["items"][0]["opened"], false);
+
+    // Время второй пришло: она в ленте, и о ней разослано событие
+    let hub = arm112::ws::Hub::new();
+    let mut слушатель = hub.subscribe();
+    sqlx::query("UPDATE lesson_cards SET release_at = now() WHERE lesson_id = $1::uuid")
+        .bind(&id).execute(&pool).await.unwrap();
+    arm112::jobs::lesson_feed::announce(&pool, &hub).await.unwrap();
+
+    let (_, потом) = call(&app, Method::GET, лента, Some(&курсант), None).await;
+    let mut все = номера(&потом);
+    все.sort();
+    let mut ожидали = vec![первая.to_string(), вторая.to_string()];
+    ожидали.sort();
+    assert_eq!(все, ожидали);
+
+    let другая = if видна == первая.to_string() { вторая } else { первая };
+    let mut объявлена = false;
+    while let Ok(e) = слушатель.try_recv() {
+        if e.kind == "card.dispatched" && e.payload["cardId"] == другая.to_string() {
+            объявлена = true;
+        }
+    }
+    assert!(объявлена, "о выпущенной карточке должно прийти событие");
+
+    call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
+    прибрать_отдельно(&pool, &о, &[первая, вторая]).await;
+}

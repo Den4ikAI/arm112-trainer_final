@@ -96,6 +96,34 @@ pub struct Status {
     pub at: DateTime<Utc>,
 }
 
+/// Первая запись диспетчера по карточке: статус и был ли при нём текст.
+#[derive(Debug, Clone)]
+pub struct FirstRecord {
+    pub status: String,
+    pub at: DateTime<Utc>,
+    pub with_text: bool,
+}
+
+/// Приём карточки: открытие и первая запись.
+///
+/// Нормативы — из ответа заказчика в чате задачи 27.09.2026:
+///
+/// > 30 сек при поступлении карточки в систему т.е. с момента ее
+/// > добавления в строку сообщений. 3 минуты на открытие карточки и
+/// > добавления первой записи. Статуса и текста.
+///
+/// Оба срока считаются от поступления карточки в список.
+#[derive(Debug, Clone)]
+pub struct Intake {
+    /// Когда карточка появилась в списке ДДС
+    pub arrived_at: DateTime<Utc>,
+    /// Когда диспетчер открыл её — запись «Получена службой»
+    pub opened_at: Option<DateTime<Utc>>,
+    pub first_record: Option<FirstRecord>,
+    pub open_norm_sec: i64,
+    pub first_record_norm_sec: i64,
+}
+
 /// Всё, что нужно разбору одной службы по одной карточке.
 #[derive(Debug, Clone)]
 pub struct Input {
@@ -107,6 +135,9 @@ pub struct Input {
     pub statuses: Vec<Status>,
     /// Норматив обновления статуса после доклада, секунды
     pub update_norm_sec: i64,
+    /// Приём карточки. `None` — не оцениваем (карточка ещё не
+    /// поступила в список)
+    pub intake: Option<Intake>,
     pub now: DateTime<Utc>,
 }
 
@@ -125,6 +156,12 @@ pub enum DdsFindingKind {
     Missed,
     /// Карточка принята, бригада не назначена
     NoBrigade,
+    /// Карточка открыта позже норматива или не открыта вовсе
+    OpenedLate,
+    /// Первая запись сделана позже норматива или не сделана вовсе
+    FirstRecordLate,
+    /// Первая запись — статус без текста
+    FirstRecordNoText,
 }
 
 impl DdsFindingKind {
@@ -135,7 +172,7 @@ impl DdsFindingKind {
     fn weight(self) -> i32 {
         match self {
             Self::Ok => 0,
-            Self::Late => 1,
+            Self::Late | Self::OpenedLate | Self::FirstRecordLate | Self::FirstRecordNoText => 1,
             Self::NotByFact | Self::Missed | Self::NoBrigade => 2,
         }
     }
@@ -189,14 +226,102 @@ fn consequence(kind: DdsFindingKind, lag: Option<i64>) -> Option<String> {
         DdsFindingKind::NoBrigade => {
             "Карточка принята, но бригада не назначена — на место никто не выехал.".into()
         }
+        DdsFindingKind::OpenedLate => match lag {
+            Some(lag) => format!(
+                "Карточка открыта через {lag} с после поступления: всё это время \
+                 служба не знала о происшествии."
+            ),
+            None => "Карточка так и не открыта: служба не знает о происшествии.".into(),
+        },
+        DdsFindingKind::FirstRecordLate => match lag {
+            Some(lag) => format!(
+                "Первая запись сделана через {lag} с после поступления: служба 112 \
+                 всё это время не видела, взята ли карточка в работу."
+            ),
+            None => "Первой записи нет: служба 112 не видит, взята ли карточка в работу.".into(),
+        },
+        DdsFindingKind::FirstRecordNoText => "Первая запись — статус без текста. Нужны статус \
+             и текст: из одного статуса не видно, что служба делает."
+            .into(),
     })
+}
+
+/// Разбор приёма карточки: открытие и первая запись.
+///
+/// Пока норматив не истёк и события нет — судить рано, это `pending`.
+/// Уложился в норматив — замечания нет: хорошее открытие не должно
+/// разбавлять балл за ход работ.
+fn grade_intake(i: &Intake, now: DateTime<Utc>) -> (Vec<DdsFinding>, usize) {
+    let mut findings = Vec::new();
+    let mut pending = 0usize;
+    let since = |at: DateTime<Utc>| (at - i.arrived_at).num_seconds();
+    let waited = (now - i.arrived_at).num_seconds();
+
+    match i.opened_at {
+        Some(at) if since(at) > i.open_norm_sec => findings.push(DdsFinding {
+            kind: DdsFindingKind::OpenedLate,
+            stage: "Получена службой".into(),
+            known_at: Some(i.arrived_at),
+            status_at: Some(at),
+            lag_sec: Some(since(at)),
+            consequence: consequence(DdsFindingKind::OpenedLate, Some(since(at))),
+        }),
+        Some(_) => {}
+        None if waited > i.open_norm_sec => findings.push(DdsFinding {
+            kind: DdsFindingKind::OpenedLate,
+            stage: "Получена службой".into(),
+            known_at: Some(i.arrived_at),
+            status_at: None,
+            lag_sec: None,
+            consequence: consequence(DdsFindingKind::OpenedLate, None),
+        }),
+        None => pending += 1,
+    }
+
+    match &i.first_record {
+        Some(r) => {
+            if since(r.at) > i.first_record_norm_sec {
+                findings.push(DdsFinding {
+                    kind: DdsFindingKind::FirstRecordLate,
+                    stage: r.status.clone(),
+                    known_at: Some(i.arrived_at),
+                    status_at: Some(r.at),
+                    lag_sec: Some(since(r.at)),
+                    consequence: consequence(DdsFindingKind::FirstRecordLate, Some(since(r.at))),
+                });
+            }
+            if !r.with_text {
+                findings.push(DdsFinding {
+                    kind: DdsFindingKind::FirstRecordNoText,
+                    stage: r.status.clone(),
+                    known_at: None,
+                    status_at: Some(r.at),
+                    lag_sec: None,
+                    consequence: consequence(DdsFindingKind::FirstRecordNoText, None),
+                });
+            }
+        }
+        None if waited > i.first_record_norm_sec => findings.push(DdsFinding {
+            kind: DdsFindingKind::FirstRecordLate,
+            stage: "Принята".into(),
+            known_at: Some(i.arrived_at),
+            status_at: None,
+            lag_sec: None,
+            consequence: consequence(DdsFindingKind::FirstRecordLate, None),
+        }),
+        None => pending += 1,
+    }
+
+    (findings, pending)
 }
 
 /// Разбор работы диспетчера по одной карточке своей службы.
 pub fn grade(input: &Input) -> DdsGrade {
     let norm = input.update_norm_sec;
-    let mut findings = Vec::new();
-    let mut pending = 0usize;
+    let (mut findings, mut pending) = match &input.intake {
+        Some(i) => grade_intake(i, input.now),
+        None => (Vec::new(), 0),
+    };
 
     // Принял и не назначил бригаду: единственное, что можно сказать,
     // пока бригады нет. Ход работ без бригады не оценивается
@@ -213,7 +338,7 @@ pub fn grade(input: &Input) -> DdsGrade {
                 });
             }
         }
-        return finish(findings, 0);
+        return finish(findings, pending);
     }
 
     // Как далеко по ходу работ продвинулась служба в карточке. Статусы
@@ -329,8 +454,92 @@ mod tests {
             reports,
             statuses,
             update_norm_sec: 30,
+            intake: None,
             now: t(now),
         }
+    }
+
+    fn приём(opened: Option<i64>, first: Option<(i64, bool)>) -> Intake {
+        Intake {
+            arrived_at: t(0),
+            opened_at: opened.map(t),
+            first_record: first.map(|(at, with_text)| FirstRecord {
+                status: "Принята".into(),
+                at: t(at),
+                with_text,
+            }),
+            open_norm_sec: 30,
+            first_record_norm_sec: 180,
+        }
+    }
+
+    fn виды(g: &DdsGrade) -> Vec<DdsFindingKind> {
+        g.findings.iter().map(|f| f.kind).collect()
+    }
+
+    /// Ответ заказчика 27.09: открыл за 30 секунд, за 3 минуты сделал
+    /// первую запись со статусом и текстом — замечаний нет.
+    #[test]
+    fn приём_в_нормативах_без_замечаний() {
+        let mut вх = вход(vec![], vec![], 10);
+        вх.assigned_at = None;
+        вх.accepted_at = None;
+        вх.intake = Some(приём(Some(10), Some((60, true))));
+        вх.now = t(200);
+        let итог = grade(&вх);
+        assert!(итог.findings.is_empty());
+        assert_eq!(итог.score, None);
+    }
+
+    #[test]
+    fn открыл_позже_тридцати_секунд_замечание() {
+        let mut вх = вход(vec![], vec![], 100);
+        вх.assigned_at = None;
+        вх.accepted_at = None;
+        вх.intake = Some(приём(Some(45), Some((60, true))));
+        let итог = grade(&вх);
+        assert_eq!(виды(&итог), vec![DdsFindingKind::OpenedLate]);
+        assert_eq!(итог.findings[0].lag_sec, Some(45));
+    }
+
+    #[test]
+    fn первая_запись_позже_трёх_минут_и_без_текста() {
+        let mut вх = вход(vec![], vec![], 300);
+        вх.assigned_at = None;
+        вх.accepted_at = None;
+        вх.intake = Some(приём(Some(5), Some((200, false))));
+        let итог = grade(&вх);
+        assert_eq!(
+            виды(&итог),
+            vec![DdsFindingKind::FirstRecordLate, DdsFindingKind::FirstRecordNoText]
+        );
+    }
+
+    /// Пока нормативы не истекли, отсутствие открытия и записи — не
+    /// нарушение, а ожидание.
+    #[test]
+    fn до_истечения_нормативов_приём_ждёт() {
+        let mut вх = вход(vec![], vec![], 20);
+        вх.assigned_at = None;
+        вх.accepted_at = None;
+        вх.intake = Some(приём(None, None));
+        let итог = grade(&вх);
+        assert!(итог.findings.is_empty());
+        assert_eq!(итог.pending, 2);
+    }
+
+    #[test]
+    fn не_открыл_и_не_записал_после_нормативов() {
+        let mut вх = вход(vec![], vec![], 200);
+        вх.assigned_at = None;
+        вх.accepted_at = None;
+        вх.intake = Some(приём(None, None));
+        let итог = grade(&вх);
+        assert_eq!(
+            виды(&итог),
+            vec![DdsFindingKind::OpenedLate, DdsFindingKind::FirstRecordLate]
+        );
+        assert!(итог.findings.iter().all(|f| f.status_at.is_none()));
     }
 
     #[test]

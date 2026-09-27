@@ -167,8 +167,17 @@ export interface CardBrief {
   outcomeType: string | null;
   status: string;
   operator: string;
-  /** Секунды ожидания подтверждения ДДС. Норматив — 30. */
+  /**
+   * Когда карточка поступила в ленту: в занятии ДДС — выпуск потоком
+   * занятия, иначе — сохранение оператором 112.
+   */
+  arrivedAt: string | null;
+  /** Секунды с поступления. Нормативы: 30 с на открытие, 3 мин на первую запись. */
   waitingSec: number | null;
+  /** Своя служба открыла карточку. `null` — службы нет в списке оповещения. */
+  opened: boolean | null;
+  /** Своя служба сделала первую запись — статус. */
+  recorded: boolean | null;
 }
 
 export interface ResponseEntry {
@@ -366,7 +375,9 @@ export interface BrigadeReport {
   channel: 'incoming' | 'outgoing' | null;
 }
 
-export type DdsFindingKind = 'ok' | 'late' | 'notByFact' | 'missed' | 'noBrigade';
+export type DdsFindingKind = 'ok' | 'late' | 'notByFact' | 'missed' | 'noBrigade'
+  // Приём карточки: нормативы из ответа заказчика в чате 27.09
+  | 'openedLate' | 'firstRecordLate' | 'firstRecordNoText';
 
 export interface DdsFinding {
   kind: DdsFindingKind;

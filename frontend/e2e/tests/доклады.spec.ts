@@ -42,9 +42,16 @@ const карточкаМчс = async (page: Page, info: TestInfo): Promise<strin
   return number;
 };
 
+/**
+ * Первая запись — статус и текст: так требует заказчик (чат, 27.09),
+ * без текста разбор ставит замечание. Поэтому «Принята» — с текстом.
+ */
 const статус = async (page: Page, status: string): Promise<void> => {
   await page.getByTestId('pencil-mchs').click();
   await page.getByRole('combobox', { name: 'Статус' }).selectOption(status);
+  if (status === 'Принята') {
+    await page.getByRole('textbox', { name: 'Комментарий' }).fill('Принято в работу');
+  }
   await page.getByRole('button', { name: 'Сохранить статус' }).click();
   await expect(page.getByTestId('service-tab-mchs')).toContainText(status);
 };
