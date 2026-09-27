@@ -267,3 +267,60 @@ async fn разбор_появляется_после_сохранения_и_н
     assert_eq!(stored["findings"].as_array().unwrap().len(),
                saved["findings"].as_array().unwrap().len());
 }
+
+/// Замечание со стенда: первая фраза «Горит крыша частного дома»,
+/// а «Дом частный» и «Крыша» в разборе стояли как угаданные.
+/// Газификацию же заявитель сам не называл — она угадана по-прежнему.
+#[tokio::test]
+async fn тип_дома_и_крыша_из_первой_фразы_не_угаданы() {
+    let Some((app, pool)) = app().await else { return };
+    let Some(s) = start(&app, &pool).await else { return };
+
+    let grade = fill_and_save(&app, &s, correct_card()).await;
+    let guessed = kinds(&grade, "guessed");
+
+    assert!(!guessed.contains(&"answers.house-kind"), "{guessed:?}");
+    assert!(!guessed.contains(&"answers.inhouse"), "{guessed:?}");
+    assert!(guessed.contains(&"answers.gasified"), "{guessed:?}");
+}
+
+/// То же на всех утверждённых сценариях: карточка заполнена по
+/// эталону без единого вопроса, и ни одно «угадал» не относится
+/// к значению, которое заявитель назвал в первой фразе.
+#[tokio::test]
+async fn ни_в_одном_сценарии_сказанное_первой_фразой_не_угадано() {
+    let Some((app, pool)) = app().await else { return };
+    let tok = token(&app).await;
+
+    let сценарии: Vec<(uuid::Uuid, String, Value)> = sqlx::query_as(
+        "SELECT id, legend, expected FROM scenarios WHERE status = 'approved'")
+        .fetch_all(&pool).await.unwrap();
+
+    for (id, легенда, эталон) in сценарии {
+        let (status, body) = call(&app, Method::POST, "/api/sessions", Some(&tok),
+            Some(json!({ "scenarioId": id.to_string(), "mode": "card112" }))).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let сессия = body["session"]["id"].as_str().unwrap().to_string();
+
+        let mut карточка = json!({
+            "address": эталон.get("address").cloned().unwrap_or(json!({})),
+            "answers": эталон.get("answers").cloned().unwrap_or(json!({})),
+            "typeIds": эталон.get("typeIds").cloned().unwrap_or(json!([])),
+        });
+        if let Some(v) = эталон.get("victims").and_then(Value::as_i64) {
+            карточка["victims"] = json!(v);
+        }
+        let s = Session { token: tok.clone(), id: сессия, facts: Vec::new() };
+        let grade = fill_and_save(&app, &s, карточка).await;
+
+        for f in grade["findings"].as_array().unwrap() {
+            if f["kind"] != "guessed" {
+                continue;
+            }
+            let значение = f["expected"].as_str().unwrap_or_default();
+            assert!(!arm112::domain::grade::stated_in(&легенда, значение),
+                "сценарий {id}: «{значение}» ({}) сказано в первой фразе «{легенда}», \
+                 а в разборе — угадано", f["field"]);
+        }
+    }
+}

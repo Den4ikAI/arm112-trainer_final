@@ -131,6 +131,57 @@ fn norm(s: &str) -> String {
     s.trim().to_lowercase().replace('ё', "е")
 }
 
+/// Сказано ли значение в реплике заявителя.
+///
+/// Нужна для первой фразы: её заявитель говорит сам, без вопроса.
+/// «Горит крыша частного дома» — и «Дом частный», «Крыша» в карточке
+/// выяснены, а не угаданы, хотя в сценарии на них есть и отдельный
+/// вопрос. Без этой проверки разбор ругал курсанта за то, что он
+/// не переспросил очевидное.
+///
+/// Сравнение по основам слов: «частный» и «частного» — одно слово.
+/// Значение из нескольких выбранных вариантов (через запятую) сказано,
+/// только если сказан каждый. Вариант вида «Открытое пламя / Дым»
+/// сказан, если сказана хоть одна его половина. «Да» и «Нет» сами
+/// по себе ничего не доказывают: «нет» в реплике может относиться
+/// к чему угодно, такие ответы выясняются только вопросом.
+pub fn stated_in(utterance: &str, value: &str) -> bool {
+    let words: Vec<String> = utterance
+        .to_lowercase()
+        .replace('ё', "е")
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    // Служебные слова основой не служат: по ним совпадёт что угодно
+    const EMPTY: [&str; 8] = ["да", "нет", "есть", "или", "без", "при", "для", "не"];
+
+    let word_said = |w: &str| -> bool {
+        if w.chars().all(|c| c.is_ascii_digit()) {
+            return words.iter().any(|x| x == w);
+        }
+        let len = w.chars().count();
+        let stem: String = w.chars().take(len.saturating_sub(2).max(4).min(len)).collect();
+        words.iter().any(|x| x.starts_with(&stem))
+    };
+
+    let alternative_said = |alt: &str| -> bool {
+        let significant: Vec<String> = alt
+            .to_lowercase()
+            .replace('ё', "е")
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty() && !EMPTY.contains(w))
+            .filter(|w| w.chars().count() >= 3 || w.chars().all(|c| c.is_ascii_digit()))
+            .map(str::to_string)
+            .collect();
+        !significant.is_empty() && significant.iter().all(|w| word_said(w))
+    };
+
+    let items: Vec<&str> = value.split(", ").filter(|i| !i.trim().is_empty()).collect();
+    !items.is_empty() && items.iter().all(|item| item.split('/').any(alternative_said))
+}
+
 fn as_text(v: &Value) -> String {
     match v {
         Value::Null => String::new(),
@@ -158,8 +209,8 @@ pub struct GradeInput<'a> {
 pub async fn grade(input: GradeInput<'_>) -> Result<Grade> {
     let pool = input.pool;
 
-    let expected: Value =
-        sqlx::query_scalar("SELECT expected FROM scenarios WHERE id = $1")
+    let (expected, legend): (Value, String) =
+        sqlx::query_as("SELECT expected, legend FROM scenarios WHERE id = $1")
             .bind(input.scenario_id)
             .fetch_one(pool)
             .await?;
@@ -235,7 +286,11 @@ pub async fn grade(input: GradeInput<'_>) -> Result<Grade> {
             FindingKind::Missing
         } else if norm(&actual_value) != norm(&expected_value) {
             FindingKind::Wrong
-        } else if askable.contains(&field) && !proven.contains(&field) {
+        } else if askable.contains(&field)
+            && !proven.contains(&field)
+            // Заявитель сказал это сам, первой фразой: вопрос был не нужен
+            && !stated_in(&legend, &expected_value)
+        {
             FindingKind::Guessed
         } else {
             FindingKind::Ok
@@ -460,7 +515,7 @@ pub async fn load(pool: &PgPool, session_id: Uuid) -> Result<Option<Grade>> {
 
 #[cfg(test)]
 mod tests {
-    use super::field_label;
+    use super::{field_label, stated_in};
 
     /// Поля адреса из карточки 112. Список снят с виджета адреса:
     /// ровно то, что оператор может заполнить.
@@ -475,6 +530,47 @@ mod tests {
     /// Без неё в разбор попадает технический ключ: курсант читал
     /// «address.raw — поле не заполнено» и понимал это как поломку,
     /// а не как замечание.
+    const ЛЕГЕНДА: &str =
+        "Алло! Горит крыша частного дома! Пожалуйста, приезжайте скорее, это на Станционной улице, дом 28!";
+
+    /// Заявитель сам сказал «горит крыша частного дома» — вписать
+    /// «Дом частный» и «Крыша» без вопроса значит выяснить, а не угадать.
+    #[test]
+    fn сказанное_первой_фразой_не_угадано() {
+        assert!(stated_in(ЛЕГЕНДА, "Дом частный"));
+        assert!(stated_in(ЛЕГЕНДА, "Крыша"));
+        assert!(stated_in(ЛЕГЕНДА, "28"));
+    }
+
+    #[test]
+    fn не_сказанное_первой_фразой_остаётся_угаданным() {
+        assert!(!stated_in(ЛЕГЕНДА, "Дом многоквартирный"));
+        assert!(!stated_in(ЛЕГЕНДА, "Королёв"));
+        assert!(!stated_in(ЛЕГЕНДА, "17"));
+        assert!(!stated_in(ЛЕГЕНДА, "2"));
+    }
+
+    /// «Нет» в реплике может относиться к чему угодно.
+    #[test]
+    fn да_и_нет_выясняются_только_вопросом() {
+        assert!(!stated_in("Нет, пожара нет, только дым", "Нет"));
+        assert!(!stated_in("Да, да, приезжайте", "Да"));
+    }
+
+    #[test]
+    fn вариант_через_косую_черту_сказан_по_одной_половине() {
+        let легенда = "Здравствуйте, у нас в доме мусоропровод задымил, дым в подъезде идёт.";
+        assert!(stated_in(легенда, "Открытое пламя / Дым"));
+        assert!(stated_in(легенда, "Мусоропровод"));
+    }
+
+    /// Несколько выбранных вариантов сказаны, только если сказан каждый.
+    #[test]
+    fn несколько_вариантов_сказаны_только_все_вместе() {
+        assert!(stated_in(ЛЕГЕНДА, "Крыша, Дом частный"));
+        assert!(!stated_in(ЛЕГЕНДА, "Крыша, Подвал"));
+    }
+
     #[test]
     fn у_каждого_поля_адреса_есть_подпись() {
         for поле in ПОЛЯ_АДРЕСА {
