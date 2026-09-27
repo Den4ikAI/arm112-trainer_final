@@ -114,6 +114,15 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     }
   };
 
+  // Сеть вернулась — досылаем сразу, а не через паузу повтора
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+      if (Object.keys(pending).length === 0) return;
+      if (timer) clearTimeout(timer);
+      void send();
+    });
+  }
+
   /**
    * Копить правки до отправки.
    *

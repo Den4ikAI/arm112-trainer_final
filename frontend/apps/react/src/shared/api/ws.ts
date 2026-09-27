@@ -30,6 +30,17 @@ class ClassChannel {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** Закрыли нарочно — переподключаться не надо. */
   private closed = false;
+  /** Соединение рвалось: после восстановления события за обрыв потеряны. */
+  private lost = false;
+
+  constructor() {
+    // Браузер знает, что сеть вернулась, раньше, чем истечёт пауза:
+    // после обрыва в полминуты очередная попытка по расписанию была бы
+    // только через 30 секунд. Не ждём её
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => this.wake());
+    }
+  }
 
   /** Подписаться на события. Возвращает функцию отписки. */
   on(listener: Listener): () => void {
@@ -62,6 +73,7 @@ class ClassChannel {
   close(): void {
     this.closed = true;
     if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
     this.topics.clear();
     this.socket?.close();
     this.socket = null;
@@ -88,6 +100,12 @@ class ClassChannel {
       if (this.topics.size) {
         this.send({ type: 'subscribe', topics: [...this.topics] });
       }
+      // Пока канала не было, события шли мимо. Для подписчиков это то же,
+      // что отставание: пусть перечитают состояние через REST
+      if (this.lost) {
+        this.lost = false;
+        this.listeners.forEach((l) => l({ type: 'lagged', missed: null }));
+      }
     };
 
     socket.onmessage = (e) => {
@@ -104,18 +122,34 @@ class ClassChannel {
 
     socket.onclose = () => {
       this.socket = null;
-      if (!this.closed) this.reconnect();
+      if (!this.closed) {
+        this.lost = true;
+        this.reconnect();
+      }
     };
 
     // onerror приходит перед onclose, отдельной обработки не требует
     socket.onerror = () => socket.close();
   }
 
+  /** Сеть вернулась: переподключиться сейчас, не дожидаясь паузы.
+   *  Только если канал ждёт очередной попытки — сами его не открываем */
+  private wake(): void {
+    if (this.closed || this.socket || !this.timer) return;
+    clearTimeout(this.timer);
+    this.timer = null;
+    this.attempt = 0;
+    this.connect();
+  }
+
   private reconnect(): void {
     const delay = BACKOFF_MS[Math.min(this.attempt, BACKOFF_MS.length - 1)];
     this.attempt += 1;
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.connect(), delay);
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.connect();
+    }, delay);
   }
 }
 

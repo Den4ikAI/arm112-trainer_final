@@ -150,21 +150,39 @@ async fn list(
     // Поступление — момент, от которого считаются нормативы. В занятии
     // старая карточка выходит в поток заново, и 30 секунд должны идти
     // от её появления в ленте, а не от давнего сохранения
+    //
+    // Сначала выбирается страница — только идентификаторы и момент
+    // поступления, — и лишь для неё считается, открыла ли карточку своя
+    // служба. Раньше это считалось для всех карточек службы до LIMIT, и
+    // журнал замедлялся вместе с ростом базы: на девяти тысячах карточек
+    // 135 мс на запрос (`backend/docs/замеры/НАГРУЗКА.md`)
     let sql = "
+        WITH page AS (
+            SELECT c.id, COALESCE(lc.release_at, c.saved_at) AS arrived_at
+              FROM cards c
+              LEFT JOIN lesson_cards lc ON lc.lesson_id = $7 AND lc.card_id = c.id
+             WHERE c.saved_at IS NOT NULL
+               AND ($1::text IS NULL OR EXISTS (
+                     SELECT 1 FROM card_services cs
+                      WHERE cs.card_id = c.id AND cs.service_id = $1))
+               AND ($2::uuid IS NULL OR c.created_by = $2)
+               AND ($3::text IS NULL OR c.status::text = $3)
+               AND ($4::text IS NULL OR lower(c.number) LIKE $4
+                    OR lower(c.description) LIKE $4
+                    OR lower(c.address::text) LIKE $4)
+               AND ($7::uuid IS NULL OR (lc.card_id IS NOT NULL AND lc.release_at <= now()))
+             ORDER BY arrived_at DESC, c.id
+             LIMIT $5 OFFSET $6)
         SELECT c.id, c.number, c.created_at, c.saved_at, c.address, c.description,
                c.outcome_type, c.status::text AS status,
                COALESCE(u.fio, '') AS operator,
                c.workstation, c.victims,
-               arr.arrived_at,
-               EXTRACT(EPOCH FROM (now() - arr.arrived_at))::bigint AS waiting_sec,
+               page.arrived_at,
+               EXTRACT(EPOCH FROM (now() - page.arrived_at))::bigint AS waiting_sec,
                own.opened, own.recorded
-          FROM cards c
+          FROM page
+          JOIN cards c ON c.id = page.id
           LEFT JOIN users u ON u.id = c.created_by
-          CROSS JOIN LATERAL (
-                SELECT COALESCE(
-                         (SELECT lc.release_at FROM lesson_cards lc
-                           WHERE lc.lesson_id = $7 AND lc.card_id = c.id),
-                         c.saved_at) AS arrived_at) arr
           LEFT JOIN LATERAL (
                 SELECT COALESCE(bool_or(re.status <> 'Добавлена'), false) AS opened,
                        COALESCE(bool_or(re.status NOT IN ('Добавлена', 'Получена службой')),
@@ -173,20 +191,7 @@ async fn list(
                  WHERE re.card_id = c.id AND re.service_id = $8) own
                  ON EXISTS (SELECT 1 FROM card_services cs
                              WHERE cs.card_id = c.id AND cs.service_id = $8)
-         WHERE c.saved_at IS NOT NULL
-           AND ($1::text IS NULL OR EXISTS (
-                 SELECT 1 FROM card_services cs
-                  WHERE cs.card_id = c.id AND cs.service_id = $1))
-           AND ($2::uuid IS NULL OR c.created_by = $2)
-           AND ($3::text IS NULL OR c.status::text = $3)
-           AND ($4::text IS NULL OR lower(c.number) LIKE $4
-                OR lower(c.description) LIKE $4
-                OR lower(c.address::text) LIKE $4)
-           AND ($7::uuid IS NULL OR c.id IN (
-                 SELECT card_id FROM lesson_cards
-                  WHERE lesson_id = $7 AND release_at <= now()))
-         ORDER BY arr.arrived_at DESC
-         LIMIT $5 OFFSET $6";
+         ORDER BY page.arrived_at DESC, c.id";
 
     let service_filter = (scope == "service").then(|| user.service_id.clone()).flatten();
     let own_filter = (scope == "own").then_some(user.id);
