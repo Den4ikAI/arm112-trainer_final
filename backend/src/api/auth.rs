@@ -290,6 +290,15 @@ impl AuthUser {
     }
 }
 
+/// Учётная запись существует и не отключена администратором.
+pub async fn user_active(pool: &sqlx::PgPool, id: uuid::Uuid) -> Result<bool, sqlx::Error> {
+    let active: Option<bool> = sqlx::query_scalar("SELECT is_active FROM users WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(active == Some(true))
+}
+
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
@@ -307,6 +316,13 @@ impl FromRequestParts<AppState> for AuthUser {
             &Validation::default(),
         )
         .map_err(|_| AppError::Unauthorized)?;
+
+        // Подписи мало: токен живёт часами, а администратор отключает
+        // учётную запись сразу. Без этой проверки отключённый работал бы
+        // до истечения токена. Поиск по первичному ключу — копейки
+        if !user_active(&state.db, data.claims.sub).await? {
+            return Err(AppError::Unauthorized);
+        }
 
         Ok(AuthUser {
             id: data.claims.sub,

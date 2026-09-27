@@ -343,6 +343,40 @@ async fn отключённая_запись_не_пускает_в_систем
         .any(|u| u["login"] == login.as_str() && u["isActive"] == false));
 }
 
+/// Отключение действует сразу, а не когда истечёт уже выданный токен:
+/// иначе отключённый ещё восемь часов работал бы в системе.
+#[tokio::test]
+async fn отключение_отзывает_уже_выданный_токен() {
+    let Some((app, _)) = app().await else { return };
+    let admin = token(&app, "admin").await;
+    let login = format!("отзову-{}", Uuid::new_v4().simple());
+
+    let (_, created) = call(&app, Method::POST, "/api/admin/users", Some(&admin),
+        Some(json!({ "login": login, "password": "длинныйПароль",
+                     "fio": "Сидоров С.С.", "role": "student",
+                     "serviceId": "mchs" }))).await;
+    let id = created["id"].as_str().unwrap();
+
+    let (status, body) = call(&app, Method::POST, "/api/auth/login", None,
+        Some(json!({ "login": login, "password": "длинныйПароль" }))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let его = body["token"].as_str().unwrap().to_string();
+
+    let (status, _) = call(&app, Method::GET, "/api/auth/me", Some(&его), None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    call(&app, Method::POST, &format!("/api/admin/users/{id}/active"),
+        Some(&admin), Some(json!({ "active": false }))).await;
+    let (status, _) = call(&app, Method::GET, "/api/auth/me", Some(&его), None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "токен отключённого должен перестать работать");
+
+    // Включили обратно — тот же токен снова годится, перелогин не нужен
+    call(&app, Method::POST, &format!("/api/admin/users/{id}/active"),
+        Some(&admin), Some(json!({ "active": true }))).await;
+    let (status, _) = call(&app, Method::GET, "/api/auth/me", Some(&его), None).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
 /// Отключив себя, администратор запер бы систему.
 #[tokio::test]
 async fn администратор_не_отключает_сам_себя() {

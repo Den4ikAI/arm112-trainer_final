@@ -46,6 +46,11 @@ async fn upgrade(
     );
 
     match claims {
+        // Отключённому администратором канал не открываем, как и REST
+        Ok(data) if !matches!(crate::api::auth::user_active(&state.db, data.claims.sub).await,
+                              Ok(true)) => {
+            IntoResponse::into_response(crate::error::AppError::Unauthorized)
+        }
         Ok(data) => ws.on_upgrade(move |socket| serve(socket, state, data.claims)),
         // До установки соединения отвечаем обычным HTTP: клиент
         // должен отличить протухший токен от разрыва сети
@@ -69,8 +74,20 @@ async fn serve(socket: WebSocket, state: AppState, claims: Claims) {
 
     tracing::debug!(user = %claims.sub, "канал класса открыт");
 
+    // Открытый канал тоже закрываем, если учётную запись отключили:
+    // иначе отключённый продолжал бы видеть события класса
+    let mut recheck = tokio::time::interval(std::time::Duration::from_secs(30));
+    recheck.tick().await;
+
     loop {
         tokio::select! {
+            _ = recheck.tick() => {
+                if matches!(crate::api::auth::user_active(&state.db, claims.sub).await, Ok(false)) {
+                    let _ = sender.send(Message::Close(None)).await;
+                    break;
+                }
+            }
+
             // Событие с шины: отдаём, если клиент на него подписан
             event = events.recv() => match event {
                 Ok(event) => {
