@@ -290,7 +290,12 @@ async fn после_обновления_страницы_вызов_продо�
         Some(json!({ "scenarioId": sid, "mode": "card112" }))).await;
     let session = начато["session"]["id"].as_str().unwrap().to_string();
     let номер = начато["card"]["number"].clone();
-    let вопрос = начато["scenario"]["questions"][0]["factId"].as_str().unwrap().to_string();
+    // Спрашиваем что угодно, кроме города: ниже проверяется, что ответ
+    // про город до вопроса не уезжает. Порядок вопросов в сценарии
+    // не задан, первым может оказаться и город
+    let вопрос = начато["scenario"]["questions"].as_array().unwrap().iter()
+        .find(|q| q["key"] != "city")
+        .and_then(|q| q["factId"].as_str()).unwrap().to_string();
 
     call(&app, Method::POST, &format!("/api/sessions/{session}/ask"), Some(&tok),
         Some(json!({ "factId": вопрос }))).await;
