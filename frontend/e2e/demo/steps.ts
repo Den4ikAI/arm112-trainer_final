@@ -235,9 +235,13 @@ const status = async (d: Demo, value: string, comment?: string): Promise<void> =
   await expect(p.getByTestId('service-tab-mchs')).toContainText(value);
 };
 
-/** Этап бригады наступил только что: ролик не ждёт реальных минут. */
-const stageNow = (ctx: Ctx, stage: string): void => {
-  sql(ctx, `UPDATE brigade_reports r SET due_at = now() - interval '30 seconds'
+/**
+ * Этап бригады наступил: ролик не ждёт реальных минут. `ago` — сколько
+ * секунд назад; 30 — старший успевает доложить сам, 0 — этап только
+ * что, и диспетчер узнаёт о нём своим звонком раньше доклада.
+ */
+const stageNow = (ctx: Ctx, stage: string, ago = 30): void => {
+  sql(ctx, `UPDATE brigade_reports r SET due_at = now() - interval '${ago} seconds'
               FROM brigade_assignments a JOIN cards c ON c.id = a.card_id
              WHERE r.assignment_id = a.id AND c.number = '${ctx.number}'
                AND r.stage = '${stage}'`);
@@ -279,7 +283,7 @@ export const dispatcherDds = async (d: Demo, ctx: Ctx): Promise<void> => {
 
   const talk = p.getByTestId('brigade-talk');
   if (await visible(talk)) {
-    stageNow(ctx, 'Прибытие');
+    stageNow(ctx, 'Прибытие', 0);
     await d.say('Диспетчер может и сам позвонить старшему — голосом.');
     const sec = await d.mic('Старший, доложите обстановку.', 'dispatcher');
     await d.click(talk);
