@@ -201,7 +201,7 @@ const SYSTEM_TEMPLATE: &str = "\
 Правь ровно то, о чём просят. Не переписывай остальное.
 
 Отвечай только JSON с двумя полями:
-  reply — одна фраза о том, что ты сделал. Своими словами, по делу.
+  reply — одна короткая фраза о том, что ты сделал, до двадцати слов. Своими словами, по делу.
   patch — изменившиеся поля вызова.
 
 В patch допустимы только такие поля:
@@ -275,16 +275,20 @@ pub async fn turn(
 
     // Схема ответа. Раньше модель клала ФИО в hidden, заворачивала
     // факт в строку и роняла разбор — при ограничении вывода схемой
-    // это структурно невозможно
+    // это структурно невозможно.
+    //
+    // Длины строк ограничены не для красоты. Qwen на видеокарте начинал
+    // рассуждать прямо внутри `reply` («Готово. Вывожу JSON…») и ходил
+    // по кругу, пока не кончались токены: JSON не закрывался, сервер
+    // отдавал 500. С `maxLength` движок сам закрывает строку
     let schema = json!({
         "type": "object",
         "properties": {
-            "reply": { "type": "string", "minLength": 3 },
             "patch": {
                 "type": "object",
                 "properties": {
-                    "legend":          { "type": "string", "minLength": 5 },
-                    "applicantName":   { "type": "string" },
+                    "legend":          { "type": "string", "minLength": 5, "maxLength": 600 },
+                    "applicantName":   { "type": "string", "maxLength": 80 },
                     "applicantStatus": { "type": "string",
                         "enum": crate::domain::applicant::STATUSES },
                     "normSec":         { "type": "integer", "minimum": 15, "maximum": 600 },
@@ -293,9 +297,9 @@ pub async fn turn(
                         "items": {
                             "type": "object",
                             "properties": {
-                                "key":      { "type": "string", "minLength": 2 },
-                                "question": { "type": "string", "minLength": 5 },
-                                "answer":   { "type": "string", "minLength": 2 },
+                                "key":      { "type": "string", "minLength": 2, "maxLength": 40 },
+                                "question": { "type": "string", "minLength": 5, "maxLength": 200 },
+                                "answer":   { "type": "string", "minLength": 2, "maxLength": 400 },
                             },
                             "required": ["key", "question", "answer"],
                             "additionalProperties": false,
@@ -304,15 +308,19 @@ pub async fn turn(
                 },
                 "additionalProperties": false,
             },
+            "reply": { "type": "string", "minLength": 3, "maxLength": 300 },
         },
-        "required": ["reply"],
+        // patch обязателен, хоть и может быть пустым: ключи идут по
+        // алфавиту, и модель сначала решает, что править, а потом
+        // говорит, что сделала. Пока patch был необязательным, Qwen
+        // пропускал его и расписывал в reply правку, которой не было
+        "required": ["patch", "reply"],
         "additionalProperties": false,
     });
 
     // Потолок с запасом: правка несёт и ответ, и изменённые поля вызова
-    // (легенду, скрытые ответы). Qwen на видеокарте пишет подробнее
-    // GigaChat, и при 900 токенах JSON обрывался посередине — сервер
-    // отдавал 500, а преподаватель видел голое «internal»
+    // (легенду, до восьми скрытых ответов) — при 900 токенах полная
+    // правка могла не уместиться
     let raw = llm.chat_json(Value::Array(messages), 2000, Some(schema)).await?;
     let (mut reply, patch, ignored) = parse_turn(&raw);
 
