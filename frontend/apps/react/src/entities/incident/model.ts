@@ -77,6 +77,11 @@ interface Actions {
   setAnswer(questionId: string, value: string[] | string): void;
   setManualServices(ids: string[]): void;
   ask(factId: string): Promise<void>;
+  /**
+   * Вопрос своими словами. Возвращает ответ заявителя — его озвучивают;
+   * `null`, если занятия нет.
+   */
+  askFree(text: string): Promise<import('@/shared/api').AskFreeResult | null>;
   save(): Promise<void>;
   /** Немедленно дослать отложенное — перед сохранением и уходом со страницы. */
   flush(): Promise<void>;
@@ -264,6 +269,24 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
           { who: 'заявитель', text: r.answer, atSec: r.atSec },
         ],
       }));
+    },
+
+    askFree: async (text) => {
+      const { sessionId } = get();
+      const question = text.trim();
+      if (!sessionId || !question) return null;
+      const r = await sessions.askFree(sessionId, question);
+      set((st) => ({
+        // Понятый вопрос засчитывается, как нажатая кнопка
+        revealed: r.factId && !st.revealed.includes(r.factId)
+          ? [...st.revealed, r.factId] : st.revealed,
+        transcript: [
+          ...st.transcript,
+          { who: 'оператор', text: question, atSec: r.atSec },
+          { who: 'заявитель', text: r.answer, atSec: r.atSec },
+        ],
+      }));
+      return r;
     },
 
     flush: async () => {

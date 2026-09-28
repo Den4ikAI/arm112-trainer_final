@@ -109,9 +109,12 @@ test.describe('Голос со старшим бригады', () => {
     await page.route('**/api/voice/status', (r) => r.fulfill({
       json: { asr: true, tts: true, voices: ['brigade', 'chief'] },
     }));
+    // Считаем только голос старшего: пока оператор 112 заводит карточку,
+    // звук ещё включён и звучит заявитель — это другой собеседник
     let запросов = 0;
     await page.route('**/api/voice/tts', (r) => {
-      запросов += 1;
+      const body = r.request().postDataJSON() as { voice: string };
+      if (body.voice === 'brigade') запросов += 1;
       return r.fulfill({ status: 200, contentType: 'audio/wav', body: тишина() });
     });
 

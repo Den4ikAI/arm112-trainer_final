@@ -672,6 +672,12 @@ POST /api/sessions/:id/ask
 { "factId": "city" }
 → 200 { "answer": "Нет, что вы, это Королёв...", "atSec": 47 }
 
+POST /api/sessions/:id/ask-free      (вопрос своими словами — текстом или распознанный)
+{ "text": "А город у вас какой?" }
+→ 200 { "answer": "Нет, что вы, это Королёв...", "atSec": 52,
+        "factId": "…",            // null — вопрос не понят, заявитель переспросил
+        "unlocks": ["address.settlement"] }
+
 PATCH /api/sessions/:id/card         (частичное обновление, автосохранение)
 { "address": { "settlement": "Королёв" }, "answers": { "gasified": ["Нет"] } }
 → 200 { "card": IncidentCard, "services": ["s101"] }

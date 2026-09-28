@@ -143,7 +143,7 @@ async fn с_сервером_голоса_реплика_распознаётс�
     let (status, body, _) = send(&app, Method::GET, "/api/voice/status", Some(&t), None, None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json_of(&body)["asr"], true);
-    assert_eq!(json_of(&body)["voices"], json!(["brigade", "chief"]));
+    assert_eq!(json_of(&body)["voices"], json!(["brigade", "chief", "applicant_m", "applicant_f"]));
 
     let (status, body, _) = send(&app, Method::POST, "/api/voice/asr", Some(&t),
         None, Some(vec![0u8; 100])).await;

@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 
 /// Голоса собеседников. Какой стиль синтеза за каким — решает сервер
 /// голоса, здесь только закрытый список ролей
-pub const VOICES: [&str; 2] = ["brigade", "chief"];
+pub const VOICES: [&str; 4] = ["brigade", "chief", "applicant_m", "applicant_f"];
 
 /// Минута WAV 16 кГц моно — около 1,9 МБ; с запасом на 44,1 кГц,
 /// если клиент не пересчитал частоту
@@ -111,7 +111,8 @@ pub async fn asr(
 #[serde(rename_all = "camelCase")]
 pub struct SpeakRequest {
     pub text: String,
-    /// `brigade` — старший бригады, `chief` — вышестоящий начальник
+    /// `brigade` — старший бригады, `chief` — вышестоящий начальник,
+    /// `applicant_m` / `applicant_f` — заявитель в разговоре с оператором 112
     pub voice: String,
 }
 

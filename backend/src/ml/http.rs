@@ -6,10 +6,12 @@
 //! на стенде заказчика это будет llama-server с моделью на процессоре,
 //! у нас при подготовке сценариев — та же модель на видеокарте.
 //!
-//! Генеративная модель вызывается **только офлайн**: подготовка
-//! сценариев и коррекция по комментарию преподавателя. В горячем пути
-//! заполнения карточки её нет и быть не может — на железе из ТЗ
-//! (6 ядер, без GPU) она туда не помещается.
+//! Генеративная модель вызывается офлайн: подготовка сценариев,
+//! коррекция по комментарию преподавателя, разборы в фоне. В горячем
+//! пути заполнения карточки — только одно: понять свободный вопрос
+//! курсанта заявителю (`HttpLabelScorer`). Там ответ — одно значение
+//! из перечисления, несколько токенов, и это укладывается в секунды
+//! даже на процессоре.
 
 use super::{Llm, MlSuite};
 use anyhow::{Context, Result};
@@ -215,15 +217,113 @@ impl Llm for HttpLlm {
     }
 }
 
-/// Остальные адаптеры пока берём из заглушек: распознавание речи и
-/// синтез — отдельная задача, а проверка грамматики регулярками
-/// хоть и проста, но ничего не выдумывает.
+/// Сопоставление свободного вопроса оператора с фактами вызова.
+///
+/// В отличие от остального здесь модель в горячем пути: курсант ждёт
+/// ответа заявителя. Поэтому ответ — одно значение из перечисления
+/// (движок не даст выйти за схему) и несколько токенов. Замер на наших
+/// вызовах: GigaChat на процессоре — 27 из 27 верно, 1,8 с
+/// (`backend/docs/замеры/README.md`).
+pub struct HttpLabelScorer {
+    llm: HttpLlm,
+}
+
+/// Значение «ни про какой вариант».
+const NONE: &str = "нет_подходящего";
+
+/// Дольше этого курсант ждать не должен: лучше переспросить, чем
+/// молчать полминуты. Отказ модели обрабатывает вызывающий.
+const SCORE_TIMEOUT: Duration = Duration::from_secs(20);
+
+impl HttpLabelScorer {
+    pub fn new(base_url: String, model: String) -> Result<Self> {
+        let mut llm = HttpLlm::new(base_url, model)?;
+        llm.client = reqwest::Client::builder().timeout(SCORE_TIMEOUT).build()?;
+        Ok(Self { llm })
+    }
+}
+
+#[async_trait]
+impl super::LabelScorer for HttpLabelScorer {
+    async fn score(&self, text: &str, candidates: &[String]) -> Result<Vec<super::Scored>> {
+        if candidates.is_empty() || text.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+        let (keys, texts) = split_keys(candidates);
+        let listing = keys
+            .iter()
+            .zip(&texts)
+            .map(|(k, c)| format!("  {k} — {c}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut allowed = keys.clone();
+        allowed.push(NONE.into());
+
+        let messages = json!([
+            { "role": "system", "content": format!(
+                "Оператор службы 112 разговаривает с заявителем. Определи, \
+                 про какой из перечисленных фактов оператор сейчас спрашивает.\n\
+                 Факты:\n{listing}\n  {NONE} — оператор спрашивает про что-то \
+                 другое, заявителю про это сказать нечего.") },
+            { "role": "user", "content": format!("Вопрос оператора: {text}") },
+        ]);
+        let schema = json!({
+            "type": "object",
+            "properties": { "fact": { "type": "string", "enum": allowed } },
+            "required": ["fact"],
+            "additionalProperties": false,
+        });
+
+        let answer = self.llm.chat_json(messages, 24, Some(schema)).await?;
+        let chosen = answer["fact"].as_str().unwrap_or(NONE);
+        Ok(keys
+            .iter()
+            .zip(candidates)
+            .map(|(k, c)| super::Scored {
+                label: c.clone(),
+                prob: if k == chosen { 1.0 } else { 0.0 },
+            })
+            .collect())
+    }
+}
+
+/// Ключи и тексты вариантов. Ключ со смыслом («city», «victims») берём,
+/// если он есть у каждого варианта и не повторяется: с ним GigaChat
+/// отличает «ни про какой» в 5 случаях из 7, с номерами f1…fN — в 1.
+/// Иначе номера: одинаковые по форме, модель выбирает номер, а не
+/// переписывает вопрос.
+fn split_keys(candidates: &[String]) -> (Vec<String>, Vec<String>) {
+    let parts: Vec<(Option<&str>, &str)> = candidates
+        .iter()
+        .map(|c| match c.split_once('\t') {
+            Some((k, t)) => (Some(k.trim()), t.trim()),
+            None => (None, c.trim()),
+        })
+        .collect();
+    let keys: Vec<&str> = parts.iter().filter_map(|(k, _)| *k).collect();
+    let usable = keys.len() == parts.len()
+        && keys.iter().all(|k| {
+            !k.is_empty() && *k != NONE && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+        && keys.iter().collect::<std::collections::HashSet<_>>().len() == keys.len();
+    let texts = parts.iter().map(|(_, t)| t.to_string()).collect();
+    let keys = if usable {
+        keys.iter().map(|k| k.to_string()).collect()
+    } else {
+        (1..=parts.len()).map(|i| format!("f{i}")).collect()
+    };
+    (keys, texts)
+}
+
+/// Распознавание речи и синтез подключает `ml/voice.rs`, если задан
+/// сервер голоса; проверка грамматики регулярками хоть и проста, но
+/// ничего не выдумывает.
 pub fn suite(base_url: String, model: String) -> Result<MlSuite> {
     let mock = super::mock::suite();
     Ok(MlSuite {
         asr: mock.asr,
         tts: mock.tts,
-        scorer: mock.scorer,
+        scorer: Box::new(HttpLabelScorer::new(base_url.clone(), model.clone())?),
         grammar: mock.grammar,
         llm: Box::new(HttpLlm::new(base_url, model)?),
     })
@@ -231,8 +331,26 @@ pub fn suite(base_url: String, model: String) -> Result<MlSuite> {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_json;
+    use super::{extract_json, split_keys};
     use serde_json::json;
+
+    #[test]
+    fn ключи_сценария_идут_в_перечисление() {
+        let c = vec!["city\tКакой город?".to_string(), "victims\tПострадавшие есть?".to_string()];
+        let (keys, texts) = split_keys(&c);
+        assert_eq!(keys, vec!["city", "victims"]);
+        assert_eq!(texts, vec!["Какой город?", "Пострадавшие есть?"]);
+    }
+
+    #[test]
+    fn без_ключей_или_с_повторами_номера() {
+        let (keys, _) = split_keys(&["Какой город?".to_string(), "Пострадавшие?".to_string()]);
+        assert_eq!(keys, vec!["f1", "f2"]);
+        let (keys, _) = split_keys(&["a\tраз".to_string(), "a\tдва".to_string()]);
+        assert_eq!(keys, vec!["f1", "f2"], "повтор ключа сделал бы выбор неоднозначным");
+        let (keys, _) = split_keys(&["город\tКакой?".to_string()]);
+        assert_eq!(keys, vec!["f1"], "ключ не латиницей в перечисление не берём");
+    }
 
     /// Модель почти всегда оборачивает JSON в ограждение markdown,
     /// сколько ни проси не делать этого.

@@ -325,6 +325,9 @@ export const sessions = {
   ask: (id: string, factId: string) =>
     api.post<{ answer: string; atSec: number; unlocks: string[] }>(
       `/api/sessions/${id}/ask`, { factId }),
+  /** Свободный вопрос своими словами — напечатанный или распознанный. */
+  askFree: (id: string, text: string) =>
+    api.post<import('./types').AskFreeResult>(`/api/sessions/${id}/ask-free`, { text }),
   patchCard: (id: string, patch: Record<string, unknown>) =>
     api.patch<{ card: Card; classify: ClassifyResult }>(`/api/sessions/${id}/card`, patch),
   /** `grade` пуст, пока разбор закрывает марафон. */

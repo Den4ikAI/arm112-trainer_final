@@ -8,6 +8,7 @@ pub mod card_status;
 pub mod classify;
 pub mod drill;
 pub mod forecast;
+pub mod free_question;
 pub mod grade;
 pub mod response;
 pub mod scenario_edit;

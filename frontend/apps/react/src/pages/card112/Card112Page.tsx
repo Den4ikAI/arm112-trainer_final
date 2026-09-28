@@ -20,7 +20,7 @@ export const Card112Page = () => {
   const nav = useNavigate();
   const {
     card, scenario, classify, revealed, transcript, grade, closed, error, startedAt,
-    edit, editAddress, toggleType, setAnswer, setManualServices, ask, save, flush, resume, reset,
+    edit, editAddress, toggleType, setAnswer, setManualServices, ask, askFree, save, flush, resume, reset,
   } = useTraining();
   const applicantStatuses = useCatalog((st) => st.applicantStatuses);
 
@@ -182,7 +182,7 @@ export const Card112Page = () => {
         {scenario && (
           <TrainerHud
             scenario={scenario} revealed={revealed} transcript={transcript}
-            elapsedSec={elapsed} onAsk={(id) => void ask(id)}
+            elapsedSec={elapsed} onAsk={(id) => void ask(id)} onAskFree={askFree}
           />
         )}
       </div>

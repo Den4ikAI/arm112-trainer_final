@@ -52,21 +52,45 @@ impl Tts for MockTts {
 
 pub struct MockLabelScorer;
 
+/// Слова, которые есть почти в любом вопросе и ничего не различают.
+const STOP: [&str; 34] = [
+    "есть", "это", "как", "какой", "какая", "какое", "какие", "каком", "что",
+    "или", "там", "где", "вас", "ваш", "вам", "мне", "пожалуйста", "уточните",
+    "подскажите", "скажите", "только", "сейчас", "видно", "видите", "был",
+    "была", "были", "уже", "ещё", "еще", "кто", "нибудь", "можете", "могу",
+];
+
+/// Основы слов: без регистра и «ё», короче пяти букв не режем,
+/// длиннее — первые пять. Грубо, но без словаря и без модели.
+fn stems(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .replace('ё', "е")
+        .split(|c: char| !c.is_alphabetic())
+        .filter(|w| w.chars().count() >= 3 && !STOP.contains(w))
+        .map(|w| w.chars().take(5).collect())
+        .collect()
+}
+
+/// Основы совпадают, если одна — начало другой: «газ» и «газиф».
+fn same_stem(a: &str, b: &str) -> bool {
+    a.starts_with(b) || b.starts_with(a)
+}
+
 #[async_trait]
 impl LabelScorer for MockLabelScorer {
+    /// Заглушка без модели: доля слов текста, нашедшихся в варианте.
+    /// «Люди пострадали?» находит «Пострадавшие есть?», а «Как вас
+    /// зовут?» не находит ничего — заявитель переспросит, а не ответит
+    /// не на тот вопрос.
     async fn score(&self, text: &str, candidates: &[String]) -> Result<Vec<Scored>> {
-        let haystack = text.to_lowercase();
+        let asked = stems(text);
         let mut out: Vec<Scored> = candidates
             .iter()
             .map(|label| {
-                let needle = label.to_lowercase();
-                // Прямое вхождение считаем уверенным попаданием,
-                // остальным даём стабильный низкий балл
-                let prob = if haystack.contains(&needle) {
-                    0.9
-                } else {
-                    0.1 + (stable_hash(label) % 10) as f32 / 100.0
-                };
+                // Ключ варианта («city\t…») к словам не относится
+                let own = stems(label.split_once('\t').map_or(label.as_str(), |(_, t)| t));
+                let hits = asked.iter().filter(|a| own.iter().any(|o| same_stem(a, o))).count();
+                let prob = if asked.is_empty() { 0.0 } else { hits as f32 / asked.len() as f32 };
                 Scored { label: label.clone(), prob }
             })
             .collect();
@@ -267,4 +291,44 @@ pub(crate) fn stable_hash(s: &str) -> u32 {
     s.bytes().fold(2166136261u32, |h, b| {
         (h ^ b as u32).wrapping_mul(16777619)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn вопросы() -> Vec<String> {
+        [
+            "Уточните, пожалуйста, город — вы в Москве?",
+            "Пострадавшие есть?",
+            "Дом газифицирован?",
+            "Что за дом — частный, многоквартирный?",
+            "Открытое пламя видно или только дым?",
+        ]
+        .map(String::from)
+        .to_vec()
+    }
+
+    async fn лучший(text: &str) -> Option<String> {
+        let c = вопросы();
+        let scored = MockLabelScorer.score(text, &c).await.unwrap();
+        crate::domain::free_question::pick(&scored, &c).map(|i| c[i].clone())
+    }
+
+    #[tokio::test]
+    async fn заглушка_понимает_вопрос_своими_словами() {
+        assert_eq!(лучший("какой город?").await.as_deref(),
+                   Some("Уточните, пожалуйста, город — вы в Москве?"));
+        assert_eq!(лучший("люди пострадали?").await.as_deref(), Some("Пострадавшие есть?"));
+        assert_eq!(лучший("газ в доме есть?").await.as_deref(), Some("Дом газифицирован?"));
+        assert_eq!(лучший("пламя есть").await.as_deref(),
+                   Some("Открытое пламя видно или только дым?"));
+    }
+
+    #[tokio::test]
+    async fn заглушка_не_отвечает_на_вопрос_не_по_делу() {
+        assert_eq!(лучший("как вас зовут?").await, None);
+        assert_eq!(лучший("ваш номер телефона").await, None);
+        assert_eq!(лучший("").await, None);
+    }
 }

@@ -522,6 +522,18 @@ export interface VoiceStatus {
   voices: string[];
 }
 
-/** Собеседник: старший бригады или вышестоящий начальник. */
-export type VoiceRole = 'brigade' | 'chief';
+/**
+ * Собеседник: старший бригады, вышестоящий начальник (у ДДС) или
+ * заявитель — мужчина или женщина (у оператора 112).
+ */
+export type VoiceRole = 'brigade' | 'chief' | 'applicant_m' | 'applicant_f';
+
+/** Ответ заявителя на свободный вопрос. */
+export interface AskFreeResult {
+  answer: string;
+  atSec: number;
+  /** Про какой факт вопрос; `null` — не понят, заявитель переспросил */
+  factId: string | null;
+  unlocks: string[];
+}
 

@@ -75,3 +75,68 @@
 }
 
 .asked { opacity: .45; cursor: default; text-decoration: line-through; }
+
+.headRight { display: flex; align-items: center; gap: var(--sp-2); }
+
+.sound {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: #9fc2dc;
+}
+
+// Как спрашивать: из готового списка или своими словами
+.modes {
+  display: grid; grid-template-columns: 1fr 1fr;
+  margin-bottom: var(--sp-2);
+  border: 1px solid rgb(255 255 255 / .25);
+}
+
+.modeBtn {
+  border: 0;
+  background: transparent;
+  color: #9fc2dc;
+  font-size: var(--fs-xs);
+  padding: var(--sp-1) var(--sp-2);
+
+  &:hover:not(.modeOn) { background: rgb(255 255 255 / .08); }
+}
+
+.modeOn { background: rgb(255 255 255 / .18); color: #fff; font-weight: 700; }
+
+.free { display: grid; gap: var(--sp-2); }
+
+.input {
+  width: 100%;
+  padding: var(--sp-2);
+  border: 1px solid rgb(255 255 255 / .35);
+  background: rgb(255 255 255 / .06);
+  color: var(--c-text-invert);
+  font-size: var(--fs-sm);
+
+  &::placeholder { color: #9fc2dc; }
+  &:focus { outline: 2px solid #50a0dc; outline-offset: -1px; }
+}
+
+.freeRow { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+
+.send {
+  border: 1px solid rgb(255 255 255 / .35);
+  background: transparent;
+  color: var(--c-text-invert);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+
+  &:hover:not(:disabled) { background: rgb(255 255 255 / .1); }
+  &:disabled { opacity: .5; }
+}
+
+.live { background: var(--c-danger); border-color: var(--c-danger); }
+
+.hint { font-size: var(--fs-xs); color: #9fc2dc; }
+
+.error {
+  margin-top: var(--sp-2);
+  padding: var(--sp-2);
+  background: rgb(220 60 60 / .25);
+  font-size: var(--fs-sm);
+}

@@ -65,6 +65,7 @@ use utoipa::{
         crate::api::sessions::list_scenarios,
         crate::api::sessions::create,
         crate::api::sessions::ask,
+        crate::api::sessions::ask_free,
         crate::api::sessions::patch_card,
         crate::api::sessions::save,
         crate::api::sessions::transcript,

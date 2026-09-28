@@ -8,7 +8,9 @@
 use crate::{
     audit,
     domain::classify::{classify, ClassifyResult},
+    domain::free_question,
     domain::grade::{self, Grade},
+    ml::LabelScorer,
     ws,
     error::{AppError, AppResult},
     state::AppState,
@@ -30,6 +32,7 @@ pub fn routes() -> Router<AppState> {
         .route("/api/scenarios", get(list_scenarios))
         .route("/api/sessions", post(create))
         .route("/api/sessions/{id}/ask", post(ask))
+        .route("/api/sessions/{id}/ask-free", post(ask_free))
         .route("/api/sessions/{id}/card", patch(patch_card))
         .route("/api/sessions/{id}/save", post(save))
         .route("/api/sessions/{id}/transcript", get(transcript))
@@ -514,6 +517,126 @@ async fn ask(
     tx.commit().await?;
 
     Ok(Json(AskResponse { answer, at_sec, unlocks }))
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AskFreeRequest {
+    /// Вопрос своими словами — напечатанный или распознанный с голоса
+    pub text: String,
+}
+
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AskFreeResponse {
+    pub answer: String,
+    pub at_sec: i32,
+    /// Про какой факт вопрос. `None` — ни про какой: заявитель переспросил
+    pub fact_id: Option<Uuid>,
+    pub unlocks: Vec<String>,
+}
+
+/// Свободный вопрос заявителю. Тренажёр понимает, про какой из скрытых
+/// фактов спрашивают, и заявитель отвечает записанным в сценарии —
+/// выдумать ответ здесь нечем. Не понял — переспрашивает, и факт
+/// остаётся невыясненным.
+#[utoipa::path(
+    post,
+    path = "/api/sessions/{id}/ask-free",
+    tag = "Занятие",
+    params(
+        ("id" = String, Path, description = "Идентификатор занятия"),
+    ),
+    responses(
+        (status = 200, description = "Ответ заявителя на свободный вопрос", body = AskFreeResponse),
+        (status = 400, description = "Пустой вопрос"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn ask_free(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AskFreeRequest>,
+) -> AppResult<Json<AskFreeResponse>> {
+    let session = own_session(&state.db, id, &user).await?;
+    let text = req.text.trim();
+    if text.is_empty() {
+        return Err(AppError::Validation("вопрос пуст".into()));
+    }
+    // Длинный текст — скорее вставленный откуда-то, чем вопрос
+    let text: String = text.chars().take(300).collect();
+
+    // Те же факты, что у курсанта кнопками на экране
+    let facts: Vec<(Uuid, String, String, Vec<String>, String)> = sqlx::query_as(
+        "SELECT f.id, f.question, f.answer, f.unlocks, f.key
+           FROM scenario_hidden_facts f
+           JOIN sessions s ON s.scenario_id = f.scenario_id
+          WHERE s.id = $1 AND NOT f.retired
+          ORDER BY f.sort_order",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+
+    // Ключ факта идёт вместе с вопросом: модели ключ со смыслом помогает
+    // отличить вопрос не по делу (см. `LabelScorer`)
+    let candidates: Vec<String> = facts.iter().map(|f| format!("{}\t{}", f.4, f.1)).collect();
+    // Модель не ответила — понимаем по словам, а не оставляем курсанта
+    // без ответа: разговор не должен вставать из-за сервера модели
+    let scored = match state.ml.scorer.score(&text, &candidates).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(error = %e, "свободный вопрос: модель не ответила, понимаю по словам");
+            crate::ml::mock::MockLabelScorer.score(&text, &candidates).await?
+        }
+    };
+    let hit = free_question::pick(&scored, &candidates).map(|i| &facts[i]);
+
+    let (answer, fact_id, unlocks) = match hit {
+        Some((fid, _, answer, unlocks, _)) => (answer.clone(), Some(*fid), unlocks.clone()),
+        None => {
+            let name: Option<String> = sqlx::query_scalar(
+                "SELECT sc.applicant_name FROM scenarios sc
+                   JOIN sessions s ON s.scenario_id = sc.id WHERE s.id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
+            let female = name.as_deref().is_some_and(free_question::applicant_female);
+            (free_question::not_understood(female).to_string(), None, Vec::new())
+        }
+    };
+
+    let at_sec = elapsed_sec(session.started_at);
+    let mut tx = state.db.begin().await?;
+    // В стенограмме — дословно сказанное курсантом: по ней разбирают,
+    // как он спрашивал, а не какую кнопку тренажёр за него подобрал
+    sqlx::query(
+        "INSERT INTO transcript_lines (session_id, who, text, at_sec)
+         VALUES ($1, 'оператор', $2, $3), ($1, 'заявитель', $4, $3)",
+    )
+    .bind(id)
+    .bind(&text)
+    .bind(at_sec)
+    .bind(&answer)
+    .execute(&mut *tx)
+    .await?;
+    if let Some(fid) = fact_id {
+        sqlx::query(
+            "INSERT INTO revealed_facts (session_id, fact_id, at_sec) VALUES ($1, $2, $3)
+             ON CONFLICT (session_id, fact_id) DO NOTHING",
+        )
+        .bind(id)
+        .bind(fid)
+        .bind(at_sec)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(Json(AskFreeResponse { answer, at_sec, fact_id, unlocks }))
 }
 
 #[derive(Deserialize, Default, utoipa::ToSchema)]
