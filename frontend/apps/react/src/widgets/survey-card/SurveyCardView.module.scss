@@ -36,3 +36,27 @@
   color: var(--c-text-muted);
   font-size: 13px;
 }
+
+/* Сводка для карточки ДДС: заголовок типа и одна строка признаков */
+.summary { margin-top: var(--sp-2); }
+
+.summaryHead {
+  margin: 0;
+  padding: 6px var(--sp-3);
+  background: #2b2e31;
+  color: var(--c-text-invert);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 3px;
+}
+
+.summaryLine {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-surface);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.5;
+}

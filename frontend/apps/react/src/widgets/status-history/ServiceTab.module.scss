@@ -1,65 +1,89 @@
+// Вкладка службы в нижней полосе карточки ДДС — по кадру боевой системы
+// (refs/СКРИНШОТ ДДС, dds_18): вкладки одной ширины, короткое имя,
+// под ним «ЧЧ:ММ статус»; раскрытая вкладка и её история — синие.
+
+$bar: #49555d;
+$light: #8e9091;
+$blue: #157dbd;
+
 .wrap { position: relative; }
 
 .tab {
-  min-width: 120px;
-  background: #3a3d40;
-  color: var(--c-text-invert);
-  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+  position: relative;
+  width: 104px;
+  height: 64px;
+  box-sizing: border-box;
+  padding: 16px 4px 0;
+  background: $bar;
+  color: #fff;
   text-align: center;
+  border-right: 1px solid rgb(255 255 255 / .12);
 }
 
-.own { background: var(--c-blue-panel); }
+// Своя служба диспетчера — светлая, как выбранная вкладка на кадре
+.own { background: $light; }
+.opened { background: $blue; }
 
-.tabTools { display: flex; justify-content: center; gap: var(--sp-2); }
-
-.tool {
+.chevron, .pencil {
+  position: absolute;
+  top: 3px;
   border: 0; background: transparent; color: inherit;
-  font-size: 11px; line-height: 1; padding: 2px;
+  padding: 2px 4px; line-height: 0;
+  cursor: pointer;
 }
 
-.tabTitle { font-size: var(--fs-sm); font-weight: 700; margin-top: 2px; }
-.tabStatus { font-size: 10px; color: #d6d6d6; white-space: nowrap; }
+.chevron { left: 50%; transform: translateX(-50%); }
+.pencil { right: 3px; }
+
+.tabTitle {
+  font-size: 13px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+// Главная служба происшествия подчёркнута
+.main { text-decoration: underline; text-underline-offset: 3px; }
+
+.tabStatus {
+  margin-top: 3px;
+  font-size: 10px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .history {
   position: absolute;
   bottom: 100%;
   left: 0;
-  width: max(320px, 100%);
-  background: var(--c-blue-panel);
-  color: var(--c-text-invert);
-  padding: var(--sp-2);
-  margin-bottom: var(--sp-1);
-  box-shadow: 0 -4px 14px rgb(0 0 0 / .3);
+  z-index: 5;
+  width: 520px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: $blue;
+  color: #fff;
+  padding: 6px 0;
 }
-
-.historyHead {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: var(--fs-sm); font-weight: 700;
-  margin-bottom: var(--sp-2);
-}
-
-.histClose { border: 0; background: transparent; color: inherit; font-size: 14px; }
 
 .histRow {
-  display: flex; flex-wrap: wrap; gap: var(--sp-1);
+  display: grid;
+  grid-template-columns: 64px 12px 230px 12px minmax(0, 1fr);
   align-items: baseline;
-  font-size: var(--fs-xs);
-  padding: 2px 0;
+  font-size: 11px;
+  padding: 3px 8px 3px 0;
 }
 
-.op { opacity: .75; }
-.arrow { opacity: .6; }
+.op { padding-left: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .9; }
+.arrow { opacity: .8; text-align: center; }
 .when { font-variant-numeric: tabular-nums; }
-.status { font-weight: 600; }
-.comment { flex: 1 1 180px; opacity: .95; }
+.status { font-weight: 400; }
+.comment { opacity: .95; }
 
 .editor {
   position: absolute;
   bottom: 100%;
   left: 0;
+  z-index: 6;
   display: flex; flex-wrap: wrap; gap: var(--sp-1);
   align-items: center;
-  width: max(560px, 100%);
+  width: 560px;
   padding: var(--sp-2);
   margin-bottom: var(--sp-1);
   background: var(--c-surface);

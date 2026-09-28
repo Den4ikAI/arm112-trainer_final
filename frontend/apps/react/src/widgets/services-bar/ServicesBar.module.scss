@@ -1,41 +1,91 @@
 @use '@styles/mixins' as m;
 
+// Нижняя полоса карточки 112 — по кадрам боевой системы (КАРТОЧКА 112,
+// image19): оранжевая, вкладки служб одной ширины с трубкой и крестиком,
+// «+», справа «сохранить» и кнопки окна в белых рамках.
+$orange: #ec653b;
+$sep: #fb8c69;
+
 .bar {
-  display: flex; align-items: center; gap: var(--sp-2);
-  min-height: var(--h-servicebar);
-  padding: var(--sp-1) var(--sp-3);
-  background: var(--c-accent);
+  display: flex; align-items: center; gap: 8px;
+  min-height: 64px;
+  padding: 0 8px;
+  background: $orange;
   color: var(--c-text-invert);
-  overflow-x: auto;
-  @include m.thin-scroll;
 }
 
-.dds { background: var(--c-panel); }
+.dds { background: #49555d; }
 
-.caption { font-size: var(--fs-md); white-space: nowrap; }
-.list { display: flex; gap: var(--sp-1); flex: 1; min-width: 0; }
+.caption { font-size: 13px; white-space: nowrap; padding-right: 4px; }
+
+// Не влезающие вкладки встают рядом выше, а не уезжают в прокрутку
+.list {
+  display: flex; flex-wrap: wrap-reverse; align-items: flex-end;
+  align-self: flex-end;
+  min-width: 0;
+}
 
 .tag {
-  display: inline-flex; align-items: center; gap: var(--sp-1);
-  padding: var(--sp-1) var(--sp-2);
-  background: rgb(255 255 255 / .16);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
+  position: relative;
+  width: 104px; height: 64px;
+  box-sizing: border-box;
+  border-left: 1px solid $sep;
+  background: $orange;
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px 6px 0;
 }
 
-/// Основные службы боевая система подчёркивает двойной линией.
-.auto { text-decoration: underline; text-decoration-style: double; }
+.tag:last-child { border-right: 1px solid $sep; }
+.tag:hover { background: #f08a6b; }
 
-.tagX { border: 0; background: transparent; color: inherit; font-size: 14px; padding: 0; }
+.phone { position: absolute; top: 9px; left: 10px; }
 
-.add, .save {
-  border: 1px solid rgb(255 255 255 / .6);
+.tagX {
+  position: absolute; top: 3px; right: 6px;
+  border: 0; background: transparent; color: inherit;
+  font-size: 16px; line-height: 1; padding: 2px;
+  cursor: pointer;
+}
+
+.tagX:disabled { cursor: default; opacity: .9; }
+
+.tagName {
+  font-size: 13px; font-weight: 700;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+// Главная служба происшествия подчёркнута, как на кадре
+.main { text-decoration: underline; text-underline-offset: 3px; }
+
+.square {
+  flex: 0 0 auto;
+  width: 40px; height: 40px;
+  display: inline-grid; place-items: center;
+  border: 1px solid rgb(255 255 255 / .85);
   background: transparent;
   color: var(--c-text-invert);
-  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
 }
 
-.save { font-size: var(--fs-lg); padding-inline: var(--sp-5); }
+.right { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+
+.save {
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgb(255 255 255 / .85);
+  background: transparent;
+  color: var(--c-text-invert);
+  font-size: 18px; font-weight: 700;
+  cursor: pointer;
+}
+
+// Узкий экран: полоса переносится, а кнопки-заглушки окна боевой системы
+// прячутся — на телефоне они только вытесняли бы «сохранить» за край
+@media (max-width: 760px) {
+  .bar { flex-wrap: wrap; padding-block: 4px; }
+  .icon { display: none; }
+  .tag { width: 88px; }
+}
 
 .search { @include m.underline-input; margin-bottom: var(--sp-3); }
 .options { list-style: none; margin: 0; padding: 0; }

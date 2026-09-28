@@ -103,8 +103,9 @@ test.describe('Карточка 112', () => {
     const tag = page.getByTestId('service-mchs');
     await expect(tag).toBeVisible();
     // Инструкция, раздел 6: список формируется автоматически и править
-    // его не следует. Крестика у автоподобранной службы нет.
-    await expect(tag.getByRole('button')).toHaveCount(0);
+    // его не следует. Крестик на плашке есть, как на кадре боевой
+    // системы, но у автоподобранной службы он неактивен.
+    await expect(tag.getByRole('button')).toBeDisabled();
   });
 
   test('службы названы как в боевой системе, поиск находит их по-старому', async ({ page }) => {
@@ -113,7 +114,8 @@ test.describe('Карточка 112', () => {
     // На плашке — короткое имя, как на кадрах карточки: «Служба 101»,
     // а не заголовок столбца классификатора «Классификатор МЧС»
     const tag = page.getByTestId('service-mchs');
-    await expect(tag).toHaveText('Служба 101');
+    await expect(tag).toContainText('Служба 101');
+    await expect(tag).not.toContainText('Классификатор');
 
     // В окне добавления — полное имя с кадра «СЛУЖБЫ 112», image1.
     // Привычное «скорая» находит «Службу 103», прежнее «Классификатор

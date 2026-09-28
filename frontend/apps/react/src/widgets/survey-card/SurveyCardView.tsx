@@ -195,3 +195,47 @@ const Question = ({ q, value, onAnswer, readOnly }: {
     </div>
   );
 };
+
+/** Вопрос «да / нет»: в сводке его ответ пишется вместе с вопросом. */
+const даНет = (q: SurveyQuestion) =>
+  q.options.length > 0 && q.options.every((o) => ['Да', 'Нет', 'Нет данных'].includes(o));
+
+/**
+ * Опросная карта, свёрнутая в одну строку, — как в карточке ДДС боевой
+ * системы: под заголовком типа выбранные признаки через точку («Дом .
+ * Открытое пламя / Дым . Дом частный . …»).
+ *
+ * Диспетчер ДДС карту не заполняет и вариантов ответа не видит: ему
+ * нужно, что выбрал оператор 112, а не из чего он выбирал.
+ */
+export const SurveySummary = ({ typeId, answers }: {
+  typeId: string;
+  answers: Props['answers'];
+}) => {
+  const card = useCatalog((st) => st.cards[typeId]);
+  const loadCard = useCatalog((st) => st.loadCard);
+  useEffect(() => { void loadCard(typeId); }, [typeId, loadCard]);
+  if (card === undefined) return null;
+
+  const части: string[] = [];
+  if (card) {
+    const видны = видимыеВопросы(card, answers);
+    for (const q of card.questions) {
+      if (!видны.has(q.id)) continue;
+      const значения = выбрано(answers[q.id]).map((v) => v.trim()).filter(Boolean);
+      if (значения.length === 0) continue;
+      // «Угроза людям: нет» понятнее голого «Нет»
+      части.push(даНет(q) ? `${q.label}: ${значения.join(', ').toLowerCase()}` : значения.join(', '));
+    }
+  }
+
+  return (
+    <section className={s.summary} aria-label={card?.title ?? typeId}
+             data-testid={`survey-summary-${typeId}`}>
+      <h3 className={s.summaryHead}>{card?.title ?? typeId}</h3>
+      <p className={s.summaryLine}>
+        {части.length > 0 ? `${части.join(' . ')} .` : 'Признаки не выбраны'}
+      </p>
+    </section>
+  );
+};

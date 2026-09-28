@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useCatalog } from '@/entities/catalog/model';
 import { ApiError, type ServiceResponses } from '@/shared/api';
 import clsx from '@/shared/lib/clsx';
 import s from './ServiceTab.module.scss';
@@ -7,6 +8,10 @@ interface Props {
   service: ServiceResponses;
   /** Своя служба — только у неё доступен карандаш. */
   own?: boolean;
+  /** Главная служба происшествия: боевая система её подчёркивает. */
+  main?: boolean;
+  /** Когда карточка ушла в службы — сохранение оператором 112. */
+  addedAt?: string | null;
   onAdd: (body: { status: string; orderNo?: string; comment?: string }) => Promise<void>;
 }
 
@@ -37,7 +42,8 @@ const errorText = (e: unknown): string => {
  * Интерфейс его не вычисляет — иначе две реализации одного правила
  * рано или поздно разойдутся.
  */
-export const ServiceTab = ({ service, own, onAdd }: Props) => {
+export const ServiceTab = ({ service, own, main, addedAt, onAdd }: Props) => {
+  const serviceShort = useCatalog((st) => st.serviceShort);
   const [showHistory, setShowHistory] = useState(false);
   const [editing, setEditing] = useState(false);
   const [status, setStatus] = useState('');
@@ -62,23 +68,23 @@ export const ServiceTab = ({ service, own, onAdd }: Props) => {
     }
   };
 
+  // Раскрытая вкладка боевой системы синеет вместе с историей над ней
+  const opened = showHistory || editing;
+
   return (
     <div className={s.wrap}>
       {showHistory && entries.length > 0 && (
-        <div className={s.history} data-testid={`history-${serviceId}`}>
-          <div className={s.historyHead}>
-            {title}
-            <button className={s.histClose} onClick={() => setShowHistory(false)}
-                    aria-label="Закрыть историю">×</button>
-          </div>
+        <div className={s.history} data-testid={`history-${serviceId}`}
+             role="region" aria-label={`История статусов: ${title}`}>
           {entries.map((e) => (
             <div key={e.id} className={s.histRow}>
-              <span className={s.op}>{e.operator}</span>
+              <span className={s.op} title={e.operator}>{e.operator}</span>
               <span className={s.arrow}>›</span>
-              <span className={s.when}>{dmy(e.at)} {hhmmss(e.at)}</span>
-              <span className={s.status}>{e.status}</span>
-              {e.comment && <><span className={s.arrow}>›</span>
-                <span className={s.comment}>{e.comment}</span></>}
+              <span className={s.when}>
+                {dmy(e.at)} {hhmmss(e.at)} <span className={s.status}>{e.status}</span>
+              </span>
+              <span className={s.arrow}>{e.comment ? '›' : ''}</span>
+              <span className={s.comment}>{e.comment}</span>
             </div>
           ))}
         </div>
@@ -103,20 +109,30 @@ export const ServiceTab = ({ service, own, onAdd }: Props) => {
         </div>
       )}
 
-      <div className={clsx(s.tab, own && s.own)} data-testid={`service-tab-${serviceId}`}>
-        <div className={s.tabTools}>
-          <button className={s.tool} onClick={() => setShowHistory((v) => !v)}
-                  aria-label="История статусов" aria-expanded={showHistory}>˅</button>
-          {own && allowedNext.length > 0 && (
-            // Пока статус уходит на сервер, карандаш не трогаем: клик
-            // по нему закрыл бы редактор прямо во время отправки
-            <button className={s.tool} onClick={() => setEditing((v) => !v)} disabled={busy}
-                    aria-label="Проставить статус" data-testid={`pencil-${serviceId}`}>✎</button>
-          )}
-        </div>
-        <div className={s.tabTitle}>{title}</div>
+      <div className={clsx(s.tab, own && s.own, opened && s.opened)}
+           data-testid={`service-tab-${serviceId}`} title={title}>
+        <button className={s.chevron} onClick={() => setShowHistory((v) => !v)}
+                aria-label="История статусов" aria-expanded={showHistory}>
+          <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">
+            <path d={showHistory ? 'M1 1l4 4 4-4' : 'M1 5l4-4 4 4'} fill="none"
+                  stroke="currentColor" strokeWidth="1.4" />
+          </svg>
+        </button>
+        {own && allowedNext.length > 0 && (
+          // Пока статус уходит на сервер, карандаш не трогаем: клик
+          // по нему закрыл бы редактор прямо во время отправки
+          <button className={s.pencil} onClick={() => setEditing((v) => !v)} disabled={busy}
+                  aria-label="Проставить статус" data-testid={`pencil-${serviceId}`}>
+            <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+              <path d="M1 11l.6-2.6L8.4 1.6l2 2L3.6 10.4z" fill="currentColor" />
+            </svg>
+          </button>
+        )}
+        {/* На вкладке — короткое имя, как в боевой: «Служба 101», «Деп. ЖКХ» */}
+        <div className={clsx(s.tabTitle, main && s.main)}>{serviceShort(serviceId)}</div>
         <div className={s.tabStatus}>
-          {last ? `${hhmm(last.at)} ${last.status}` : '—'}
+          {/* Пока служба молчит, боевая пишет, когда карточка ей добавлена */}
+          {last ? `${hhmm(last.at)} ${last.status}` : addedAt ? `${hhmm(addedAt)} Добавлена` : '—'}
         </div>
       </div>
     </div>

@@ -77,26 +77,62 @@
 
 .klass, .klassVis { font-weight: 400; }
 
+// Нижняя полоса служб — по кадру боевой системы (dds_18): тёмная полоса
+// высотой в одну вкладку, вкладки одной ширины; не влезающие в ряд
+// встают рядом выше (wrap-reverse), справа — кнопки окна.
 .serviceBar {
-  background: var(--c-panel);
+  position: relative;
+  display: flex; align-items: flex-end;
+  min-height: 64px;
+  background: #49555d;
   color: var(--c-text-invert);
-  padding: var(--sp-2) var(--sp-3);
-  display: grid;
-  gap: var(--sp-1);
+  padding: 0 8px;
 }
 
-.caption { font-size: var(--fs-md); }
+.caption {
+  align-self: center;
+  flex: 0 0 auto;
+  font-size: 13px;
+  padding-right: 12px;
+}
 
-// Без overflow: всплывающая строка статуса и история статусов
-// позиционируются над плашкой и прокручиваемым контейнером обрезались бы,
-// а клики перехватывала бы сама полоса.
+// Без overflow: история статусов и строка ввода всплывают над вкладкой,
+// в прокручиваемом контейнере они обрезались бы
 .tabs {
-  display: flex; flex-wrap: wrap;
-  gap: var(--sp-1);
-  padding-top: var(--sp-5);
+  display: flex;
+  flex-wrap: wrap-reverse;
+  align-items: flex-end;
+  min-width: 0;
 }
 
-.hint { font-size: var(--fs-xs); color: #b9c8d4; }
+.barTools { align-self: center; padding-left: 12px; }
+
+.barRight {
+  align-self: center;
+  margin-left: auto;
+  display: flex; gap: 4px;
+}
+
+.barBtn {
+  width: 40px; height: 40px;
+  display: inline-grid; place-items: center;
+  border: 1px solid rgb(255 255 255 / .85);
+  background: transparent;
+  color: #fff;
+  cursor: default;
+}
+
+@media (max-width: 760px) {
+  .serviceBar { flex-wrap: wrap; }
+  .barTools, .barRight { display: none; }
+}
+
+// Своя служба и нормативы — над бригадой, а не под полосой служб
+.hint {
+  font-size: var(--fs-xs);
+  color: #dfe5ea;
+  padding: var(--sp-1) var(--sp-2);
+}
 
 .empty {
   padding: var(--sp-6);
