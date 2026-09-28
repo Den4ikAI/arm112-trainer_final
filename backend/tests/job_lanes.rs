@@ -48,10 +48,12 @@ async fn отчёт_по_группе_не_ждёт_за_задачами_мод
     ];
     let отчёт = поставить(&pool, "report.group", &метка).await;
 
-    // Прогоны идут параллельно: быстрая полоса может сначала отдать чужой
-    // отчёт — возвращаем его в очередь и берём следующий
+    // В общей базе могут стоять чужие отчёты — старше нашего. Их держим
+    // взятыми, пока не дойдём до своего, и только потом возвращаем
+    // в очередь: вернуть сразу — следующий вызов отдал бы тот же самый
     let mut взято = None;
-    for _ in 0..50 {
+    let mut чужие = Vec::new();
+    for _ in 0..500 {
         let Some(job) = worker::take_one(&pool, worker::Lane::Fast).await.unwrap() else { break };
         assert!(worker::FAST_KINDS.contains(&job.kind.as_str()),
                 "быстрая полоса взяла задачу модели: {}", job.kind);
@@ -59,9 +61,10 @@ async fn отчёт_по_группе_не_ждёт_за_задачами_мод
             взято = Some(job.id);
             break;
         }
-        sqlx::query("UPDATE ml_jobs SET status = 'queued' WHERE id = $1")
-            .bind(job.id).execute(&pool).await.unwrap();
+        чужие.push(job.id);
     }
+    sqlx::query("UPDATE ml_jobs SET status = 'queued' WHERE id = ANY($1)")
+        .bind(&чужие).execute(&pool).await.unwrap();
     assert_eq!(взято, Some(отчёт), "отчёт должен взяться, не дожидаясь задач модели");
 
     let ждут: i64 = sqlx::query_scalar(
