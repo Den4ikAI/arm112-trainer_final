@@ -172,14 +172,17 @@ EOF
 
 ### 3б. Профиль GPU (если есть видеокарта)
 
-Тот же тренажёр, другая модель: Qwen3.8-27B (INT4) в vLLM на одной
+Тот же тренажёр, другая модель: Gemma 4 26B-A4B (INT4) в vLLM на одной
 RTX 4090. Отдельной сборки тренажёра нет — меняется только адрес модели.
 
 ```bash
 pip install vllm==0.30.0          # на драйвере CUDA 12.x — сборка +cu129 с GitHub
-huggingface-cli download RedHatAI/Qwen3.8-27B-INT4 --local-dir /opt/arm112/qwen
-MODEL_DIR=/opt/arm112/qwen deploy/gpu/start-vllm.sh     # порт 8091
+huggingface-cli download cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4 --local-dir /opt/arm112/gemma
+MODEL_DIR=/opt/arm112/gemma deploy/gpu/start-vllm.sh    # порт 8091
 ```
+
+Вместо Gemma годится и Qwen3.8-27B (`RedHatAI/Qwen3.8-27B-INT4`) — он
+втрое медленнее при том же качестве, сравнение — в документации, 6.2а.
 
 В `deploy/.env`: `ML_BASE_URL=http://<машина с GPU>:8091`. Почему такие
 флаги — в комментарии к `deploy/gpu/start-vllm.sh`. На GPU стоит

@@ -1,11 +1,13 @@
 #!/bin/bash
-# Профиль GPU: Qwen3.8-27B (INT4, W4A16) в vLLM на одной RTX 4090 (24 ГБ).
+# Профиль GPU: языковая модель в vLLM на одной RTX 4090 (24 ГБ). По умолчанию
+# Gemma 4 26B-A4B (cyankiwi/gemma-4-26B-A4B-it-qat-AWQ-INT4); проверен и
+# Qwen3.8-27B (RedHatAI/Qwen3.8-27B-INT4).
 #
 # Тренажёр ходит к модели по OpenAI-совместимому API, поэтому переход
 # с процессорного профиля — одна переменная: ML_BASE_URL=http://<эта машина>:8091.
 #
 # Флаги подобраны на RTX 4090 с драйвером 550 (CUDA 12.4), vLLM 0.30.0+cu129:
-#   --max-num-seqs 8        у гибридной модели состояние на каждый запрос;
+#   --max-num-seqs 8        у гибридной Qwen состояние на каждый запрос;
 #                           при умолчании (256) кэш не помещается в 24 ГБ
 #   --attention-backend TRITON_ATTN, VLLM_USE_FLASHINFER_SAMPLER=0
 #                           FlashInfer собирает ядра на лету системным nvcc,
@@ -13,7 +15,7 @@
 #   --language-model-only   зрительный кодировщик не нужен
 #   enable_thinking=false   наши запросы — короткие JSON по схеме
 #
-# Переменные: MODEL_DIR (веса RedHatAI/Qwen3.8-27B-INT4), VLLM (путь к vllm),
+# Переменные: MODEL_DIR (каталог весов), VLLM (путь к vllm),
 # GPU, PORT, CTX, SEQS.
 set -e
 export CUDA_VISIBLE_DEVICES=${GPU:-0}
