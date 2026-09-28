@@ -15,17 +15,27 @@ interface Props {
  */
 export const IncidentPanel = ({ selected, onToggle }: Props) => {
   const [query, setQuery] = useState('');
-  const types = useCatalog((st) => st.types);
+  const [open, setOpen] = useState(false);
+  const allTypes = useCatalog((st) => st.types);
   const typeTitle = useCatalog((st) => st.typeTitle);
+
+  // Как в боевой системе: список «что случилось?» открывается по фокусу
+  // целиком, в её порядке, и сужается по мере ввода. Скрытые типы (их
+  // нет в списке боевой системы) не предлагаются
+  const types = useMemo(() => allTypes.filter((t) => t.listed), [allTypes]);
+  const quick = useMemo(
+    () => types.filter((t) => t.quickOrder != null)
+      .sort((a, b) => (a.quickOrder ?? 0) - (b.quickOrder ?? 0)),
+    [types],
+  );
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/[-,]/g, ' ');
-    if (!q) return [];
     const words = q.split(/\s+/).filter(Boolean);
     return types.filter((t) => {
-      const title = t.title.toLowerCase();
+      const title = t.title.toLowerCase().replace(/[-,]/g, ' ');
       return words.every((w) => title.includes(w));
-    }).slice(0, 8);
+    });
   }, [query, types]);
 
   const hasSelection = selected.length > 0;
@@ -43,11 +53,16 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
         className={s.search}
         value={query}
         placeholder={hasSelection ? 'добавить тип происшествия' : ''}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        // Задержка: клик по пункту списка должен успеть сработать раньше,
+        // чем список закроется из-за потери фокуса
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
         autoComplete="off"
       />
 
-      {matches.length > 0 && (
+      {open && matches.length > 0 && (
         <ul className={s.dropdown} role="listbox">
           {matches.map((t) => (
             <li key={t.id}>
@@ -55,7 +70,7 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
                 className={s.option}
                 role="option"
                 aria-selected={selected.includes(t.id)}
-                onClick={() => { onToggle(t.id); setQuery(''); }}
+                onClick={() => { onToggle(t.id); setQuery(''); setOpen(false); }}
               >
                 {t.title}
               </button>
@@ -77,7 +92,7 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
       {!hasSelection && (
         <>
           <div className={s.frequent}>
-            {types.filter((t) => t.frequent).map((t) => (
+            {quick.map((t) => (
               <Chip key={t.id} onClick={() => onToggle(t.id)}>{t.title}</Chip>
             ))}
           </div>

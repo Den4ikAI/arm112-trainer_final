@@ -294,7 +294,7 @@ export const LessonsPage = () => {
                   берутся любые */}
               <legend>Категории происшествий</legend>
               {types.length === 0 && <p className={s.empty}>Справочник не загрузился</p>}
-              {types.map((t) => (
+              {types.filter((t) => t.listed || form.typeIds.includes(t.id)).map((t) => (
                 <label key={t.id} className={s.type}>
                   <input type="checkbox" checked={form.typeIds.includes(t.id)}
                          onChange={() => переключить(t.id)} />

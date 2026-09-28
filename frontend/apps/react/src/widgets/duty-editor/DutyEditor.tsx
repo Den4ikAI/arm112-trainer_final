@@ -49,7 +49,9 @@ export const DutyEditor = ({ userId, login, duty, serviceId, onChanged }: {
         <select value={service} aria-label={`Служба ${login}`}
                 onChange={(e) => setService(e.target.value)}>
           <option value="">выберите службу</option>
-          {services.map((sv) => (
+          {/* Службы окна «Добавьте службы» боевой системы; уже назначенная
+              остаётся в списке, даже если скрыта */}
+          {services.filter((sv) => sv.listed || sv.id === service).map((sv) => (
             <option key={sv.id} value={sv.id}>{sv.shortTitle || sv.title}</option>
           ))}
         </select>

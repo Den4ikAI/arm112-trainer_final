@@ -31,6 +31,13 @@ struct IncidentType {
     frequent: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     group_no: Option<i32>,
+    /// Есть в выпадающем списке «что случилось?» боевой системы.
+    /// Скрытые отдаются тоже: по ним подписаны старые карточки и сценарии
+    listed: bool,
+    /// Место в выпадающем списке, как на кадрах (КАРТОЧКА 112, image2…13)
+    sort_order: Option<i32>,
+    /// Место быстрой плашки на пустой карточке, слева направо
+    quick_order: Option<i32>,
 }
 
 #[utoipa::path(
@@ -44,10 +51,11 @@ struct IncidentType {
     ),
 )]
 async fn incident_types(State(state): State<AppState>) -> AppResult<Json<Vec<IncidentType>>> {
-    // Частые идут первыми — так же, как на кадре пустой карточки
+    // Порядок выпадающего списка боевой системы; скрытые — в конце
     let rows = sqlx::query_as::<_, IncidentType>(
-        "SELECT id, title, frequent, group_no FROM incident_types
-          ORDER BY frequent DESC, title",
+        "SELECT id, title, frequent, group_no, listed, sort_order, quick_order
+           FROM incident_types
+          ORDER BY sort_order NULLS LAST, title",
     )
     .fetch_all(&state.db)
     .await?;
@@ -68,6 +76,11 @@ struct Service {
     /// Слова, по которым службу тоже находит поиск: «скорая», «02»
     aliases: Vec<String>,
     is_primary: bool,
+    /// Есть в окне «Добавьте службы» боевой системы. Скрытые отдаются тоже:
+    /// на них ссылаются старые карточки, журнал и разбор
+    listed: bool,
+    /// Место в окне «Добавьте службы», как на кадрах (СЛУЖБЫ 112, image1…55)
+    position: Option<i32>,
 }
 
 #[utoipa::path(
@@ -83,13 +96,16 @@ struct Service {
 async fn services(State(state): State<AppState>) -> AppResult<Json<Vec<Service>>> {
     let rows = sqlx::query_as::<_, Service>(
         "SELECT s.id, s.title,
-                COALESCE(n.short_title, s.title) AS short_title,
+                COALESCE(c.short_title, n.short_title, s.title) AS short_title,
                 s.source_title,
                 COALESCE(n.aliases, '{}') AS aliases,
-                s.is_primary
+                s.is_primary,
+                c.service_id IS NOT NULL AS listed,
+                c.position
            FROM services s
            LEFT JOIN service_names n ON n.service_id = s.id
-          ORDER BY s.title",
+           LEFT JOIN service_catalog c ON c.service_id = s.id
+          ORDER BY c.position NULLS LAST, s.title",
     )
     .fetch_all(&state.db)
     .await?;

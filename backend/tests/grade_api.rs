@@ -243,9 +243,15 @@ async fn незаполненные_поля_отличаются_от_неве�
     let missing = kinds(&grade, "missing");
     assert!(missing.contains(&"address.street"), "{missing:?}");
     assert!(missing.contains(&"answers.gasified"), "{missing:?}");
-    // Службы не подобрались: без признаков дома позиция не определяется
-    assert!(!grade["services"]["missed"].as_array().unwrap().is_empty());
-    assert!(grade["score"].as_i64().unwrap() < 60);
+    // Службы здесь сходятся с эталоном: «Дом» и признак пожара уже дают
+    // позицию. Раньше в эталоне оставался столбец классификатора, которого
+    // нет в окне «Добавьте службы» боевой системы, — курсант не мог его
+    // добавить, и «пропущенная служба» была артефактом. Скрытые службы
+    // из эталона убраны (миграция 20260929100000_catalog_by_frames.sql).
+    // Балл всё равно низкий — за незаполненный адрес и признаки
+    assert!(grade["services"]["missed"].as_array().unwrap().is_empty(),
+            "{}", grade["services"]);
+    assert!(grade["score"].as_i64().unwrap() < 60, "балл {}", grade["score"]);
 }
 
 /// Разбор доступен только после сохранения и считается один раз.

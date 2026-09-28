@@ -66,7 +66,10 @@ export const ServicesBar = ({ serviceIds, autoIds, onChange, onSave, mode, child
       : [...manual, id]);
   };
 
-  const shown = services.filter((sv) => matches(sv, query));
+  // Окно — ровно список боевой системы и в её порядке (сервер отдаёт
+  // по порядку кадров). Скрытые службы в окне не предлагаются, но их
+  // названия нужны журналу и разбору, поэтому справочник держит всех
+  const shown = services.filter((sv) => sv.listed && matches(sv, query));
 
   const { ordered, main } = orderServices(serviceIds, serviceShort);
 

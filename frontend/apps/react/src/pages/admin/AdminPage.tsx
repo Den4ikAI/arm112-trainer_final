@@ -366,7 +366,7 @@ const NewUserForm = ({ onDone }: { onDone: () => void }) => {
               <select value={form.serviceId} aria-label="Служба" required
                       onChange={(e) => set('serviceId')(e.target.value)}>
                 <option value="">выберите службу</option>
-                {services.map((sv) => (
+                {services.filter((sv) => sv.listed || sv.id === form.serviceId).map((sv) => (
                   <option key={sv.id} value={sv.id}>{sv.title}</option>
                 ))}
               </select>

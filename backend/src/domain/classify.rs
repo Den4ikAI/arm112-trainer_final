@@ -286,6 +286,12 @@ pub async fn classify(
                 cm.kind::text, cm.question_id, cm.match_value
            FROM classifier_position_services ps
            JOIN services s ON s.id = ps.service_id
+           -- Только службы окна «Добавьте службы» боевой системы. Столбец
+           -- классификатора, которого в окне нет («Территориальные ОИВ»),
+           -- не подбирается и в эталон разбора не входит: курсант не смог
+           -- бы добавить такую службу сам, а разбор штрафовал бы за неё.
+           -- Эталон считается этой же функцией, так что правило одно
+           JOIN service_catalog sc ON sc.service_id = s.id
            LEFT JOIN condition_mapping cm ON cm.condition = ps.condition
           WHERE ps.position_id = ANY($1)",
     )

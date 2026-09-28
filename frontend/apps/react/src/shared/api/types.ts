@@ -27,6 +27,12 @@ export interface IncidentType {
   title: string;
   frequent: boolean;
   group: number | null;
+  /** Есть в выпадающем списке «что случилось?» боевой системы. */
+  listed: boolean;
+  /** Место в выпадающем списке — как на кадрах. */
+  sortOrder: number | null;
+  /** Место быстрой плашки на пустой карточке, слева направо. */
+  quickOrder: number | null;
 }
 
 export interface Service {
@@ -39,6 +45,10 @@ export interface Service {
   sourceTitle: string | null;
   /** Дополнительные слова для поиска: «скорая», «02». */
   aliases: string[];
+  /** Есть в окне «Добавьте службы» боевой системы. */
+  listed: boolean;
+  /** Место в окне «Добавьте службы» — как на кадрах. */
+  position: number | null;
 }
 
 export interface SurveyQuestion {

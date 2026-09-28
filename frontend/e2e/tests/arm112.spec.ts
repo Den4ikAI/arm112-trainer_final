@@ -83,7 +83,10 @@ test.describe('Карточка 112', () => {
     // Пожар в частном доме: службы из ЕКП v046_24, не выдуманные
     await expect(page.getByTestId('service-mchs')).toBeVisible();
     await expect(page.getByTestId('service-codd')).toBeVisible();
-    await expect(page.getByTestId('service-gup-msr')).toBeVisible();
+    // ГУП МСР есть в матрице ЕКП, но нет в окне «Добавьте службы» боевой
+    // системы (кадры СЛУЖБЫ 112): курсант не смог бы её добавить, поэтому
+    // она не подбирается и в эталон не входит
+    await expect(page.getByTestId('service-gup-msr')).toHaveCount(0);
   });
 
   test('неполные признаки — сервер говорит, чего не хватает', async ({ page }) => {
