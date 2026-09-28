@@ -20,9 +20,33 @@ use uuid::Uuid;
 /// нельзя, а держать постоянный опрос базы незачем.
 const IDLE: Duration = Duration::from_millis(500);
 
+/// Задачи, которым модель не нужна: только база, секунды.
+///
+/// Отчёт по группе с нормативом ТЗ в 30 секунд раньше стоял в общей
+/// очереди за анализом текста моделью — десятки секунд на задачу на
+/// процессоре. Группа из двадцати курсантов, разом сохранивших
+/// карточки, отодвигала отчёт на минуты. Поэтому у быстрых задач своя
+/// полоса и свой обработчик, и за моделью они не стоят.
+pub const FAST_KINDS: [&str; 1] = ["report.group"];
+
+/// Полоса очереди: быстрые задачи без модели или задачи модели.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lane {
+    Fast,
+    Model,
+}
+
 pub async fn run(state: AppState) {
+    // Две полосы — два обработчика: пока модель думает над анализом
+    // текста, отчёт по группе считается рядом
+    let fast = state.clone();
+    tokio::spawn(async move { lane(fast, Lane::Fast).await });
+    lane(state, Lane::Model).await;
+}
+
+async fn lane(state: AppState, which: Lane) {
     loop {
-        match take_one(&state.db).await {
+        match take_one(&state.db, which).await {
             Ok(Some(job)) => {
                 let id = job.id;
                 let result = execute(&state, &job).await;
@@ -45,20 +69,24 @@ pub struct Job {
     pub input: Value,
 }
 
-/// Взять одну задачу и сразу пометить её взятой. `SKIP LOCKED`
-/// пропускает строки, которые уже держит другой экземпляр.
-async fn take_one(pool: &PgPool) -> anyhow::Result<Option<Job>> {
+/// Взять одну задачу своей полосы и сразу пометить её взятой.
+/// `SKIP LOCKED` пропускает строки, которые уже держит другой
+/// экземпляр или другая полоса.
+pub async fn take_one(pool: &PgPool, which: Lane) -> anyhow::Result<Option<Job>> {
+    let fast: Vec<String> = FAST_KINDS.iter().map(|k| k.to_string()).collect();
     let row: Option<(Uuid, String, Value)> = sqlx::query_as(
         "UPDATE ml_jobs SET status = 'running'
           WHERE id = (
             SELECT id FROM ml_jobs
-             WHERE status = 'queued'
+             WHERE status = 'queued' AND (kind = ANY($1)) = $2
              ORDER BY created_at
              FOR UPDATE SKIP LOCKED
              LIMIT 1
           )
         RETURNING id, kind, input",
     )
+    .bind(&fast)
+    .bind(which == Lane::Fast)
     .fetch_optional(pool)
     .await?;
 
