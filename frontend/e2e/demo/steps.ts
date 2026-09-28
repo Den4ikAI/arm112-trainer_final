@@ -250,7 +250,7 @@ export const dispatcherDds = async (d: Demo, ctx: Ctx): Promise<void> => {
   // приходит, пока диспетчер у экрана. В ролике между ними разбор 112
   // и титры, поэтому момент поступления сдвигаем на начало сцены —
   // иначе норматив «30 с до открытия» истёк бы, пока шёл рассказ
-  sql(ctx, `UPDATE cards SET saved_at = now() + interval '8 seconds' WHERE number = '${ctx.number}'`);
+  sql(ctx, `UPDATE cards SET saved_at = now() WHERE number = '${ctx.number}'`);
   await login(d, 'student3');
   const row = p.getByTestId(`journal-row-${ctx.number}`);
   await expect(row).toBeVisible();
