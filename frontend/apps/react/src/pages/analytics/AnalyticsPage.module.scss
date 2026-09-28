@@ -94,8 +94,11 @@
   font-size: 12px;
 }
 
+// Фон страницы — тёмная «оболочка»: серый текст на нём не читался,
+// и «Отчёт считается…» выглядел пустым экраном
 .empty {
   padding: var(--sp-6);
-  color: var(--c-text-muted);
+  color: var(--c-text-invert);
   text-align: center;
+  font-size: 15px;
 }

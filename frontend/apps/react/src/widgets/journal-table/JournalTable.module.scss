@@ -1,6 +1,13 @@
 @use '@styles/mixins' as m;
 
-.wrap { padding: var(--sp-3); }
+// Цвета — по кадрам реестра боевой системы (dds_04): светло-серое поле
+// списка, тёмные строки со светлым текстом, время, тип и адрес — ещё
+// темнее. Заказчик: «карточка и реестр обращений 100% должны быть похожи»
+$list: #838f97;
+$row: #49555d;
+$cell: #2f353a;
+
+.wrap { padding: var(--sp-3); background: $list; }
 
 .caption {
   color: var(--c-text-invert);
@@ -25,33 +32,35 @@
 .thWide { width: 24%; }
 
 .row {
-  background: var(--c-row);
+  background: $row;
+  color: #fff;
   cursor: pointer;
 
-  &:hover { background: #f2f2f2; }
+  &:hover { background: #56636b; }
 
   > td {
     padding: var(--sp-2);
-    border-bottom: 1px solid var(--c-shell);
+    border-bottom: 1px solid $list;
     white-space: nowrap;
   }
 }
 
 .oper { background: #6d2230; color: #fff; text-align: center; }
-.time { font-weight: 700; }
-.type { font-weight: 700; }
+.time { font-weight: 700; background: $cell; }
+.type { font-weight: 700; background: $cell; }
 .victims { text-align: center; }
-.addr { font-weight: 700; white-space: normal; }
+.addr { font-weight: 700; white-space: normal; background: $cell; }
 
 .descRow > td {
-  background: var(--c-row-alt);
+  background: $row;
+  color: #fff;
   padding: var(--sp-1) var(--sp-2);
-  border-bottom: 2px solid var(--c-shell);
+  border-bottom: 3px solid $list;
   font-size: var(--fs-xs);
 }
 
-.descLabel { color: var(--c-text-muted); margin-right: var(--sp-2); }
-.descMeta { color: var(--c-text-muted); }
+.descLabel { color: #c4ccd1; margin-right: var(--sp-2); }
+.descMeta { color: #c4ccd1; }
 .descText { font-weight: 700; }
 
 .empty { padding: var(--sp-5); text-align: center; color: var(--c-text-on-shell); }
@@ -85,12 +94,9 @@
 
 .table { min-width: 900px; }
 
-/* Карточка ждёт подтверждения дольше норматива (30 секунд). */
-.row.overdue {
-  background: #fdecea;
-
-  &:hover { background: #fbdcd8; }
-}
+/* Карточка ждёт подтверждения дольше норматива: строка остаётся тёмной,
+   как в реестре, а просрочку видно по красной кромке и значку */
+.row.overdue > td:first-child { box-shadow: inset 4px 0 0 var(--c-danger); }
 
 .status { white-space: nowrap; }
 
