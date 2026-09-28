@@ -309,7 +309,11 @@ pub async fn turn(
         "additionalProperties": false,
     });
 
-    let raw = llm.chat_json(Value::Array(messages), 900, Some(schema)).await?;
+    // Потолок с запасом: правка несёт и ответ, и изменённые поля вызова
+    // (легенду, скрытые ответы). Qwen на видеокарте пишет подробнее
+    // GigaChat, и при 900 токенах JSON обрывался посередине — сервер
+    // отдавал 500, а преподаватель видел голое «internal»
+    let raw = llm.chat_json(Value::Array(messages), 2000, Some(schema)).await?;
     let (mut reply, patch, ignored) = parse_turn(&raw);
 
     if !ignored.is_empty() {
