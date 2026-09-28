@@ -246,6 +246,11 @@ const stageNow = (ctx: Ctx, stage: string): void => {
 export const dispatcherDds = async (d: Demo, ctx: Ctx): Promise<void> => {
   const p = d.page;
   await d.caption('Диспетчер ДДС');
+  // В жизни оператор 112 и диспетчер работают одновременно: карточка
+  // приходит, пока диспетчер у экрана. В ролике между ними разбор 112
+  // и титры, поэтому момент поступления сдвигаем на начало сцены —
+  // иначе норматив «30 с до открытия» истёк бы, пока шёл рассказ
+  sql(ctx, `UPDATE cards SET saved_at = now() + interval '8 seconds' WHERE number = '${ctx.number}'`);
   await login(d, 'student3');
   const row = p.getByTestId(`journal-row-${ctx.number}`);
   await expect(row).toBeVisible();

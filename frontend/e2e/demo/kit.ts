@@ -30,6 +30,7 @@ const OVERLAY = `(() => {
         width: 28px; height: 28px; margin: -3px 0 0 -3px; transition: transform .08s;
         filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); }
       #demo-cursor.down { transform: scale(.85); }
+      body:has(#demo-card) #demo-cursor { display: none; }
       .demo-ripple { position: fixed; z-index: 2147483646; pointer-events: none;
         width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%;
         border: 3px solid #FF0053; animation: demo-ripple .6s ease-out forwards; }
