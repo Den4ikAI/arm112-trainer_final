@@ -366,6 +366,8 @@ export const teacherReview = async (d: Demo, ctx: Ctx): Promise<void> => {
   await expect(attempt.getByTestId('expert-score')).toHaveText('70');
   await d.pause(800);
 
+  // Разделы преподавателя — в шапке журнала
+  await p.goto('/#/journal');
   await d.click(p.getByTestId('analytics-link'));
   await d.pause(2500);
   await d.say('Аналитика по группе: ошибки, время, прогноз результата, который фиксируется до вызова и сверяется с фактом.');
@@ -375,6 +377,7 @@ export const teacherReview = async (d: Demo, ctx: Ctx): Promise<void> => {
     await d.pause(1500);
   }
 
+  await p.goto('/#/journal');
   await d.click(p.getByTestId('lessons-link'));
   await d.pause(800);
   await d.sayWhile('Занятия: обычное, марафон — экзамен из пяти–десяти вызовов с протоколом, и блиц по одному участку карточки.', async () => {
