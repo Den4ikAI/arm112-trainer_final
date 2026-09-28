@@ -346,8 +346,13 @@ export const chiefReport = async (d: Demo): Promise<void> => {
   }
 
   await d.sayWhile('Модель разбирает доклад: что доложено, что упущено, что доложено неверно.', async () => {
-    await d.waitModel(() =>
-      expect(panel.getByTestId('chief-review')).toBeVisible({ timeout: 600_000 }));
+    await d.waitModel(async () => {
+      await expect(panel.getByTestId('chief-review')).toBeVisible({ timeout: 600_000 });
+      // На процессоре сначала — сверка по ключевым словам, модель
+      // дорабатывает в фоне; ждём её, но ролик не валим, если модели нет
+      await expect(panel.getByTestId('chief-review'))
+        .toContainText('сверяла нейросеть', { timeout: 300_000 }).catch(() => {});
+    });
   });
   await d.moveTo(panel.getByTestId('chief-review'));
   await d.ring(panel.getByTestId('chief-review'));
