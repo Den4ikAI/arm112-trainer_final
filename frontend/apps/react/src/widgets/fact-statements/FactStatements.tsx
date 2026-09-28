@@ -24,8 +24,14 @@ export const FactStatements = ({
   useEffect(() => {
     setLegend((scenario.legendStatements ?? []).join('\n'));
     setFacts(Object.fromEntries(scenario.hidden.map((h) => [h.key, h.statement ?? ''])));
-    setNote(null);
   }, [scenario]);
+
+  // Сообщение — только при переходе к другому вызову. Сохранение тоже
+  // присылает обновлённый вызов, и сброс по нему стирал «Сохранено»
+  // в тот же миг, как оно появлялось
+  useEffect(() => {
+    setNote(null);
+  }, [scenario.id]);
 
   const pending = scenario.legendStatements == null
     || scenario.hidden.some((h) => !h.statement);
