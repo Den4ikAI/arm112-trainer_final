@@ -49,6 +49,7 @@ docs/demo/build.sh cpu    # без видеокарты: GigaChat 3.1 на пр�
 | `docs/demo/narrator.sh` | сервер голоса для диктора (:8193): голоса `narrator` и `operator` |
 | `docs/demo/assemble.py` | кадры + звук → MP4 (ffmpeg, numpy, soundfile) |
 | `docs/demo/build.sh` | всё вместе: чистая база → экземпляр → запись → сборка |
+| `docs/demo/frames.sh` | вынуть кадры ролика по секундам — проверить глазами |
 
 Звуки самого приложения (ответы старшего и начальника) Playwright не
 записывает, поэтому те же реплики синтезируются тем же голосом и

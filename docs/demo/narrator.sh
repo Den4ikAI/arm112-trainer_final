@@ -31,7 +31,12 @@ case "${1:-}" in
     curl -s "http://127.0.0.1:$PORT/health"; echo
     ;;
   stop)
-    [ -f "$RUN/narrator.pid" ] && kill "$(cat "$RUN/narrator.pid")" 2>/dev/null || true
+    if [ -f "$RUN/narrator.pid" ]; then
+      pid="$(cat "$RUN/narrator.pid")"
+      kill "$pid" 2>/dev/null || true
+      # Ждём, пока освободится порт: иначе новый запуск наткнётся на старый
+      for _ in $(seq 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    fi
     rm -f "$RUN/narrator.pid"
     ;;
   *) echo "использование: $0 start|stop" >&2; exit 2 ;;
