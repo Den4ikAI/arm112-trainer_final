@@ -38,6 +38,30 @@ pub enum Role {
     Admin,
 }
 
+/// Профиль рабочего места курсанта: оператор 112 или диспетчер ДДС.
+///
+/// Организатор, чат 18.09: «один интерфейс, одна учётка, две мини-роли».
+/// Интерфейс общий, а функционал разный: оператор 112 принимает вызовы
+/// и заполняет карточки, диспетчер ДДС работает с карточками своей
+/// службы. Профиль назначает преподаватель или администратор. У
+/// преподавателя и администратора профиля нет — их он не ограничивает.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema)]
+#[sqlx(type_name = "user_duty", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum Duty {
+    Op112,
+    Dds,
+}
+
+impl Duty {
+    pub fn title(self) -> &'static str {
+        match self {
+            Duty::Op112 => "оператор 112",
+            Duty::Dds => "диспетчер ДДС",
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Claims {
     /// Идентификатор пользователя
@@ -46,6 +70,10 @@ pub struct Claims {
     /// Служба, к которой привязан пользователь. У преподавателя
     /// и администратора её нет.
     pub service_id: Option<String>,
+    /// Профиль курсанта. Для сведения клиента: сервер всякий раз берёт
+    /// его из базы, чтобы смена профиля действовала без перевхода
+    #[serde(default)]
+    pub duty: Option<Duty>,
     pub workstation: Option<String>,
     /// Истекает через JWT_TTL_HOURS
     pub exp: i64,
@@ -59,6 +87,8 @@ pub struct UserView {
     pub fio: String,
     pub role: Role,
     pub service_id: Option<String>,
+    /// Профиль курсанта; у преподавателя и администратора — `null`
+    pub duty: Option<Duty>,
     pub workstation: Option<String>,
 }
 
@@ -93,9 +123,10 @@ async fn login(
     ClientIp(ip): ClientIp,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<LoginResponse>> {
-    let row: Option<(Uuid, String, String, String, Role, Option<String>, Option<String>, bool)> =
+    type Row = (Uuid, String, String, String, Role, Option<String>, Option<Duty>, Option<String>, bool);
+    let row: Option<Row> =
         sqlx::query_as(
-            "SELECT id, login, password_hash, fio, role, service_id, workstation, is_active
+            "SELECT id, login, password_hash, fio, role, service_id, duty, workstation, is_active
                FROM users WHERE login = $1",
         )
         .bind(&req.login)
@@ -104,7 +135,7 @@ async fn login(
 
     // Одинаковый ответ на неизвестный логин и неверный пароль:
     // иначе по времени ответа можно перебирать логины
-    let Some((id, login, hash, fio, role, service_id, ws, is_active)) = row else {
+    let Some((id, login, hash, fio, role, service_id, duty, ws, is_active)) = row else {
         // Неудачную попытку пишем без идентификатора: пользователя
         // с таким логином нет, но сама попытка — событие безопасности
         audit::log(
@@ -152,6 +183,7 @@ async fn login(
         sub: id,
         role,
         service_id: service_id.clone(),
+        duty,
         workstation: workstation.clone(),
         exp,
     };
@@ -174,7 +206,7 @@ async fn login(
 
     Ok(Json(LoginResponse {
         token,
-        user: UserView { id, login, fio, role, service_id, workstation },
+        user: UserView { id, login, fio, role, service_id, duty, workstation },
     }))
 }
 
@@ -206,7 +238,7 @@ async fn logout() -> axum::http::StatusCode {
 )]
 async fn me(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<UserView>> {
     let row: Option<UserView> = sqlx::query_as(
-        "SELECT id, login, fio, role, service_id, workstation FROM users WHERE id = $1",
+        "SELECT id, login, fio, role, service_id, duty, workstation FROM users WHERE id = $1",
     )
     .bind(user.id)
     .fetch_optional(&state.db)
@@ -272,6 +304,9 @@ pub struct AuthUser {
     pub id: Uuid,
     pub role: Role,
     pub service_id: Option<String>,
+    /// Профиль курсанта. Берётся из базы при каждом запросе, как и роль
+    /// со службой: преподаватель сменил профиль — действует сразу
+    pub duty: Option<Duty>,
     pub workstation: Option<String>,
     /// Адрес клиента для аудита. За обратным прокси берётся из
     /// заголовков, напрямую — из самого соединения.
@@ -288,6 +323,36 @@ impl AuthUser {
             Err(AppError::Forbidden)
         }
     }
+
+    /// Действие рабочего места курсанта. Преподавателя и администратора
+    /// профиль не ограничивает: они ведут занятие и смотрят обе стороны.
+    pub fn require_duty(&self, needed: Duty) -> AppResult<()> {
+        if self.role != Role::Student || self.duty == Some(needed) {
+            return Ok(());
+        }
+        let yours = self.duty.map(Duty::title).unwrap_or("не назначен");
+        Err(AppError::WrongDuty(match needed {
+            Duty::Op112 => format!(
+                "приём вызова и карточка 112 — работа оператора 112, а ваш профиль — {yours}"
+            ),
+            Duty::Dds => format!("это действие диспетчера ДДС, а ваш профиль — {yours}"),
+        }))
+    }
+}
+
+/// Живые сведения об учётной записи: роль, служба и профиль.
+///
+/// Токен их тоже несёт, но живёт часами, а администратор может
+/// отключить запись или сменить профиль сейчас. Поиск по первичному
+/// ключу — копейки. `None` — записи нет или она отключена.
+pub async fn live_user(
+    pool: &sqlx::PgPool,
+    id: Uuid,
+) -> Result<Option<(Role, Option<String>, Option<Duty>)>, sqlx::Error> {
+    sqlx::query_as("SELECT role, service_id, duty FROM users WHERE id = $1 AND is_active")
+        .bind(id)
+        .fetch_optional(pool)
+        .await
 }
 
 /// Учётная запись существует и не отключена администратором.
@@ -318,16 +383,18 @@ impl FromRequestParts<AppState> for AuthUser {
         .map_err(|_| AppError::Unauthorized)?;
 
         // Подписи мало: токен живёт часами, а администратор отключает
-        // учётную запись сразу. Без этой проверки отключённый работал бы
-        // до истечения токена. Поиск по первичному ключу — копейки
-        if !user_active(&state.db, data.claims.sub).await? {
+        // учётную запись или меняет профиль сразу. Без этой проверки
+        // отключённый работал бы до истечения токена, а курсант с новым
+        // профилем — со старыми правами
+        let Some((role, service_id, duty)) = live_user(&state.db, data.claims.sub).await? else {
             return Err(AppError::Unauthorized);
-        }
+        };
 
         Ok(AuthUser {
             id: data.claims.sub,
-            role: data.claims.role,
-            service_id: data.claims.service_id,
+            role,
+            service_id,
+            duty,
             workstation: data.claims.workstation,
             ip: client_ip(parts),
         })

@@ -115,6 +115,13 @@ async fn list(
         ("all", Role::Student) => return Err(AppError::Forbidden),
         (s, _) => s,
     };
+    // Лента службы — рабочее место диспетчера ДДС, свои карточки —
+    // оператора 112: он видит то, что заполнил сам
+    match scope {
+        "service" => user.require_duty(crate::api::auth::Duty::Dds)?,
+        "own" => user.require_duty(crate::api::auth::Duty::Op112)?,
+        _ => {}
+    }
     if scope == "service" && user.service_id.is_none() {
         return Err(AppError::Validation(
             "у пользователя не задана служба, лента по службе недоступна".into(),
@@ -367,6 +374,8 @@ async fn add_response(
     Path(id): Path<Uuid>,
     Json(req): Json<NewResponse>,
 ) -> AppResult<(StatusCode, Json<ResponseEntry>)> {
+    // Статусы реагирования и приём карточки — работа диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     visible_card(&state.db, id, &user).await?;
 
     // Диспетчер отвечает за свою службу и ни за чью больше
@@ -530,6 +539,8 @@ async fn opened(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
+    // Статусы реагирования и приём карточки — работа диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     visible_card(&state.db, id, &user).await?;
 
     let Some(service_id) = user.service_id.as_deref().filter(|_| user.role == Role::Student)

@@ -29,6 +29,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/admin/users", get(list_users).post(create_user))
         .route("/api/admin/users/{id}/active", post(set_active))
         .route("/api/admin/users/{id}", delete(delete_user))
+        .route("/api/users/{id}/duty", axum::routing::patch(set_duty))
+        .route("/api/groups/{id}/members", get(group_members))
         .route("/api/admin/classifier-versions", get(versions))
         .route("/api/admin/classifier-versions/{id}/activate", post(activate_version))
         .route("/api/classifier/versions/{a}/diff/{b}", get(version_diff))
@@ -167,6 +169,9 @@ pub struct UserRow {
     pub role: String,
     pub service_id: Option<String>,
     pub service_title: Option<String>,
+    /// Профиль курсанта: `op112` или `dds`; у преподавателя и
+    /// администратора — `null`
+    pub duty: Option<String>,
     pub workstation: Option<String>,
     pub is_active: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -193,7 +198,7 @@ async fn list_users(
 
     let rows: Vec<UserRow> = sqlx::query_as(
         "SELECT u.id, u.login, u.fio, u.role::text AS role,
-                u.service_id, s.title AS service_title,
+                u.service_id, s.title AS service_title, u.duty::text AS duty,
                 u.workstation, u.is_active, u.created_at,
                 (SELECT count(*) FROM sessions se WHERE se.user_id = u.id) AS sessions
            FROM users u
@@ -217,6 +222,10 @@ pub struct NewUser {
     pub fio: String,
     pub role: String,
     pub service_id: Option<String>,
+    /// Профиль курсанта: `op112` или `dds`. Не задан — выводится из
+    /// службы: со службой — ДДС, без неё — оператор 112
+    #[serde(default)]
+    pub duty: Option<String>,
     pub workstation: Option<String>,
 }
 
@@ -255,14 +264,17 @@ async fn create_user(
             "служба задаётся только обучающемуся".into(),
         ));
     }
-    // …и наоборот: курсанту она обязательна. Без неё лента по службе
-    // отвечает отказом, и главный экран у такого курсанта пуст —
-    // он не может даже начать учебный вызов
-    if req.role == "student" && req.service_id.as_deref().unwrap_or("").is_empty() {
-        return Err(AppError::Validation(
-            "обучающемуся нужно указать службу: по ней отбирается его лента".into(),
-        ));
-    }
+    // Профиль рабочего места: диспетчеру ДДС служба обязательна — по
+    // ней отбирается его лента, оператору 112 она не нужна
+    let service = req.service_id.clone().filter(|s| !s.trim().is_empty());
+    let duty = if req.role == "student" {
+        Some(duty_for(req.duty.as_deref(), service.as_deref())?)
+    } else {
+        if req.duty.is_some() {
+            return Err(AppError::Validation("профиль задаётся только обучающемуся".into()));
+        }
+        None
+    };
 
     let hash = Argon2::default()
         .hash_password(req.password.as_bytes())
@@ -270,8 +282,8 @@ async fn create_user(
         .to_string();
 
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO users (login, password_hash, fio, role, service_id, workstation)
-         VALUES ($1, $2, $3, $4::user_role, $5, $6)
+        "INSERT INTO users (login, password_hash, fio, role, service_id, workstation, duty)
+         VALUES ($1, $2, $3, $4::user_role, $5, $6, $7::user_duty)
          ON CONFLICT (login) DO NOTHING
          RETURNING id",
     )
@@ -279,8 +291,9 @@ async fn create_user(
     .bind(&hash)
     .bind(req.fio.trim())
     .bind(&req.role)
-    .bind(&req.service_id)
+    .bind(&service)
     .bind(&req.workstation)
+    .bind(duty)
     .fetch_optional(&state.db)
     .await?
     .ok_or_else(|| AppError::Conflict("такой логин уже занят".into()))?;
@@ -291,13 +304,14 @@ async fn create_user(
         audit::Event::new("user.create")
             .from_user(&user)
             .about("user", id)
-            .with(json!({ "login": req.login, "role": req.role, "serviceId": req.service_id })),
+            .with(json!({ "login": req.login, "role": req.role, "serviceId": service,
+                          "duty": duty })),
     )
     .await;
 
     let row: UserRow = sqlx::query_as(
         "SELECT u.id, u.login, u.fio, u.role::text AS role,
-                u.service_id, s.title AS service_title,
+                u.service_id, s.title AS service_title, u.duty::text AS duty,
                 u.workstation, u.is_active, u.created_at, 0::bigint AS sessions
            FROM users u LEFT JOIN services s ON s.id = u.service_id
           WHERE u.id = $1",
@@ -786,5 +800,207 @@ async fn versions(
     .fetch_all(&state.db)
     .await?;
 
+    Ok(Json(rows))
+}
+
+
+// ─── Профиль рабочего места курсанта ─────────────────────────────────
+
+/// Проверить пару «профиль — служба» и вернуть профиль.
+///
+/// Диспетчеру ДДС служба обязательна: по ней отбирается его лента.
+/// Оператору 112 служба не нужна, и с ней он путался бы в двух ролях
+/// сразу. Профиль не задан — выводится из службы.
+fn duty_for(duty: Option<&str>, service: Option<&str>) -> AppResult<&'static str> {
+    match (duty, service) {
+        (Some("dds"), Some(_)) | (None, Some(_)) => Ok("dds"),
+        (Some("dds"), None) => Err(AppError::Validation(
+            "диспетчеру ДДС нужно указать службу: по ней отбирается его лента".into(),
+        )),
+        (Some("op112"), None) | (None, None) => Ok("op112"),
+        (Some("op112"), Some(_)) => Err(AppError::Validation(
+            "у оператора 112 службы нет: он принимает вызовы, а не работает за ДДС".into(),
+        )),
+        _ => Err(AppError::Validation("профиль — «op112» или «dds»".into())),
+    }
+}
+
+/// Преподаватель меняет профиль только своим курсантам, администратор —
+/// любому курсанту.
+async fn may_manage(pool: &sqlx::PgPool, actor: &AuthUser, student: Uuid) -> AppResult<()> {
+    match actor.role {
+        Role::Admin => Ok(()),
+        Role::Teacher => {
+            let mine: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                    SELECT 1 FROM group_members m
+                      JOIN training_groups g ON g.id = m.group_id
+                     WHERE m.user_id = $1 AND g.teacher_id = $2)",
+            )
+            .bind(student)
+            .bind(actor.id)
+            .fetch_one(pool)
+            .await?;
+            if mine { Ok(()) } else { Err(AppError::Forbidden) }
+        }
+        Role::Student => Err(AppError::Forbidden),
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DutyChange {
+    /// `op112` или `dds`
+    pub duty: String,
+    /// Служба диспетчера ДДС; для оператора 112 не указывается
+    pub service_id: Option<String>,
+}
+
+/// Направить курсанта на другое рабочее место.
+///
+/// Организатор, чат 18.09: обучающегося «могут направить на практику
+/// в одно или другое место в зависимости от результатов». Действует
+/// сразу, без перевхода: сервер берёт профиль из базы на каждом запросе.
+#[utoipa::path(
+    patch,
+    path = "/api/users/{id}/duty",
+    tag = "Администрирование",
+    params(
+        ("id" = String, Path, description = "Идентификатор курсанта"),
+    ),
+    responses(
+        (status = 200, description = "Профиль изменён", body = UserRow),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+pub async fn set_duty(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<DutyChange>,
+) -> AppResult<Json<UserRow>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    may_manage(&state.db, &user, id).await?;
+
+    let role: Option<String> =
+        sqlx::query_scalar("SELECT role::text FROM users WHERE id = $1 AND deleted_at IS NULL")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
+    match role.as_deref() {
+        None => return Err(AppError::NotFound),
+        Some("student") => {}
+        Some(_) => {
+            return Err(AppError::Validation("профиль задаётся только обучающемуся".into()))
+        }
+    }
+
+    let service = req.service_id.clone().filter(|s| !s.trim().is_empty());
+    let duty = duty_for(Some(req.duty.as_str()), service.as_deref())?;
+    if let Some(sid) = &service {
+        let known: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM services WHERE id = $1)")
+            .bind(sid)
+            .fetch_one(&state.db)
+            .await?;
+        if !known {
+            return Err(AppError::Validation("такой службы нет в справочнике".into()));
+        }
+    }
+
+    let before: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT duty::text, service_id FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await?;
+
+    sqlx::query("UPDATE users SET duty = $2::user_duty, service_id = $3 WHERE id = $1")
+        .bind(id)
+        .bind(duty)
+        .bind(&service)
+        .execute(&state.db)
+        .await?;
+
+    audit::log(
+        &state.db,
+        audit::Event::new("user.duty")
+            .from_user(&user)
+            .about("user", id)
+            .with(json!({
+                "было": { "duty": before.0, "serviceId": before.1 },
+                "стало": { "duty": duty, "serviceId": service },
+            })),
+    )
+    .await;
+
+    let row: UserRow = sqlx::query_as(
+        "SELECT u.id, u.login, u.fio, u.role::text AS role,
+                u.service_id, s.title AS service_title, u.duty::text AS duty,
+                u.workstation, u.is_active, u.created_at,
+                (SELECT count(*) FROM sessions se WHERE se.user_id = u.id) AS sessions
+           FROM users u LEFT JOIN services s ON s.id = u.service_id
+          WHERE u.id = $1",
+    )
+    .bind(id)
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(row))
+}
+
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Member {
+    pub id: Uuid,
+    pub login: String,
+    pub fio: String,
+    /// `op112` или `dds`
+    pub duty: Option<String>,
+    pub service_id: Option<String>,
+    pub service_title: Option<String>,
+}
+
+/// Курсанты группы с их профилями — чтобы преподаватель видел, кто
+/// где работает, и мог направить на другое рабочее место.
+#[utoipa::path(
+    get,
+    path = "/api/groups/{id}/members",
+    tag = "Администрирование",
+    params(
+        ("id" = String, Path, description = "Идентификатор группы"),
+    ),
+    responses(
+        (status = 200, description = "Курсанты группы", body = Vec<Member>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+pub async fn group_members(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<Member>>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    let teacher: Option<Uuid> =
+        sqlx::query_scalar("SELECT teacher_id FROM training_groups WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
+    let Some(teacher) = teacher else { return Err(AppError::NotFound) };
+    if user.role == Role::Teacher && teacher != user.id {
+        return Err(AppError::Forbidden);
+    }
+
+    let rows: Vec<Member> = sqlx::query_as(
+        "SELECT u.id, u.login, u.fio, u.duty::text AS duty,
+                u.service_id, s.title AS service_title
+           FROM group_members m
+           JOIN users u ON u.id = m.user_id
+           LEFT JOIN services s ON s.id = u.service_id
+          WHERE m.group_id = $1 AND u.deleted_at IS NULL
+          ORDER BY u.fio",
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
     Ok(Json(rows))
 }

@@ -106,7 +106,8 @@ struct Занятие {
 /// Билет 3, вызов 1: горит крыша частного дома в Королёве.
 async fn начать(app: &Router, pool: &sqlx::PgPool) -> Option<Занятие> {
     let (_, b) = call(app, Method::POST, "/api/auth/login", None,
-        Some(json!({ "login": "student3", "password": "arm112" }))).await;
+        // Приём вызова — работа оператора 112
+        Some(json!({ "login": "student1", "password": "arm112" }))).await;
     let token = b["token"].as_str()?.to_string();
     let scenario: uuid::Uuid = sqlx::query_scalar(
         "SELECT id FROM scenarios WHERE ticket = 3 AND call_no = 1")

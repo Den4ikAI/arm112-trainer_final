@@ -85,6 +85,8 @@ use utoipa::{
         crate::api::admin::list_users,
         crate::api::admin::create_user,
         crate::api::admin::set_active,
+        crate::api::admin::set_duty,
+        crate::api::admin::group_members,
         crate::api::admin::delete_user,
         crate::api::admin::versions,
         crate::api::admin::activate_version,

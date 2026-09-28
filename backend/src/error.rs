@@ -17,6 +17,11 @@ pub enum AppError {
     #[error("forbidden")]
     Forbidden,
 
+    /// Действие чужого рабочего места: оператор 112 не ставит статусы
+    /// ДДС, диспетчер ДДС не принимает вызовы 112
+    #[error("wrong_duty: {0}")]
+    WrongDuty(String),
+
     #[error("not_found")]
     NotFound,
 
@@ -53,6 +58,7 @@ impl IntoResponse for AppError {
             Self::Validation(m) => (StatusCode::BAD_REQUEST, "validation_error", json!({ "detail": m })),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", json!({})),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", json!({})),
+            Self::WrongDuty(m) => (StatusCode::FORBIDDEN, "wrong_duty", json!({ "detail": m })),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found", json!({})),
             Self::Conflict(m) => (StatusCode::CONFLICT, "conflict", json!({ "detail": m })),
             Self::CommentRequired => (StatusCode::UNPROCESSABLE_ENTITY, "comment_required", json!({})),

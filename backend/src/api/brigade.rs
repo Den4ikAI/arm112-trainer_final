@@ -130,6 +130,8 @@ pub struct CallResult {
 /// Курсант — диспетчер своей службы и ни чьей больше: так же проверяет
 /// проставление статусов. Преподавателю службу надо назвать явно.
 fn service_of(user: &AuthUser, requested: Option<&str>) -> AppResult<String> {
+    // Бригада — работа диспетчера ДДС; оператору 112 её не видно
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     if user.role == Role::Student {
         let own = user.service_id.clone().ok_or_else(|| {
             AppError::Validation("у пользователя не задана служба".into())
@@ -378,6 +380,9 @@ pub async fn view(
     Path(id): Path<Uuid>,
     Query(q): Query<ServiceQuery>,
 ) -> AppResult<Json<BrigadeView>> {
+    // Бригада — работа диспетчера ДДС: оператору 112 отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     visible_card(&state.db, id, &user).await?;
     let service_id = service_of(&user, q.service_id.as_deref())?;
     in_card(&state.db, id, &service_id).await?;
@@ -403,6 +408,9 @@ pub async fn assign(
     Path(id): Path<Uuid>,
     Json(req): Json<NewAssignment>,
 ) -> AppResult<(StatusCode, Json<BrigadeView>)> {
+    // Бригада — работа диспетчера ДДС: оператору 112 отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     visible_card(&state.db, id, &user).await?;
     let service_id = service_of(&user, Some(&req.service_id))?;
     in_card(&state.db, id, &service_id).await?;
@@ -505,6 +513,9 @@ pub async fn call(
     Path(id): Path<Uuid>,
     Json(req): Json<CallRequest>,
 ) -> AppResult<Json<CallResult>> {
+    // Бригада — работа диспетчера ДДС: оператору 112 отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     visible_card(&state.db, id, &user).await?;
     let service_id = service_of(&user, Some(&req.service_id))?;
     in_card(&state.db, id, &service_id).await?;

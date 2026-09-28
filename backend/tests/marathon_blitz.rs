@@ -74,10 +74,11 @@ async fn стенд(pool: &PgPool, вызовов: usize) -> Стенд {
     let метка = Uuid::new_v4().simple().to_string();
     let login = format!("марафонец-{}", &метка[..12]);
 
-    // Пароль тот же, что у остальных учебных учёток
+    // Пароль тот же, что у остальных учебных учёток. Без службы —
+    // оператор 112: марафон и блиц по карточке — приём вызова
     let user_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO users (login, password_hash, fio, role, service_id)
-         SELECT $1, password_hash, 'Марафонцев М.М.', 'student', 'mchs'
+        "INSERT INTO users (login, password_hash, fio, role)
+         SELECT $1, password_hash, 'Марафонцев М.М.', 'student'
            FROM users WHERE login = 'student1'
          RETURNING id",
     )
@@ -407,7 +408,7 @@ async fn завести(app: &Router, admin: &str, роль: &str) -> (String, S
     let login = format!("удаляемый-{}", &Uuid::new_v4().simple().to_string()[..12]);
     let (status, created) = call(app, Method::POST, "/api/admin/users", Some(admin),
         Some(json!({ "login": login, "password": "длинныйПароль", "fio": "Удаляев У.У.",
-                     "role": роль, "serviceId": if роль == "student" { json!("mchs") } else { Value::Null } }))).await;
+                     "role": роль }))).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     (created["id"].as_str().unwrap().to_string(), login)
 }

@@ -52,6 +52,8 @@ async fn dispatcher_service(pool: &PgPool, card_id: Uuid, user: &AuthUser, reque
     if user.role != Role::Student {
         return Err(AppError::Forbidden);
     }
+    // Доклад начальнику — работа диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     let own = user
         .service_id
         .clone()
@@ -155,6 +157,9 @@ pub async fn view(
     Path(id): Path<Uuid>,
     Query(q): Query<ServiceQuery>,
 ) -> AppResult<Json<Option<ChiefView>>> {
+    // Доклад начальнику — работа диспетчера ДДС: отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     crate::api::cards::visible_card(&state.db, id, &user).await?;
 
     // Курсант видит свои звонки своей службы, преподаватель — любой
@@ -193,6 +198,9 @@ pub async fn start(
     Path(id): Path<Uuid>,
     Json(req): Json<ServiceQuery>,
 ) -> AppResult<Json<ChiefView>> {
+    // Доклад начальнику — работа диспетчера ДДС: отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     crate::api::cards::visible_card(&state.db, id, &user).await?;
     let service_id = dispatcher_service(&state.db, id, &user, req.service_id.as_deref()).await?;
 
@@ -227,6 +235,9 @@ pub async fn say(
     Path(id): Path<Uuid>,
     Json(req): Json<SayRequest>,
 ) -> AppResult<Json<ChiefView>> {
+    // Доклад начальнику — работа диспетчера ДДС: отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     crate::api::cards::visible_card(&state.db, id, &user).await?;
     let service_id = dispatcher_service(&state.db, id, &user, req.service_id.as_deref()).await?;
 
@@ -269,6 +280,9 @@ pub async fn finish(
     Path(id): Path<Uuid>,
     Json(req): Json<ServiceQuery>,
 ) -> AppResult<Json<ChiefView>> {
+    // Доклад начальнику — работа диспетчера ДДС: отказ по профилю,
+    // а не «нет такой карточки»
+    user.require_duty(crate::api::auth::Duty::Dds)?;
     crate::api::cards::visible_card(&state.db, id, &user).await?;
     let service_id = dispatcher_service(&state.db, id, &user, req.service_id.as_deref()).await?;
 

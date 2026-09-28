@@ -96,10 +96,20 @@ async fn в_ленту_ддс_попадают_только_профильные
     assert!(feed["items"].as_array().unwrap().iter().any(|c| c["number"] == number.as_str()),
         "пожар не дошёл до МЧС");
 
-    let zhkh = token(&app, "student1").await;
-    let (_, feed) = call(&app, Method::GET, "/api/cards", Some(&zhkh), None).await;
+    let lift = token(&app, "student2").await;
+    let (_, feed) = call(&app, Method::GET, "/api/cards", Some(&lift), None).await;
     assert!(!feed["items"].as_array().unwrap().iter().any(|c| c["number"] == number.as_str()),
-        "пожар в частном доме попал в ленту ЖКХ");
+        "пожар в частном доме попал в ленту Мослифта");
+
+    // Оператору 112 лента ДДС не положена вовсе: у него свои карточки
+    let operator = token(&app, "student1").await;
+    let (status, body) = call(&app, Method::GET, "/api/cards", Some(&operator), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], "wrong_duty");
+    let (status, own) = call(&app, Method::GET, "/api/cards?scope=own", Some(&operator), None).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert!(own["items"].as_array().unwrap().iter().any(|c| c["number"] == number.as_str()),
+        "своя сохранённая карточка должна быть в журнале оператора 112");
 
     // И прямой запрос по идентификатору тоже не проходит
     let lift = token(&app, "student2").await;

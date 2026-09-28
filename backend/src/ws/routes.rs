@@ -167,14 +167,25 @@ async fn serve(socket: WebSocket, state: AppState, claims: Claims) {
 /// Правила те же, что в REST: иначе канал обошёл бы разграничение
 /// доступа, а курсант увидел бы чужую ленту в обход фильтра по службе.
 async fn allowed(state: &AppState, claims: &Claims, topic: &str) -> bool {
-    let staff = claims.role != Role::Student;
+    // Роль, служба и профиль — из базы, а не из токена: профиль могли
+    // сменить после входа, и лента службы не должна остаться открытой
+    let Ok(Some((role, service_id, duty))) =
+        crate::api::auth::live_user(&state.db, claims.sub).await
+    else {
+        return false;
+    };
+    let staff = role != Role::Student;
     let Some((kind, id)) = topic.split_once(':') else {
         return false;
     };
 
     match kind {
-        // Своя ДДС. Преподаватель ведёт занятие и видит все службы
-        "service" => staff || claims.service_id.as_deref() == Some(id),
+        // Своя ДДС — только диспетчеру этой службы. Оператору 112 лента
+        // ДДС не положена. Преподаватель ведёт занятие и видит все службы
+        "service" => {
+            staff
+                || (duty == Some(crate::api::auth::Duty::Dds) && service_id.as_deref() == Some(id))
+        }
 
         "user" => staff || claims.sub.to_string() == id,
 
@@ -207,7 +218,7 @@ async fn allowed(state: &AppState, claims: &Claims, topic: &str) -> bool {
             )
             .bind(group_id)
             .bind(claims.sub)
-            .bind(claims.role == Role::Admin)
+            .bind(role == Role::Admin)
             .fetch_one(&state.db)
             .await
             .unwrap_or(false)

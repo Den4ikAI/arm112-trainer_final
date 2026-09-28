@@ -69,8 +69,9 @@ async fn вход_курсанта_выдаёт_токен_и_службу() {
 
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["user"]["role"], "student");
-    // Курсант привязан к ДДС: от этого зависит, какие карточки он увидит
-    assert_eq!(body["user"]["serviceId"], "dep-zhkh");
+    // student1 — оператор 112: принимает вызовы, службы у него нет
+    assert_eq!(body["user"]["duty"], "op112");
+    assert!(body["user"]["serviceId"].is_null(), "{body}");
     // Номер АРМ вводится при входе и перекрывает записанный в профиле
     assert_eq!(body["user"]["workstation"], "12");
     assert!(body["token"].as_str().is_some_and(|t| t.split('.').count() == 3));
@@ -134,16 +135,17 @@ async fn у_преподавателя_нет_привязки_к_службе()
     assert!(me["serviceId"].is_null());
 }
 
-/// Курсанты сидят в разных ДДС — иначе многопользовательское занятие
+/// Диспетчеры сидят в разных ДДС — иначе многопользовательское занятие
 /// вырождается в одну ленту на всех.
 #[tokio::test]
 async fn курсанты_привязаны_к_разным_службам() {
     let Some(app) = app().await else { return };
 
     let mut services = Vec::new();
-    for login_name in ["student1", "student2", "student3", "student4", "student5"] {
+    for login_name in ["student2", "student3", "student4", "student5"] {
         let token = login(&app, login_name).await;
         let (_, me) = get_with(&app, "/api/auth/me", Some(&token)).await;
+        assert_eq!(me["duty"], "dds", "{login_name} — диспетчер ДДС: {me}");
         services.push(me["serviceId"].as_str().unwrap().to_string());
     }
 

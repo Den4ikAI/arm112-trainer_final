@@ -228,10 +228,20 @@ async fn курсант_не_видит_чужого_занятия() {
     let Some((_, body)) = start(&app, &pool, "student1").await else { return };
     let session = body["session"]["id"].as_str().unwrap();
 
-    let other = token(&app, "student2").await;
+    // Другой оператор 112 чужой вызов не видит…
+    let (other_id, other_login) = свой_курсант(&pool).await;
+    let other = token(&app, &other_login).await;
     let (status, _) = call(&app, Method::GET,
         &format!("/api/sessions/{session}/transcript"), Some(&other), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    убрать_курсанта(&pool, other_id).await;
+
+    // …а диспетчеру ДДС вызовы 112 не положены вовсе
+    let dds = token(&app, "student2").await;
+    let (status, body) = call(&app, Method::GET,
+        &format!("/api/sessions/{session}/transcript"), Some(&dds), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], "wrong_duty");
 
     // Преподаватель видит любое: ему нужен разбор
     let teacher = token(&app, "teacher1").await;

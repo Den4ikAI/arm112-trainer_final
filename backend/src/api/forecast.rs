@@ -90,6 +90,8 @@ pub async fn mine(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<MyPrediction>>> {
+    // Прогноз и рекомендации считаются по приёму вызовов 112
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     let rows: Vec<MyPrediction> = sqlx::query_as(
         "SELECT session_id, predicted, actual, basis, trained, features, made_at
            FROM predictions WHERE user_id = $1
@@ -114,6 +116,8 @@ pub async fn my_advice(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<advice::AdviceView>>> {
+    // Прогноз и рекомендации считаются по приёму вызовов 112
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     Ok(Json(advice::mine(&state.db, user.id).await.map_err(AppError::Other)?))
 }
 

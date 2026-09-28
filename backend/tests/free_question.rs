@@ -176,9 +176,28 @@ async fn пустой_вопрос_не_принимается_а_чужое_з�
     let (status, _) = спросить(&app, &з, "   ").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let чужой = token(&app, "student2").await;
+    // Другой оператор 112 чужого вызова не видит
+    let login = format!("оператор-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+    let другой: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO users (login, password_hash, fio, role)
+         SELECT $1, password_hash, 'Проверочный О.О.', 'student'
+           FROM users WHERE login = 'student1'
+         RETURNING id")
+        .bind(&login).fetch_one(&pool).await.unwrap();
+    let чужой = token(&app, &login).await;
     let (status, _) = call(&app, Method::POST, &format!("/api/sessions/{}/ask-free", з.id),
         Some(&чужой), Some(json!({ "text": "какой город?" }))).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // А диспетчеру ДДС приём вызова не положен вовсе
+    let ддс = token(&app, "student2").await;
+    let (status, body) = call(&app, Method::POST, &format!("/api/sessions/{}/ask-free", з.id),
+        Some(&ддс), Some(json!({ "text": "какой город?" }))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"], "wrong_duty");
     assert!(выяснено(&pool, &з).await.is_empty());
+
+    sqlx::query("UPDATE audit_log SET user_id = NULL WHERE user_id = $1")
+        .bind(другой).execute(&pool).await.ok();
+    sqlx::query("DELETE FROM users WHERE id = $1").bind(другой).execute(&pool).await.ok();
 }

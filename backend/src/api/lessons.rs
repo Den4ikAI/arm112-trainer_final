@@ -368,6 +368,31 @@ pub async fn start(
         return Err(AppError::Validation("занятие уже начато".into()));
     }
 
+    // Занятие ведётся на одном рабочем месте. Нет в группе курсантов
+    // с нужным профилем — запускать некому, и об этом надо сказать прямо,
+    // а не отвечать «не нашлось вызовов»
+    let профиль = if mode == "card112" { "op112" } else { "dds" };
+    let подходящих: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM group_members m
+           JOIN users u ON u.id = m.user_id
+          WHERE m.group_id = $1 AND u.duty::text = $2 AND u.is_active",
+    )
+    .bind(group_id)
+    .bind(профиль)
+    .fetch_one(&state.db)
+    .await?;
+    if подходящих == 0 {
+        return Err(AppError::Validation(if mode == "card112" {
+            "в группе нет курсантов с профилем «оператор 112»: назначьте его \
+             в администрировании или выберите режим «работа ДДС»"
+                .into()
+        } else {
+            "в группе нет курсантов с профилем «диспетчер ДДС»: назначьте его \
+             в администрировании или выберите режим «приём вызова 112»"
+                .into()
+        }));
+    }
+
     let роздано = if mode == "card112" {
         // Обычному занятию — до десяти вызовов, как и раньше; марафону
         // и блицу — сколько задал преподаватель
@@ -448,11 +473,16 @@ async fn раздать_вызовы(
         return Ok(0);
     }
 
-    let участники: Vec<Uuid> =
-        sqlx::query_scalar("SELECT user_id FROM group_members WHERE group_id = $1")
-            .bind(group_id)
-            .fetch_all(pool)
-            .await?;
+    // Вызовы 112 принимает оператор 112: диспетчеру ДДС в группе
+    // заданий на приём вызова не достаётся
+    let участники: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT m.user_id FROM group_members m
+           JOIN users u ON u.id = m.user_id
+          WHERE m.group_id = $1 AND u.duty = 'op112' AND u.is_active",
+    )
+    .bind(group_id)
+    .fetch_all(pool)
+    .await?;
 
     let teacher: Uuid = sqlx::query_scalar("SELECT teacher_id FROM lessons WHERE id = $1")
         .bind(lesson_id)
@@ -587,7 +617,7 @@ async fn раздать_карточки(
                 AND cs.service_id IN (
                       SELECT u.service_id FROM users u
                         JOIN group_members m ON m.user_id = u.id
-                       WHERE m.group_id = $3 AND u.service_id IS NOT NULL)
+                       WHERE m.group_id = $3 AND u.duty = 'dds' AND u.is_active)
                 AND NOT EXISTS (
                       SELECT 1 FROM response_entries r
                        WHERE r.card_id = c.id AND r.service_id = cs.service_id
@@ -695,13 +725,21 @@ pub async fn list(State(state): State<AppState>, user: AuthUser) -> AppResult<Js
     // Курсанту показываем только идущие занятия его групп: прошлые
     // ему ничего не дают, а будущие ещё не его дело
     let строки: Vec<LessonBrief> = if user.role == Role::Student {
+        // …и только своего рабочего места: занятие по приёму вызовов
+        // диспетчеру ДДС не касается, и наоборот
+        let режим = match user.duty {
+            Some(crate::api::auth::Duty::Dds) => "dds",
+            _ => "card112",
+        };
         sqlx::query_as(&format!(
             "{ОСНОВА}
               WHERE l.started_at IS NOT NULL AND l.finished_at IS NULL
                 AND l.group_id IN (SELECT group_id FROM group_members WHERE user_id = $1)
+                AND l.mode::text = $2
               ORDER BY l.started_at DESC"
         ))
         .bind(user.id)
+        .bind(режим)
         .fetch_all(&state.db)
         .await?
     } else {
@@ -760,6 +798,7 @@ async fn полностью(pool: &sqlx::PgPool, id: Uuid) -> AppResult<LessonFu
            LEFT JOIN sessions s ON s.assignment_id = a.id
            LEFT JOIN grades gr ON gr.session_id = s.id
           WHERE m.group_id = (SELECT group_id FROM lessons WHERE id = $1)
+            AND u.duty = 'op112'
           GROUP BY u.id, u.fio
           ORDER BY u.fio",
     )
@@ -795,6 +834,7 @@ async fn ход_ддс(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Vec<Progress>
                  AND r.at >= l.started_at
                  AND r.at <= COALESCE(l.finished_at, now())
           WHERE m.group_id = l.group_id
+            AND u.duty = 'dds'
           GROUP BY u.id, u.fio
           ORDER BY u.fio"
     );

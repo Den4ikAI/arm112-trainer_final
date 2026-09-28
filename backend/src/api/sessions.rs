@@ -150,6 +150,8 @@ async fn list_scenarios(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<Json<Vec<ScenarioBrief>>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     // Черновики видит только тот, кто их выверяет
     let drafts = user.role != crate::api::auth::Role::Student;
 
@@ -227,6 +229,12 @@ async fn create(
     user: AuthUser,
     Json(req): Json<CreateRequest>,
 ) -> AppResult<(StatusCode, Json<CreateResponse>)> {
+    // Режим занятия — это рабочее место: вызов 112 принимает оператор
+    // 112, учебную карточку ДДС ведёт диспетчер
+    user.require_duty(match req.mode {
+        SessionMode::Card112 => crate::api::auth::Duty::Op112,
+        SessionMode::Dds => crate::api::auth::Duty::Dds,
+    })?;
     let sc: Option<(Uuid, Option<i32>, Option<i32>, String, String, String, String, i32, String)> =
         sqlx::query_as(
             "SELECT id, ticket, call_no, legend, applicant_name, applicant_phone,
@@ -471,6 +479,8 @@ async fn ask(
     Path(id): Path<Uuid>,
     Json(req): Json<AskRequest>,
 ) -> AppResult<Json<AskResponse>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     let session = own_session(&state.db, id, &user).await?;
 
     // Снятые с учёта факты здесь не отсеиваем: занятие могло начаться
@@ -564,6 +574,8 @@ async fn ask_free(
     Path(id): Path<Uuid>,
     Json(req): Json<AskFreeRequest>,
 ) -> AppResult<Json<AskFreeResponse>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     let session = own_session(&state.db, id, &user).await?;
     let text = req.text.trim();
     if text.is_empty() {
@@ -801,6 +813,8 @@ async fn patch_card(
     Path(id): Path<Uuid>,
     Json(req): Json<PatchCard>,
 ) -> AppResult<Json<PatchResponse>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     let session = own_session(&state.db, id, &user).await?;
     if session.finished_at.is_some() {
         return Err(AppError::Conflict("занятие уже завершено".into()));
@@ -903,6 +917,8 @@ async fn save(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<SaveResponse>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     let session = own_session(&state.db, id, &user).await?;
     if session.finished_at.is_some() {
         return Err(AppError::Conflict("занятие уже завершено".into()));
@@ -1043,6 +1059,8 @@ async fn grade_view(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Grade>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     own_session(&state.db, id, &user).await?;
     let g = grade::load(&state.db, id)
         .await
@@ -1080,6 +1098,8 @@ async fn transcript(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Vec<TranscriptLine>>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     own_session(&state.db, id, &user).await?;
 
     let lines: Vec<TranscriptLine> = sqlx::query_as(
@@ -1136,6 +1156,8 @@ async fn active(
     State(state): State<AppState>,
     user: AuthUser,
 ) -> AppResult<axum::response::Response> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     use axum::response::IntoResponse;
 
     let id: Option<Uuid> = sqlx::query_scalar(
@@ -1177,6 +1199,8 @@ async fn state_view(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<SessionState>> {
+    // Приём вызова 112 — работа оператора 112, не диспетчера ДДС
+    user.require_duty(crate::api::auth::Duty::Op112)?;
     own_session(&state.db, id, &user).await?;
     Ok(Json(load_state(&state.db, id, &user).await?))
 }

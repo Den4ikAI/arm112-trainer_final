@@ -81,6 +81,29 @@ async fn группа(pool: &PgPool, курсант: Uuid) -> Uuid {
     id
 }
 
+/// Свой оператор 112 на проверку. Общий student1 не годится: пока
+/// идёт занятие, оно ограничивает ему список вызовов, а соседние
+/// проверки принимают вызовы им же параллельно.
+async fn оператор(pool: &PgPool) -> (Uuid, String) {
+    let login = format!("оператор-{}", &Uuid::new_v4().simple().to_string()[..12]);
+    // Без службы — значит оператор 112 (профиль выводится из службы)
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO users (login, password_hash, fio, role)
+         SELECT $1, password_hash, 'Проверочный О.О.', 'student'
+           FROM users WHERE login = 'student1'
+         RETURNING id",
+    )
+    .bind(&login).fetch_one(pool).await.unwrap();
+    (id, login)
+}
+
+async fn убрать_оператора(pool: &PgPool, id: Uuid) {
+    sqlx::query("DELETE FROM sessions WHERE user_id = $1").bind(id).execute(pool).await.ok();
+    sqlx::query("DELETE FROM cards WHERE created_by = $1").bind(id).execute(pool).await.ok();
+    sqlx::query("UPDATE audit_log SET user_id = NULL WHERE user_id = $1").bind(id).execute(pool).await.ok();
+    sqlx::query("DELETE FROM users WHERE id = $1").bind(id).execute(pool).await.ok();
+}
+
 /// Убрать группу со всем, что на неё ссылается.
 ///
 /// Порядок важен: у заданий внешний ключ на группу без каскада, и
@@ -189,9 +212,8 @@ async fn преподаватель_ведёт_занятие_от_старта_
 async fn идущее_занятие_ограничивает_список_вызовов() {
     let Some((app, pool)) = app().await else { return };
     let teacher = токен(&app, "teacher1").await;
-    let студент = токен(&app, "student2").await;
-    let курсант: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'student2'")
-        .fetch_one(&pool).await.unwrap();
+    let (курсант, логин) = оператор(&pool).await;
+    let студент = токен(&app, &логин).await;
     let group_id = группа(&pool, курсант).await;
 
     let (_, до) = call(&app, Method::GET, "/api/scenarios", Some(&студент), None).await;
@@ -222,6 +244,7 @@ async fn идущее_занятие_ограничивает_список_вы�
     assert_eq!(после.as_array().unwrap().len(), было);
 
     прибрать(&pool, group_id).await;
+    убрать_оператора(&pool, курсант).await;
 }
 
 /// Пустое занятие не запускается.
@@ -229,8 +252,7 @@ async fn идущее_занятие_ограничивает_список_вы�
 async fn занятие_без_материала_не_стартует() {
     let Some((app, pool)) = app().await else { return };
     let teacher = токен(&app, "teacher1").await;
-    let курсант: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'student3'")
-        .fetch_one(&pool).await.unwrap();
+    let (курсант, _) = оператор(&pool).await;
     let group_id = группа(&pool, курсант).await;
 
     let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
@@ -245,6 +267,7 @@ async fn занятие_без_материала_не_стартует() {
             "отказ должен объяснять причину: {ответ}");
 
     прибрать(&pool, group_id).await;
+    убрать_оператора(&pool, курсант).await;
 }
 
 /// Занятие ведёт тот, кто его создал.
@@ -284,8 +307,7 @@ async fn чужое_занятие_курсанту_не_подчиняется(
 async fn начатое_занятие_не_удаляется() {
     let Some((app, pool)) = app().await else { return };
     let teacher = токен(&app, "teacher1").await;
-    let курсант: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'student5'")
-        .fetch_one(&pool).await.unwrap();
+    let (курсант, _) = оператор(&pool).await;
     let group_id = группа(&pool, курсант).await;
 
     let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
@@ -309,6 +331,7 @@ async fn начатое_занятие_не_удаляется() {
 
     call(&app, Method::POST, &format!("/api/lessons/{id2}/finish"), Some(&teacher), None).await;
     прибрать(&pool, group_id).await;
+    убрать_оператора(&pool, курсант).await;
 }
 
 /// Дважды начать или завершить незапущенное нельзя.
@@ -619,18 +642,20 @@ async fn карточки_занятия_ддс_приходят_потоком(
 async fn попытка_по_вызову_занятия_попадает_в_задание() {
     let Some((app, pool)) = app().await else { return };
     let teacher = токен(&app, "teacher1").await;
-    let о = отдельно(&pool).await;
+    // Приём вызова — работа оператора 112
+    let (user_id, login) = оператор(&pool).await;
+    let group_id = группа(&pool, user_id).await;
 
     let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
-        Some(json!({ "groupId": о.group_id, "title": "Попытки", "mode": "card112" }))).await;
+        Some(json!({ "groupId": group_id, "title": "Попытки", "mode": "card112" }))).await;
     let id = занятие["id"].as_str().unwrap().to_string();
     call(&app, Method::POST, &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
 
     let (задание, сценарий): (Uuid, Uuid) = sqlx::query_as(
         "SELECT id, scenario_id FROM assignments WHERE lesson_id = $1::uuid AND user_id = $2 LIMIT 1")
-        .bind(&id).bind(о.user_id).fetch_one(&pool).await.unwrap();
+        .bind(&id).bind(user_id).fetch_one(&pool).await.unwrap();
 
-    let курсант = токен(&app, &о.login).await;
+    let курсант = токен(&app, &login).await;
     let (status, начато) = call(&app, Method::POST, "/api/sessions", Some(&курсант),
         Some(json!({ "scenarioId": сценарий, "mode": "card112" }))).await;
     assert_eq!(status, StatusCode::CREATED, "{начато}");
@@ -651,7 +676,73 @@ async fn попытка_по_вызову_занятия_попадает_в_з�
     assert_eq!(status, StatusCode::BAD_REQUEST, "попытка записалась в чужое задание");
 
     call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
-    sqlx::query("DELETE FROM sessions WHERE user_id = $1").bind(о.user_id)
-        .execute(&pool).await.ok();
+    прибрать(&pool, group_id).await;
+    убрать_оператора(&pool, user_id).await;
+}
+
+/// Занятие ведётся на одном рабочем месте: вызовы 112 раздаются только
+/// операторам 112, диспетчер ДДС той же группы заданий не получает и
+/// занятия по приёму вызовов у себя не видит.
+#[tokio::test]
+async fn вызовы_занятия_достаются_только_операторам_112() {
+    let Some((app, pool)) = app().await else { return };
+    let teacher = токен(&app, "teacher1").await;
+    let (оп, оп_логин) = оператор(&pool).await;
+    let о = отдельно(&pool).await; // диспетчер ДДС своей службы
+    sqlx::query("INSERT INTO group_members (group_id, user_id) VALUES ($1, $2)")
+        .bind(о.group_id).bind(оп).execute(&pool).await.unwrap();
+
+    let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
+        Some(json!({ "groupId": о.group_id, "title": "Приём", "mode": "card112" }))).await;
+    let id = занятие["id"].as_str().unwrap().to_string();
+    let (status, начато) = call(&app, Method::POST,
+        &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
+    assert_eq!(status, StatusCode::OK, "{начато}");
+
+    let задания = |user: Uuid| {
+        let pool = pool.clone();
+        let id = id.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM assignments WHERE lesson_id = $1::uuid AND user_id = $2")
+                .bind(&id).bind(user).fetch_one(&pool).await.unwrap()
+        }
+    };
+    assert!(задания(оп).await > 0, "оператор 112 должен получить вызовы");
+    assert_eq!(задания(о.user_id).await, 0, "диспетчеру ДДС вызовы 112 не положены");
+
+    // Ход занятия — только по операторам
+    let строки = начато["progress"].as_array().unwrap();
+    assert!(строки.iter().all(|r| r["userId"] != о.user_id.to_string()), "{начато}");
+
+    // Диспетчер занятия по приёму вызова у себя не видит, оператор — видит
+    let (_, у_диспетчера) = call(&app, Method::GET, "/api/lessons",
+        Some(&токен(&app, &о.login).await), None).await;
+    assert!(у_диспетчера.as_array().unwrap().iter().all(|l| l["id"] != id.as_str()));
+    let (_, у_оператора) = call(&app, Method::GET, "/api/lessons",
+        Some(&токен(&app, &оп_логин).await), None).await;
+    assert!(у_оператора.as_array().unwrap().iter().any(|l| l["id"] == id.as_str()));
+
+    call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
+    прибрать_отдельно(&pool, &о, &[]).await;
+    убрать_оператора(&pool, оп).await;
+}
+
+/// Нет в группе курсантов нужного профиля — занятие не запускается,
+/// и отказ говорит, в чём дело, а не «не нашлось вызовов».
+#[tokio::test]
+async fn занятие_без_курсантов_нужного_профиля_не_стартует() {
+    let Some((app, pool)) = app().await else { return };
+    let teacher = токен(&app, "teacher1").await;
+    let о = отдельно(&pool).await; // в группе только диспетчер ДДС
+
+    let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
+        Some(json!({ "groupId": о.group_id, "title": "Приём", "mode": "card112" }))).await;
+    let id = занятие["id"].as_str().unwrap().to_string();
+    let (status, ответ) = call(&app, Method::POST,
+        &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{ответ}");
+    assert!(ответ["detail"].as_str().unwrap().contains("оператор 112"), "{ответ}");
+
     прибрать_отдельно(&pool, &о, &[]).await;
 }
