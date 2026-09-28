@@ -2,9 +2,33 @@
 # Сервер приложения и модель наружу не открыты — только внутренняя
 # сеть compose.
 
+# Порт 80 — только проверка живости и переход на HTTPS. Тренажёр
+# работает по HTTPS не ради красоты: микрофон браузер даёт только
+# защищённой странице, и по http:// голосовой ввод недоступен совсем.
 server {
     listen 80;
     server_name _;
+
+    location = /nginx-health {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    location / {
+        return 301 https://$host:${WEB_TLS_PORT}$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name _;
+
+    # Сертификат кладёт up.sh: свой из deploy/tls/, а если его нет —
+    # самоподписанный на адрес машины (браузер один раз предупредит)
+    ssl_certificate     /etc/nginx/tls/cert.pem;
+    ssl_certificate_key /etc/nginx/tls/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
 
     root /usr/share/nginx/html;
     index index.html;

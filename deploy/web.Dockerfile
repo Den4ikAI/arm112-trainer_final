@@ -22,6 +22,7 @@ RUN cd apps/react && npm run build
 
 # ── Раздача ──────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine
-COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
+# Шаблон: образ nginx подставляет в него WEB_TLS_PORT при старте
+COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /src/frontend/apps/react/dist /usr/share/nginx/html
-EXPOSE 80
+EXPOSE 80 443

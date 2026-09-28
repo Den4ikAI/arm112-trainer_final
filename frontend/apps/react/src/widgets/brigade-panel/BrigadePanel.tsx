@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, cards, channel, type Brigade, type DdsFindingKind, type VoiceStatus } from '@/shared/api';
 import clsx from '@/shared/lib/clsx';
 import {
-  canRecord, recognize, setSoundOn, soundOn, speak, startRecording, stopSpeaking,
+  canRecord, micBlockedReason, recognize, setSoundOn, soundOn, speak, startRecording, stopSpeaking,
   voiceStatus, type Recording,
 } from '@/shared/lib/voice';
 import s from './BrigadePanel.module.scss';
@@ -162,6 +162,7 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
   };
 
   const voiceTalk = !!voiceSt?.asr && canRecord();
+  const micBlocked = voiceSt?.asr ? micBlockedReason() : null;
 
   if (!brigade) return null;
   const { assignment, reports, debrief } = brigade;
@@ -215,6 +216,10 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
                     onClick={() => void talk()}>
               {recording ? '■ Закончить' : '🎤 Сказать голосом'}
             </button>
+          )}
+          {micBlocked && (
+            <button className={s.btn} disabled title={micBlocked}
+                    data-testid="brigade-talk-blocked">🎤 Сказать голосом</button>
           )}
         </div>
       )}

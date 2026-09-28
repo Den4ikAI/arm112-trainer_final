@@ -4,7 +4,7 @@ import clsx from '@/shared/lib/clsx';
 import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import { fmt } from '@/shared/lib/useTimer';
 import {
-  applicantVoice, canRecord, recognize, setSoundOn, soundOn, speak, startRecording,
+  applicantVoice, canRecord, micBlockedReason, recognize, setSoundOn, soundOn, speak, startRecording,
   stopSpeaking, voiceStatus, type Recording,
 } from '@/shared/lib/voice';
 import s from './TrainerHud.module.scss';
@@ -164,6 +164,7 @@ export const TrainerHud = ({ scenario, revealed, transcript, elapsedSec, onAsk, 
   };
 
   const voiceTalk = !!voiceSt?.asr && canRecord();
+  const micBlocked = voiceSt?.asr ? micBlockedReason() : null;
 
   return (
     <aside className={clsx(s.hud, collapsed && s.collapsed)} aria-label="Панель обучающегося">
@@ -255,6 +256,10 @@ export const TrainerHud = ({ scenario, revealed, transcript, elapsedSec, onAsk, 
                           onClick={() => void talk()}>
                     {recording ? '■ Закончить' : '🎤 Голосом'}
                   </button>
+                )}
+                {micBlocked && (
+                  <button type="button" className={s.send} disabled title={micBlocked}
+                          data-testid="hud-talk-blocked">🎤 Голосом</button>
                 )}
               </div>
               {busy && <div className={s.hint} role="status">Заявитель слушает…</div>}

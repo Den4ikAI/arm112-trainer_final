@@ -66,18 +66,32 @@ else
   echo "весов кросс-энкодера нет ($nli_dir) — описание сверяет языковая модель"
 fi
 
+# Сертификат для HTTPS. Без HTTPS браузер не даёт микрофон, и голосовой
+# ввод на стенде недоступен. Свой сертификат — положить в deploy/tls/
+# (cert.pem, key.pem); иначе выпускаем самоподписанный на адрес машины
+addr=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ ! -f tls/cert.pem ] || [ ! -f tls/key.pem ]; then
+  mkdir -p tls
+  san="DNS:localhost,IP:127.0.0.1${addr:+,IP:$addr}${TLS_HOST:+,DNS:$TLS_HOST}"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+    -keyout tls/key.pem -out tls/cert.pem -subj "/CN=arm112-trainer" \
+    -addext "subjectAltName=$san" 2>/dev/null
+  chmod 600 tls/key.pem
+  echo "выпущен самоподписанный сертификат ($san): браузер один раз предупредит"
+fi
+
 COMPOSE_PROFILES=$(IFS=,; echo "${profiles[*]}")
 export COMPOSE_PROFILES
 
 docker compose up -d --build --remove-orphans
 
-port="${WEB_PORT:-80}"
+port="${WEB_TLS_PORT:-443}"
 echo "жду готовности (первая сборка — 10–20 минут)…"
 for _ in $(seq 1 180); do
-  if curl -fsS "http://127.0.0.1:${port}/api/admin/health" >/dev/null 2>&1; then
-    addr=$(hostname -I 2>/dev/null | awk '{print $1}')
+  # -k: сертификат может быть самоподписанным
+  if curl -kfsS "https://127.0.0.1:${port}/api/admin/health" >/dev/null 2>&1; then
     echo
-    echo "готово: http://${addr:-127.0.0.1}:${port}/"
+    echo "готово: https://${addr:-127.0.0.1}:${port}/"
     echo "учётные записи: admin / teacher1 / student1…student5, пароль arm112"
     docker compose ps
     exit 0

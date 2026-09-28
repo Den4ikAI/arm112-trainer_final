@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { chief, type ChiefReport as Report } from '@/shared/api';
 import { ChiefReviewList } from '@/entities/chief/ChiefReviewList';
 import { Recorder, speak, transcribe, voiceUnavailable } from '@/shared/lib/voiceBridge';
+import { micBlockedReason } from '@/shared/lib/voice';
 import s from './ChiefReport.module.scss';
 
 const POLL_MS = 5_000;
@@ -143,7 +144,9 @@ export const ChiefReport = ({ cardId }: { cardId: string }) => {
           <button type="submit" className={s.btn} disabled={busy || recording || !text.trim()}
                   data-testid="chief-send">Сказать</button>
           {!voiceUnavailable() && (
-            <button type="button" className={recording ? s.micOn : s.btn} disabled={waiting}
+            <button type="button" className={recording ? s.micOn : s.btn}
+                    disabled={waiting || !!micBlockedReason()}
+                    title={micBlockedReason() ?? undefined}
                     onClick={() => void toggleMic()} aria-pressed={recording}>
               {recording ? '■ Закончить фразу' : '🎤 Голосом'}
             </button>
