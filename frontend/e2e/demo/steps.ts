@@ -14,6 +14,8 @@ export interface Ctx {
   /** Профиль модели: на процессоре подготовку вызовов не показываем */
   profile: 'gpu' | 'cpu';
   db: string;
+  /** Голос заявителя вызова 112 — как его выбирает приложение */
+  applicantVoice?: string;
 }
 
 const PASSWORD = 'arm112';
@@ -86,6 +88,24 @@ export const teacherPrepare = async (d: Demo, ctx: Ctx): Promise<void> => {
   await d.pause(600);
 };
 
+/** Последняя реплика заявителя в стенограмме. */
+const lastApplicant = async (d: Demo): Promise<string> => {
+  const lines = d.page.getByTestId('transcript').locator('li');
+  const n = await lines.count();
+  for (let i = n - 1; i >= 0; i--) {
+    const who = (await lines.nth(i).locator('span').first().innerText()).toLowerCase();
+    if (who.includes('заявитель')) return lines.nth(i).locator('span').nth(1).innerText();
+  }
+  return '';
+};
+
+/** Дождаться нового ответа заявителя и положить его голос в дорожку. */
+const applicantAnswers = async (d: Demo, ctx: Ctx, before: number): Promise<void> => {
+  const lines = d.page.getByTestId('transcript').locator('li');
+  await expect.poll(() => lines.count(), { timeout: 60_000 }).toBeGreaterThanOrEqual(before + 2);
+  await d.app(await lastApplicant(d), ctx.applicantVoice ?? 'applicant_f');
+};
+
 export const operator112 = async (d: Demo, ctx: Ctx): Promise<void> => {
   const p = d.page;
   await d.caption('Оператор 112');
@@ -94,21 +114,27 @@ export const operator112 = async (d: Demo, ctx: Ctx): Promise<void> => {
   await d.click(p.getByTestId('launch-t3-c1'));
   await p.getByTestId('card-timer').waitFor();
   ctx.number = (await p.getByTestId('card-number').innerText()).trim();
+  // Пол заявителя — по отчеству в шапке панели, как у самого приложения
+  const hudHead = (await p.getByRole('complementary', { name: 'Панель обучающегося' }).innerText())
+    .split('\n').slice(0, 3).join(' ');
+  ctx.applicantVoice = /(вна|чна)(?![а-яё])|кызы/i.test(hudHead) ? 'applicant_f' : 'applicant_m';
+  // Заявитель начинает разговор — приложение озвучивает легенду
+  await d.app(await lastApplicant(d), ctx.applicantVoice);
   await d.ring(p.getByTestId('transcript'));
-  await d.say('Карточка — копия боевой системы. Идёт таймер, заявитель уже сказал первую фразу: горит крыша частного дома.');
+  await d.say('Карточка — копия боевой системы. Идёт таймер, заявитель говорит первую фразу.');
   await d.ring(null);
 
-  await d.sayWhile('Оператор уточняет обстоятельства.', async () => {
-    for (const key of ['city', 'victims', 'gas']) {
-      await d.click(p.getByTestId(`ask-${key}`));
-      await d.pause(700);
-    }
-  });
-  await d.ring(p.getByTestId('transcript'));
-  await d.say('Ответы заявителя — в стенограмме. Выясненное засчитывается, угаданное без вопроса — нет.');
-  await d.ring(null);
+  const lines = p.getByTestId('transcript').locator('li');
+  await d.say('Оператор уточняет обстоятельства — из списка вопросов…');
+  let before = await lines.count();
+  await d.click(p.getByTestId('ask-city'));
+  await applicantAnswers(d, ctx, before);
 
-  await voiceQuestion112(d);
+  await voiceQuestion112(d, ctx);
+
+  await d.ring(p.getByTestId('transcript'));
+  await d.say('Выясненное вопросом засчитывается, угаданное без вопроса — нет.');
+  await d.ring(null);
 
   await d.sayWhile('Адрес и данные заявителя.', async () => {
     await d.type(p.getByPlaceholder('Фамилия и имя заявителя'), 'Иванова Инна', 40);
@@ -170,20 +196,34 @@ export const operator112 = async (d: Demo, ctx: Ctx): Promise<void> => {
 };
 
 /**
- * Заготовка: свободный голосовой вопрос заявителю. Включается сама,
- * когда в диалоге 112 есть кнопка микрофона (её делает отдельная работа).
+ * Свободный вопрос заявителю — голосом и текстом. Включается, когда в
+ * панели обучающегося есть режим «Своими словами».
  */
-export const voiceQuestion112 = async (d: Demo): Promise<void> => {
+export const voiceQuestion112 = async (d: Demo, ctx: Ctx): Promise<void> => {
   const p = d.page;
-  const mic = p.getByTestId('ask-voice');
-  if (!(await visible(mic))) return;
-  await d.say('Вопрос можно задать и голосом, своими словами.');
-  const sec = await d.mic('Скажите, какой дом — частный или многоэтажный?');
-  await d.click(mic);
-  d.micStarted();
-  await d.pause(sec * 1000 + 400);
-  await d.click(mic);
-  await d.pause(2500);
+  const free = p.getByTestId('hud-mode-free');
+  if (!(await visible(free))) return;
+  const lines = p.getByTestId('transcript').locator('li');
+
+  await d.say('…или своими словами, голосом.');
+  await d.click(free);
+  const talk = p.getByTestId('hud-talk');
+  if (await visible(talk)) {
+    const sec = await d.mic('Скажите, а пострадавшие есть?', 'operator');
+    const before = await lines.count();
+    await d.click(talk);
+    d.micStarted();
+    await d.pause(sec * 1000 + 500);
+    await d.click(talk);
+    await applicantAnswers(d, ctx, before);
+    await d.say('Речь распознана на сервере, модель поняла, о каком факте вопрос, — заявитель ответил тем, что записано в вызове.');
+  }
+
+  await d.say('Можно и напечатать.');
+  const before = await lines.count();
+  await d.type(p.getByTestId('hud-free-input'), 'Газ в дом проведён?', 55);
+  await d.click(p.getByTestId('hud-free-send'));
+  await applicantAnswers(d, ctx, before);
 };
 
 const status = async (d: Demo, value: string, comment?: string): Promise<void> => {
@@ -236,7 +276,7 @@ export const dispatcherDds = async (d: Demo, ctx: Ctx): Promise<void> => {
   if (await visible(talk)) {
     stageNow(ctx, 'Прибытие');
     await d.say('Диспетчер может и сам позвонить старшему — голосом.');
-    const sec = await d.mic('Старший, доложите обстановку.');
+    const sec = await d.mic('Старший, доложите обстановку.', 'dispatcher');
     await d.click(talk);
     d.micStarted();
     await d.pause(sec * 1000 + 500);
@@ -277,7 +317,7 @@ export const chiefReport = async (d: Demo): Promise<void> => {
   const mic = panel.getByRole('button', { name: /Голосом/ });
   const first = 'Товарищ начальник, в Королёве пожар в частном доме, горит крыша. Направлена вторая бригада.';
   if (await visible(mic)) {
-    const sec = await d.mic(first);
+    const sec = await d.mic(first, 'dispatcher');
     await d.click(mic);
     d.micStarted();
     await d.pause(sec * 1000 + 500);
