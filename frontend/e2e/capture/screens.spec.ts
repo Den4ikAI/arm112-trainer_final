@@ -37,7 +37,8 @@ const login = async (page: Page, info: TestInfo, user = OPERATOR) => {
   await page.locator('input[name="login"]').fill(user);
   await page.locator('input[name="password"]').fill('arm112');
   await page.getByTestId('login-submit').click();
-  await page.getByRole('heading', { name: 'Учебные вызовы' }).waitFor();
+  // Журнал есть у всех; «Учебные вызовы» — только у оператора 112
+  await page.getByLabel('Поиск происшествий').waitFor();
 };
 
 const pickFireType = async (page: Page) => {
