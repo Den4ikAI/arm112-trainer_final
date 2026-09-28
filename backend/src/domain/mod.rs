@@ -11,6 +11,7 @@ pub mod fact_statements;
 pub mod forecast;
 pub mod free_question;
 pub mod grade;
+pub mod live_applicant;
 pub mod response;
 pub mod scenario_edit;
 pub mod scenario_gen;

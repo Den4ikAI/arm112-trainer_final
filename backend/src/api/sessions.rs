@@ -9,6 +9,7 @@ use crate::{
     audit,
     domain::classify::{classify, ClassifyResult},
     domain::free_question,
+    domain::live_applicant,
     domain::grade::{self, Grade},
     ml::LabelScorer,
     ws,
@@ -490,6 +491,9 @@ async fn ask(
         return Err(AppError::NotFound);
     };
 
+    let answer =
+        applicant_says(&state, &user, id, &question, Some(req.fact_id), Some(&answer), answer.clone())
+            .await?;
     let at_sec = elapsed_sec(session.started_at);
 
     let mut tx = state.db.begin().await?;
@@ -537,9 +541,9 @@ pub struct AskFreeResponse {
 }
 
 /// Свободный вопрос заявителю. Тренажёр понимает, про какой из скрытых
-/// фактов спрашивают, и заявитель отвечает записанным в сценарии —
-/// выдумать ответ здесь нечем. Не понял — переспрашивает, и факт
-/// остаётся невыясненным.
+/// фактов спрашивают, и заявитель отвечает записанным в сценарии — или,
+/// с `applicant.live_model`, тем же своими словами (`applicant_says`).
+/// Не понял — переспрашивает, и факт остаётся невыясненным.
 #[utoipa::path(
     post,
     path = "/api/sessions/{id}/ask-free",
@@ -594,7 +598,7 @@ async fn ask_free(
     };
     let hit = free_question::pick(&scored, &candidates).map(|i| &facts[i]);
 
-    let (answer, fact_id, unlocks) = match hit {
+    let (prepared, fact_id, unlocks) = match hit {
         Some((fid, _, answer, unlocks, _)) => (answer.clone(), Some(*fid), unlocks.clone()),
         None => {
             let name: Option<String> = sqlx::query_scalar(
@@ -608,6 +612,8 @@ async fn ask_free(
             (free_question::not_understood(female).to_string(), None, Vec::new())
         }
     };
+    let current = hit.map(|(_, _, answer, _, _)| answer.as_str());
+    let answer = applicant_says(&state, &user, id, &text, fact_id, current, prepared).await?;
 
     let at_sec = elapsed_sec(session.started_at);
     let mut tx = state.db.begin().await?;
@@ -638,6 +644,101 @@ async fn ask_free(
 
     Ok(Json(AskFreeResponse { answer, at_sec, fact_id, unlocks }))
 }
+
+/// Что скажет заявитель: заготовленная фраза сценария или живая реплика
+/// модели (`applicant.live_model`, профиль с видеокартой).
+///
+/// Раскрытие факта решено до этого вызова — здесь только формулировка.
+/// Модели уходят легенда, уже раскрытые ответы и ответ на текущий
+/// вопрос; ответов на незаданные вопросы в запросе нет. Реплика, не
+/// прошедшая проверку или не успевшая, заменяется заготовленной, и это
+/// пишется в журнал действий.
+async fn applicant_says(
+    state: &AppState,
+    user: &AuthUser,
+    session_id: Uuid,
+    question: &str,
+    current_fact: Option<Uuid>,
+    current_answer: Option<&str>,
+    prepared: String,
+) -> AppResult<String> {
+    let live = crate::reports::forecast::setting(&state.db, "applicant.live_model", 0.0).await >= 0.5;
+    if !live {
+        return Ok(prepared);
+    }
+
+    let (name, status, legend): (String, String, String) = sqlx::query_as(
+        "SELECT sc.applicant_name, sc.applicant_status, sc.legend
+           FROM scenarios sc JOIN sessions s ON s.scenario_id = sc.id
+          WHERE s.id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    // Раскрытое раньше — без текущего факта: он идёт отдельно, как
+    // ответ на этот вопрос
+    let revealed: Vec<(String, String)> = sqlx::query_as(
+        "SELECT f.question, f.answer
+           FROM revealed_facts r JOIN scenario_hidden_facts f ON f.id = r.fact_id
+          WHERE r.session_id = $1 AND ($2::uuid IS NULL OR f.id <> $2)
+          ORDER BY r.at_sec",
+    )
+    .bind(session_id)
+    .bind(current_fact)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut recent: Vec<(String, String)> = sqlx::query_as(
+        "SELECT who, text FROM transcript_lines WHERE session_id = $1
+          ORDER BY id DESC LIMIT $2",
+    )
+    .bind(session_id)
+    .bind(live_applicant::RECENT_LINES as i64)
+    .fetch_all(&state.db)
+    .await?;
+    recent.reverse();
+
+    let ctx = live_applicant::Context {
+        name,
+        status,
+        legend,
+        revealed,
+        current: current_answer.map(str::to_string),
+        recent,
+        question: question.to_string(),
+    };
+    let started = std::time::Instant::now();
+    let outcome = live_applicant::reply(state.ml.llm.as_ref(), &ctx, LIVE_REPLY_BUDGET).await;
+    let ms = started.elapsed().as_millis() as u64;
+    match outcome {
+        live_applicant::Outcome::Live(text) => {
+            tracing::debug!(ms, "живая реплика заявителя");
+            Ok(text)
+        }
+        other => {
+            let (reason, rejected) = match other {
+                live_applicant::Outcome::Rejected { reason, reply } => (reason, Some(reply)),
+                live_applicant::Outcome::Fallback(reason) => (reason, None),
+                live_applicant::Outcome::Live(_) => unreachable!(),
+            };
+            tracing::info!(ms, reason, "живая реплика заявителя отбракована — заготовленная");
+            audit::log(
+                &state.db,
+                audit::Event::new("applicant.fallback")
+                    .from_user(user)
+                    .about("session", session_id)
+                    .with(serde_json::json!({ "reason": reason, "rejected": rejected, "ms": ms })),
+            )
+            .await;
+            Ok(prepared)
+        }
+    }
+}
+
+/// Сколько ждём живую реплику вместе с проверкой. На RTX 4090 обе
+/// занимают около секунды; дальше разговор уже тормозит.
+const LIVE_REPLY_BUDGET: std::time::Duration = std::time::Duration::from_secs(6);
 
 #[derive(Deserialize, Default, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]

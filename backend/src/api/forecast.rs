@@ -209,6 +209,7 @@ fn предел(key: &str) -> Option<(f64, f64)> {
         "brigade.update_norm_sec" => (5.0, 600.0),
         // 0 или 1: модель в самом разговоре с начальником (domain::chief)
         "chief.live_model" => (0.0, 1.0),
+        "applicant.live_model" => (0.0, 1.0),
         // 0 — авто, 1 — кросс-энкодер, 2 — языковая модель (domain::text_analysis)
         "analysis.engine" => (0.0, 2.0),
         _ => return None,
