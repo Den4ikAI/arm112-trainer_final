@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { useSession, roleTitle } from '@/entities/session/model';
+import { useSession, roleTitle, dutyTitle } from '@/entities/session/model';
+import { useCatalog } from '@/entities/catalog/model';
 import s from './UserMenu.module.scss';
 
 /**
@@ -13,8 +14,16 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
   const user = useSession((st) => st.user);
   const signOut = useSession((st) => st.signOut);
   const nav = useNavigate();
+  const serviceShort = useCatalog((st) => st.serviceShort);
 
   if (!user) return null;
+
+  // Рабочее место обучающегося: «один интерфейс, две мини-роли» —
+  // человеку надо сразу видеть, за кого он сейчас работает
+  const duty = user.role === 'student' && user.duty
+    ? dutyTitle(user.duty) + (user.duty === 'dds' && user.serviceId
+      ? ` · ${serviceShort(user.serviceId)}` : '')
+    : null;
 
   // Выход гасит канал класса и забывает токен; дальше Private
   // сам перебросит на форму входа
@@ -26,6 +35,7 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
   return (
     <span className={s.wrap}>
       <span className={s.who} title={roleTitle(user.role)}>{user.fio}</span>
+      {duty && <span className={s.duty} data-testid="duty-badge">{duty}</span>}
 
       {/* Аналитика по группе — учебный процесс, это преподавателю.
           Администрирование — системные журналы и учётные записи,

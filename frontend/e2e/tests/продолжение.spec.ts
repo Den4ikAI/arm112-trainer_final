@@ -22,7 +22,8 @@ const завести = async (page: Page): Promise<string> => {
   const login = `продолжение${Date.now()}`;
   const ответ = await page.request.post('/api/admin/users', {
     headers: { authorization: `Bearer ${token}` },
-    data: { login, password: ЕГО_ПАРОЛЬ, fio: 'Проверочный П.П.', role: 'student', serviceId: 'mchs' },
+    // Оператор 112: он принимает вызов, и его вызов продолжается после F5
+    data: { login, password: ЕГО_ПАРОЛЬ, fio: 'Проверочный П.П.', role: 'student', duty: 'op112' },
   });
   expect(ответ.status()).toBe(201);
   return login;

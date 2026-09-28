@@ -1,0 +1,21 @@
+.wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+
+  select { max-width: 14rem; }
+}
+
+.apply {
+  padding: 2px 10px;
+  border: 1px solid #8a83d1;
+  border-radius: 4px;
+  background: #f4f3fb;
+  color: #222;
+  cursor: pointer;
+
+  &:disabled { opacity: .5; cursor: default; }
+}
+
+.error { color: #b00020; font-size: .9em; }

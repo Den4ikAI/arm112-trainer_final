@@ -2,7 +2,7 @@
 import { api, getToken, setToken, ApiError as ClientError } from './client';
 import type {
   AdminUser, AuditPage, Brigade, Card, CardBrief, CardDetail, ClassifierVersion,
-  ClassifyResult, Grade, GroupBrief, Health, IncidentType, JobView,
+  ClassifyResult, Duty, Grade, GroupBrief, GroupMember, Health, IncidentType, JobView,
   ScenarioFull, ScenarioPublic, Service, SessionState, SurveyCard, TrainingSession,
   TranscriptLine, TurnResult, User, VoiceRole, VoiceStatus,
 } from './types';
@@ -392,8 +392,15 @@ export const admin = {
   users: () => api.get<AdminUser[]>('/api/admin/users'),
   createUser: (body: {
     login: string; password: string; fio: string;
-    role: string; serviceId?: string | null; workstation?: string | null;
+    role: string; serviceId?: string | null; duty?: Duty | null; workstation?: string | null;
   }) => api.post<AdminUser>('/api/admin/users', body),
+  /**
+   * Направить курсанта на другое рабочее место. Администратор — любого,
+   * преподаватель — своего. Действует сразу, без перевхода.
+   */
+  setDuty: (id: string, duty: Duty, serviceId: string | null) =>
+    api.patch<AdminUser>(`/api/users/${id}/duty`, { duty, serviceId }),
+  groupMembers: (groupId: string) => api.get<GroupMember[]>(`/api/groups/${groupId}/members`),
   setActive: (id: string, active: boolean) =>
     api.post<void>(`/api/admin/users/${id}/active`, { active }),
   /**

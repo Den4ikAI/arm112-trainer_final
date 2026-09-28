@@ -482,9 +482,9 @@ test.describe('Администрирование', () => {
     await page.getByRole('textbox', { name: 'Логин' }).fill(login_);
     await page.getByRole('textbox', { name: 'Пароль' }).fill('длинныйПароль');
     await page.getByRole('textbox', { name: 'ФИО', exact: true }).fill('Новиков Н.Н.');
-    // Служба обязательна: по ней отбирается лента курсанта, без неё
-    // главный экран у него пустой
-    await page.getByRole('combobox', { name: 'Служба' }).selectOption({ index: 1 });
+    // Диспетчеру ДДС служба обязательна: по ней отбирается его лента
+    await page.getByRole('combobox', { name: 'Рабочее место', exact: true }).selectOption('dds');
+    await page.getByRole('combobox', { name: 'Служба', exact: true }).selectOption({ index: 1 });
     await page.getByTestId('save-user').click();
 
     const row = page.getByTestId(`user-${login_}`);

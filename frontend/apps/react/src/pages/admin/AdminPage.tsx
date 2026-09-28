@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   admin, ApiError,
-  type AdminUser, type AuditPage, type ClassifierVersion, type Health,
+  type AdminUser, type AuditPage, type ClassifierVersion, type Duty, type Health,
 } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
+import { DutyEditor } from '@/widgets/duty-editor/DutyEditor';
 import clsx from '@/shared/lib/clsx';
 import s from './AdminPage.module.scss';
 
@@ -233,7 +234,7 @@ const UsersTab = () => {
         <table className={s.table}>
           <thead>
             <tr>
-              <th>Логин</th><th>ФИО</th><th>Роль</th>
+              <th>Логин</th><th>ФИО</th><th>Роль</th><th>Рабочее место</th>
               <th>Служба</th><th>АРМ</th><th>Занятий</th><th>Состояние</th>
             </tr>
           </thead>
@@ -244,6 +245,13 @@ const UsersTab = () => {
                 <td>{u.login}</td>
                 <td>{u.fio}</td>
                 <td>{ROLE_TITLE[u.role]}</td>
+                <td>
+                  {u.role === 'student'
+                    ? <DutyEditor key={`${u.duty}-${u.serviceId}`} userId={u.id} login={u.login}
+                                  duty={u.duty} serviceId={u.serviceId}
+                                  onChanged={() => void reload()} />
+                    : '—'}
+                </td>
                 <td>{u.serviceTitle ?? '—'}</td>
                 <td>{u.workstation ?? '—'}</td>
                 <td className={s.num}>{u.sessions}</td>
@@ -282,7 +290,7 @@ const ROLE_TITLE: Record<string, string> = {
 const NewUserForm = ({ onDone }: { onDone: () => void }) => {
   const services = useCatalog((st) => st.services);
   const [form, setForm] = useState({
-    login: '', password: '', fio: '', role: 'student',
+    login: '', password: '', fio: '', role: 'student', duty: 'op112',
     serviceId: '', workstation: '',
   });
   const [error, setError] = useState<string | null>(null);
@@ -300,9 +308,11 @@ const NewUserForm = ({ onDone }: { onDone: () => void }) => {
         password: form.password,
         fio: form.fio,
         role: form.role,
-        // Служба только у курсанта: у преподавателя её быть не должно,
-        // сервер это тоже проверяет
-        serviceId: form.role === 'student' && form.serviceId ? form.serviceId : null,
+        // Рабочее место и служба — только у курсанта, и служба — только у
+        // диспетчера ДДС: оператору 112 она не нужна. Сервер это тоже проверяет
+        duty: form.role === 'student' ? (form.duty as Duty) : null,
+        serviceId: form.role === 'student' && form.duty === 'dds' && form.serviceId
+          ? form.serviceId : null,
         workstation: form.workstation || null,
       });
       onDone();
@@ -342,17 +352,26 @@ const NewUserForm = ({ onDone }: { onDone: () => void }) => {
       {form.role === 'student' && (
         <>
           <label className={s.field}>
-            <span>Служба (ДДС)</span>
-            {/* Обязательна: по службе отбирается лента курсанта,
-                без неё главный экран у него пустой */}
-            <select value={form.serviceId} aria-label="Служба" required
-                    onChange={(e) => set('serviceId')(e.target.value)}>
-              <option value="">выберите службу</option>
-              {services.map((sv) => (
-                <option key={sv.id} value={sv.id}>{sv.title}</option>
-              ))}
+            <span>Рабочее место</span>
+            <select value={form.duty} aria-label="Рабочее место"
+                    onChange={(e) => set('duty')(e.target.value)}>
+              <option value="op112">Оператор 112</option>
+              <option value="dds">Диспетчер ДДС</option>
             </select>
           </label>
+          {form.duty === 'dds' && (
+            <label className={s.field}>
+              <span>Служба (ДДС)</span>
+              {/* Обязательна диспетчеру: по службе отбирается его лента */}
+              <select value={form.serviceId} aria-label="Служба" required
+                      onChange={(e) => set('serviceId')(e.target.value)}>
+                <option value="">выберите службу</option>
+                {services.map((sv) => (
+                  <option key={sv.id} value={sv.id}>{sv.title}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className={s.field}>
             <span>Номер АРМ</span>
             <input value={form.workstation} aria-label="Номер АРМ"

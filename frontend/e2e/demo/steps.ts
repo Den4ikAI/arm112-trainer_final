@@ -35,7 +35,8 @@ export const login = async (d: Demo, user: string): Promise<void> => {
   await d.type(p.locator('input[name="login"]'), user, 60);
   await d.type(p.locator('input[name="password"]'), PASSWORD, 40);
   await d.click(p.getByTestId('login-submit'));
-  await p.getByRole('heading', { name: 'Учебные вызовы' }).waitFor({ timeout: 60_000 });
+  // Журнал есть у всех; «Учебные вызовы» — только у оператора 112
+  await p.getByLabel('Поиск происшествий').waitFor({ timeout: 60_000 });
   await d.pause(500);
 };
 

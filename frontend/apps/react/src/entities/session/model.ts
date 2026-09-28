@@ -62,3 +62,14 @@ export const useSession = create<SessionState>((set) => ({
 
 export const roleTitle = (role: User['role']): string =>
   ({ student: 'Обучающийся', teacher: 'Преподаватель', admin: 'Администратор' })[role];
+
+/** Рабочее место обучающегося словами. */
+export const dutyTitle = (duty: User['duty']): string =>
+  duty === 'dds' ? 'Диспетчер ДДС' : duty === 'op112' ? 'Оператор 112' : '';
+
+/**
+ * Обучающийся с другим профилем. Преподавателя и администратора профиль
+ * не ограничивает: они ведут занятие и смотрят обе стороны.
+ */
+export const otherDuty = (user: User | null, duty: NonNullable<User['duty']>): boolean =>
+  !!user && user.role === 'student' && user.duty !== duty;

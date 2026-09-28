@@ -7,6 +7,15 @@
 
 .who { font-weight: 600; }
 
+/* Рабочее место обучающегося — плашкой рядом с именем */
+.duty {
+  padding: 0 var(--sp-2);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: .85em;
+  white-space: nowrap;
+}
+
 .link {
   padding: 0;
   border: none;

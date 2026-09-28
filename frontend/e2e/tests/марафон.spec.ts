@@ -30,8 +30,9 @@ const стенд = (вызовов: number): Стенд => {
   const login = `марафонец${метка}`;
   const group = `марафон-e2e-${метка}`;
   const userId = sql(
-    `INSERT INTO users (login, password_hash, fio, role, service_id)
-     SELECT '${login}', password_hash, 'Марафонцев М.М.', 'student', 'mchs'
+    // Без службы — оператор 112: марафон и блиц по карточке — приём вызова
+    `INSERT INTO users (login, password_hash, fio, role)
+     SELECT '${login}', password_hash, 'Марафонцев М.М.', 'student'
        FROM users WHERE login = 'student1' RETURNING id`);
   const groupId = sql(
     `INSERT INTO training_groups (title, teacher_id)

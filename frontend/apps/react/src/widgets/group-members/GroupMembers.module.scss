@@ -1,0 +1,29 @@
+.box {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  background: #fff;
+  color: #222;
+}
+
+.subtitle { margin: 0 0 6px; font-size: 1rem; }
+.summary { margin: 0 0 8px; font-size: .9rem; color: #444; }
+.error { color: #b00020; }
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid #eee;
+}
+
+.fio { font-weight: 600; }

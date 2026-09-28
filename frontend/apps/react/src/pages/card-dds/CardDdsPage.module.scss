@@ -103,3 +103,12 @@
   color: var(--c-text-muted);
   font-size: 15px;
 }
+
+/* Подсказка оператору 112 на его собственной карточке */
+.ownNote {
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-left: 3px solid #8a83d1;
+  background: #f4f3fb;
+  color: #333;
+}

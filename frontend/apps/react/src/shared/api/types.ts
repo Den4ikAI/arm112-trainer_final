@@ -5,12 +5,20 @@
 
 export type Role = 'student' | 'teacher' | 'admin';
 
+/**
+ * Профиль рабочего места обучающегося: оператор 112 принимает вызовы и
+ * заполняет карточки, диспетчер ДДС работает с карточками своей службы.
+ * У преподавателя и администратора профиля нет.
+ */
+export type Duty = 'op112' | 'dds';
+
 export interface User {
   id: string;
   login: string;
   fio: string;
   role: Role;
   serviceId: string | null;
+  duty: Duty | null;
   workstation: string | null;
 }
 
@@ -252,10 +260,21 @@ export interface AdminUser {
   role: Role;
   serviceId: string | null;
   serviceTitle: string | null;
+  duty: Duty | null;
   workstation: string | null;
   isActive: boolean;
   createdAt: string;
   sessions: number;
+}
+
+/** Курсант группы с его профилем — для преподавателя. */
+export interface GroupMember {
+  id: string;
+  login: string;
+  fio: string;
+  duty: Duty | null;
+  serviceId: string | null;
+  serviceTitle: string | null;
 }
 
 export interface ClassifierVersion {

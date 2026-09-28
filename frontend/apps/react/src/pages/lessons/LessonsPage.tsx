@@ -9,6 +9,7 @@ import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import { useCatalog } from '@/entities/catalog/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
+import { GroupMembers } from '@/widgets/group-members/GroupMembers';
 import clsx from '@/shared/lib/clsx';
 import s from './LessonsPage.module.scss';
 
@@ -313,6 +314,8 @@ export const LessonsPage = () => {
               Собрать
             </button>
           </form>
+
+          <GroupMembers groupId={form.groupId} mode={form.mode} />
 
           <div className={s.listBox}>
           <h2 className={s.subtitle}>Список</h2>

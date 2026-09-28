@@ -130,6 +130,11 @@ export const JournalPage = () => {
   const user = useSession((st) => st.user);
   const nav = useNavigate();
   const now = useClock();
+  // Рабочее место обучающегося: у оператора 112 — свои вызовы и билеты
+  // для приёма, у диспетчера ДДС — лента своей службы. Преподаватель и
+  // администратор видят всё
+  const dds = user?.role === 'student' && user.duty === 'dds';
+  const op112 = user?.role === 'student' && user.duty === 'op112';
 
   // Лента фильтруется сервером по службе пользователя: «в их ленту
   // попадают только профильные события»
@@ -140,11 +145,13 @@ export const JournalPage = () => {
     // отвечает отказом — и вместе с ней пропадали учебные вызовы,
     // а на экране было «Нет связи с сервером», хотя связь есть
     const load = async () => {
-      const scope = user?.role === 'student' ? 'service' : 'all';
+      const scope = dds ? 'service' : op112 ? 'own' : 'all';
 
+      // Билеты для приёма вызова диспетчеру ДДС не нужны: он получает
+      // уже заполненные карточки, а не звонки
       const [feed, list] = await Promise.allSettled([
         cards.list({ scope, q: query || undefined, page, size: PAGE_SIZE }),
-        scenariosApi.list(),
+        dds ? Promise.resolve([] as ScenarioBrief[]) : scenariosApi.list(),
       ]);
       if (!alive) return;
 
@@ -157,7 +164,7 @@ export const JournalPage = () => {
       // Занятие — надстройка: не узнали о нём, и экран работает как обычно
       if (user?.role === 'student') {
         const идущие = await lessons.list().catch(() => [] as LessonBrief[]);
-        const незакончен = await sessions.active().catch(() => undefined);
+        const незакончен = op112 ? await sessions.active().catch(() => undefined) : undefined;
         if (alive) setUnfinished(незакончен ?? null);
         if (alive) setLesson(идущие[0] ?? null);
         const идёт = идущие[0];
@@ -184,12 +191,16 @@ export const JournalPage = () => {
 
     // Канал класса: карточка от оператора и статусы от других
     // диспетчеров приходят сразу, без обновления страницы
-    const topics = user?.serviceId ? [`service:${user.serviceId}`] : [];
+    // Диспетчеру ДДС — лента своей службы; оператору 112 — свой топик:
+    // туда приходят начало и сохранение его вызовов, и журнал своих
+    // карточек обновляется сам. Преподаватель обновляется опросом
+    const topics = dds && user?.serviceId ? [`service:${user.serviceId}`]
+      : op112 && user?.id ? [`user:${user?.id}`] : [];
     if (topics.length) channel.subscribe(topics);
 
     const off = channel.on((e) => {
       if (['card.dispatched', 'response.recorded', 'ack.timeout',
-           'card.status', 'lagged'].includes(e.type)) {
+           'card.status', 'session.finished', 'lagged'].includes(e.type)) {
         void load();
       }
     });
@@ -205,7 +216,7 @@ export const JournalPage = () => {
       clearInterval(timer);
       if (topics.length) channel.unsubscribe(topics);
     };
-  }, [query, page, user?.role, user?.serviceId]);
+  }, [query, page, user?.role, user?.serviceId, user?.id, dds, op112]);
 
   const proceed = async (st: SessionState) => {
     if (await resume(st.card.number)) nav(`/card/${st.card.number}`);
@@ -251,6 +262,7 @@ export const JournalPage = () => {
         </div>
       </div>
 
+      {!dds && (
       <section className={s.launcher} aria-label="Учебные вызовы">
         <h2 className={s.launcherTitle}>Учебные вызовы</h2>
         <div className={s.launcherList}>
@@ -271,6 +283,7 @@ export const JournalPage = () => {
           )}
         </div>
       </section>
+      )}
 
       {unfinished && (
         <div className={s.lesson} role="status" data-testid="unfinished-call">

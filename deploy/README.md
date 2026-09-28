@@ -245,7 +245,8 @@ docker compose -f deploy/docker-compose.yml ps  # все сервисы healthy
 |---|---|
 | `admin` | администратор |
 | `teacher1` | преподаватель |
-| `student1` … `student5` | курсанты разных служб |
+| `student1` | курсант — оператор 112 |
+| `student2` … `student5` | курсанты — диспетчеры ДДС: Мослифт, Служба 101 (МЧС), ЦОДД, Служба 104 (МОСГАЗ) |
 
 Пароль у всех `arm112`. Описание API — `https://<адрес>/api/docs`.
 

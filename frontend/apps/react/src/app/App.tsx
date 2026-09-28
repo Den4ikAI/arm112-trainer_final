@@ -9,7 +9,8 @@ import { AdminPage } from '@/pages/admin/AdminPage';
 import { AnalyticsPage } from '@/pages/analytics/AnalyticsPage';
 import { ScenariosPage } from '@/pages/scenarios/ScenariosPage';
 import { LessonsPage } from '@/pages/lessons/LessonsPage';
-import { useSession } from '@/entities/session/model';
+import { useSession, otherDuty, dutyTitle } from '@/entities/session/model';
+import { NotForDuty } from '@/shared/ui/NotForDuty';
 import { useCatalog } from '@/entities/catalog/model';
 
 /**
@@ -34,15 +35,26 @@ export const App = () => {
       <Route path="/" element={<Navigate to={user ? '/journal' : '/login'} replace />} />
       <Route path="/login" element={user ? <Navigate to="/journal" replace /> : <LoginPage />} />
       <Route path="/journal" element={<Private><JournalPage /></Private>} />
-      <Route path="/card/:number" element={<Private><Card112Page /></Private>} />
+      <Route path="/card/:number" element={<Private><Op112><Card112Page /></Op112></Private>} />
       <Route path="/card-dds/:id" element={<Private><CardDdsPage /></Private>} />
-      <Route path="/debrief" element={<Private><DebriefPage /></Private>} />
+      <Route path="/debrief" element={<Private><Op112><DebriefPage /></Op112></Private>} />
       <Route path="/admin" element={<Private><AdminPage /></Private>} />
       <Route path="/analytics" element={<Private><AnalyticsPage /></Private>} />
       <Route path="/scenarios" element={<Private><ScenariosPage /></Private>} />
       <Route path="/lessons" element={<Private><LessonsPage /></Private>} />
     </Routes>
   );
+};
+
+/** Приём вызова 112 и его разбор — рабочее место оператора 112. */
+const Op112 = ({ children }: { children: React.ReactNode }) => {
+  const user = useSession((st) => st.user);
+  if (otherDuty(user, 'op112')) {
+    return <NotForDuty yours={dutyTitle(user?.duty ?? null).toLowerCase()}
+                       what="Приём вызова и заполнение карточки 112 — работа оператора 112.
+                             Диспетчер ДДС получает готовую карточку в ленту своей службы." />;
+  }
+  return <>{children}</>;
 };
 
 /** Без входа внутрь не пускаем. Сервер всё равно ответит 401, но
