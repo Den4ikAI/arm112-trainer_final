@@ -113,11 +113,18 @@ test.describe('Числа на экранах', () => {
     const подвал = page.getByTestId('journal-pager');
     await expect(подвал).toContainText('Записей на странице: 10');
 
-    const строк = await page.locator('[data-testid^="journal-row-"]').count();
+    // Подвал и строки приходят из одного ответа, но рисуются не в один
+    // кадр: подвал успевал показать «1-1», пока строк было ещё ноль.
+    // Сверяем, когда обе части сошлись, а не в первый попавшийся момент
+    const строки = page.locator('[data-testid^="journal-row-"]');
+    const диапазон = async () => {
+      const [, с, по] = (await подвал.innerText()).match(/(\d+)-(\d+) из (\d+)/) ?? [];
+      return Number(по) - Number(с) + 1;
+    };
+    await expect.poll(async () => (await диапазон()) - (await строки.count())).toBe(0);
+    const строк = await строки.count();
     expect(строк).toBeLessThanOrEqual(10);
-    const текст = await подвал.innerText();
-    const [, с, по, из] = текст.match(/(\d+)-(\d+) из (\d+)/) ?? [];
-    expect(Number(по) - Number(с) + 1).toBe(строк);
+    const [, , , из] = (await подвал.innerText()).match(/(\d+)-(\d+) из (\d+)/) ?? [];
     expect(Number(из)).toBeGreaterThanOrEqual(строк);
 
     // Дальше первой страницы можно уйти, если она есть
