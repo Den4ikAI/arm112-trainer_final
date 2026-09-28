@@ -259,3 +259,12 @@
   gap: var(--sp-3);
   font-size: 13px;
 }
+
+// Поле значения параметра: узкое, число по правому краю
+.settingInput {
+  width: 90px;
+  padding: 4px 6px;
+  border: 1px solid var(--c-border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

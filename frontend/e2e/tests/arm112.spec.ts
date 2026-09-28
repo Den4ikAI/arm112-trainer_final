@@ -518,6 +518,32 @@ test.describe('Администрирование', () => {
     await expect(health).toContainText('отвечает');
     await expect(health).toContainText('Открытых каналов класса');
   });
+
+  // Критерий финальной экспертизы: «реализация дополнительных
+  // настраиваемых параметров». Меняются с экрана, пределы держит сервер
+  test('параметры меняются с экрана, пределы проверяет сервер', async ({ page }, info) => {
+    await login(page, info, 'admin');
+    await page.getByTestId('admin-link').click();
+    await page.getByTestId('admin-tab-settings').click();
+
+    const строка = page.getByTestId('setting-forecast.tolerance');
+    await expect(строка).toContainText('Допуск прогноза');
+    const поле = строка.getByRole('textbox');
+    const было = await поле.inputValue();
+
+    await поле.fill('50');
+    await строка.getByRole('button', { name: 'сохранить' }).click();
+    await expect(строка.getByRole('status')).toContainText('от 1 до 30');
+
+    await поле.fill('12');
+    await строка.getByRole('button', { name: 'сохранить' }).click();
+    await expect(строка.getByRole('status')).toHaveText('Сохранено');
+
+    // Вернуть как было: база проверок общая для прогонов
+    await поле.fill(было);
+    await строка.getByRole('button', { name: 'сохранить' }).click();
+    await expect(строка.getByRole('status')).toHaveText('Сохранено');
+  });
 });
 
 test.describe('Аналитика', () => {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  admin, ApiError,
-  type AdminUser, type AuditPage, type ClassifierVersion, type Duty, type Health,
+  admin, ApiError, forecast,
+  type AdminUser, type SettingRow, type AuditPage, type ClassifierVersion, type Duty, type Health,
 } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
@@ -11,7 +11,7 @@ import { DutyEditor } from '@/widgets/duty-editor/DutyEditor';
 import clsx from '@/shared/lib/clsx';
 import s from './AdminPage.module.scss';
 
-type Tab = 'audit' | 'users' | 'classifier' | 'health';
+type Tab = 'audit' | 'users' | 'classifier' | 'settings' | 'health';
 
 /**
  * Экран администратора.
@@ -45,6 +45,7 @@ export const AdminPage = () => {
     ['audit', 'Журнал действий'],
     ['users', 'Пользователи'],
     ['classifier', 'Классификатор'],
+    ['settings', 'Параметры'],
     ['health', 'Состояние'],
   ];
 
@@ -76,6 +77,7 @@ export const AdminPage = () => {
       {tab === 'audit' && <AuditTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'classifier' && <ClassifierTab />}
+      {tab === 'settings' && <SettingsTab />}
       {tab === 'health' && <HealthTab />}
     </div>
   );
@@ -451,6 +453,91 @@ const ClassifierTab = () => {
         Активная версия используется и для подбора служб, и для эталона
         при разборе. Уже выставленные оценки не пересчитываются: они
         зафиксировали тот справочник, что действовал в момент сохранения.
+      </p>
+    </section>
+  );
+};
+
+// ─── Параметры ────────────────────────────────────────────────────
+
+/**
+ * Настраиваемые параметры: нормативы, прогноз, бригада ДДС, модель.
+ *
+ * Критерий финальной экспертизы — «реализация дополнительных
+ * настраиваемых параметров». Раньше они менялись только через API,
+ * и увидеть их можно было лишь в документации. Пределы проверяет
+ * сервер: значение вне их не сохранится, и причина видна здесь же.
+ */
+const SettingsTab = () => {
+  const [rows, setRows] = useState<SettingRow[]>([]);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const list = await forecast.settings();
+      setRows(list);
+      setDraft(Object.fromEntries(list.map((r) => [r.key, String(r.value)])));
+      setError(null);
+    } catch {
+      setError('Не удалось получить параметры');
+    }
+  }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const save = async (key: string) => {
+    const value = Number(draft[key]?.replace(',', '.'));
+    if (!Number.isFinite(value)) {
+      setNote((n) => ({ ...n, [key]: 'Нужно число' }));
+      return;
+    }
+    try {
+      const saved = await forecast.setSetting(key, value);
+      setRows((list) => list.map((r) => (r.key === key ? saved : r)));
+      setNote((n) => ({ ...n, [key]: 'Сохранено' }));
+    } catch (e) {
+      setNote((n) => ({ ...n, [key]: e instanceof ApiError ? e.message : 'Не сохранилось' }));
+    }
+  };
+
+  return (
+    <section className={s.panel} data-testid="settings-tab">
+      {error && <div className={s.error} role="alert">{error}</div>}
+      <div className={s.scroll}>
+        <table className={s.table}>
+          <thead>
+            <tr><th>Параметр</th><th>Значение</th><th /></tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} data-testid={`setting-${r.key}`}>
+                <td>
+                  <div>{r.title}</div>
+                  <div className={s.note}>{r.hint}</div>
+                </td>
+                <td className={s.num}>
+                  <input className={s.settingInput} inputMode="decimal"
+                         aria-label={r.title} value={draft[r.key] ?? ''}
+                         onChange={(e) => setDraft((d) => ({ ...d, [r.key]: e.target.value }))} />
+                </td>
+                <td>
+                  <button className={s.link} onClick={() => void save(r.key)}
+                          disabled={draft[r.key] === String(r.value)}>
+                    сохранить
+                  </button>
+                  {note[r.key] && <div className={s.note} role="status">{note[r.key]}</div>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className={s.note}>
+        Изменение пишется в журнал действий. Нормативы действуют сразу:
+        следующая карточка будет оцениваться по новому значению, уже
+        выставленные оценки не пересчитываются.
       </p>
     </section>
   );
