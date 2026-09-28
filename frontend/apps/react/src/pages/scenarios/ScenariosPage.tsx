@@ -7,6 +7,7 @@ import {
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 import { ScenarioChat } from '@/widgets/scenario-chat/ScenarioChat';
+import { FactStatements } from '@/widgets/fact-statements/FactStatements';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import clsx from '@/shared/lib/clsx';
@@ -169,6 +170,9 @@ export const ScenariosPage = () => {
                   <li className={s.empty}>Скрытых фактов нет — курсанту нечего выяснять.</li>
                 )}
               </ol>
+
+              <h3 className={s.blockTitle}>Утверждения для сверки описания</h3>
+              <FactStatements scenario={current} onChanged={setCurrent} />
 
               {/* Эталон отделён намеренно: эту часть считает
                   классификатор, а не модель */}

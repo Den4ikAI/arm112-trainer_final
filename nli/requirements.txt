@@ -1,0 +1,8 @@
+# Сервер кросс-энкодера: PyTorch на процессоре. Колесо CPU ставится
+# с индекса https://download.pytorch.org/whl/cpu — без CUDA оно в разы меньше
+torch>=2.9
+# Qwen3.5 появился в transformers 5; проверено на 5.17.0
+transformers==5.17.0
+numpy>=1.24
+fastapi>=0.110
+uvicorn>=0.29

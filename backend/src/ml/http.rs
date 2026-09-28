@@ -326,6 +326,7 @@ pub fn suite(base_url: String, model: String) -> Result<MlSuite> {
         scorer: Box::new(HttpLabelScorer::new(base_url.clone(), model.clone())?),
         grammar: mock.grammar,
         llm: Box::new(HttpLlm::new(base_url, model)?),
+        nli: mock.nli,
     })
 }
 

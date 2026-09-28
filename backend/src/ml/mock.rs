@@ -13,6 +13,7 @@ pub fn suite() -> MlSuite {
         scorer: Box::new(MockLabelScorer),
         grammar: Box::new(MockGrammar),
         llm: Box::new(MockLlm),
+        nli: Box::new(super::nli::NoNli),
     }
 }
 

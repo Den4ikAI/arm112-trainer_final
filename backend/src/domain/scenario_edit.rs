@@ -38,6 +38,9 @@ pub struct ScenarioFull {
     pub expected: Value,
     pub classify_reason: Option<String>,
     pub hidden: Vec<HiddenRow>,
+    /// Первая фраза заявителя утверждениями — по одному на сведение.
+    /// `None` — ещё не подготовлены (domain/fact_statements.rs)
+    pub legend_statements: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
@@ -48,6 +51,11 @@ pub struct HiddenRow {
     pub answer: String,
     #[serde(default)]
     pub unlocks: Vec<String>,
+    /// Ответ заявителя утверждением — для сверки описания курсанта
+    /// кросс-энкодером. Готовит модель, правит преподаватель; модель
+    /// в правке вызова это поле не присылает и не видит
+    #[serde(default, skip_deserializing)]
+    pub statement: Option<String>,
 }
 
 /// Что модель предлагает изменить. Все поля необязательны: на реплику
@@ -146,10 +154,11 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
     #[allow(clippy::type_complexity)]
     let row: Option<(
         Option<i32>, Option<i32>, String, String, String, String,
-        i32, String, String, Value, Option<String>,
+        i32, String, String, Value, Option<String>, Option<Vec<String>>,
     )> = sqlx::query_as(
         "SELECT ticket, call_no, legend, applicant_name, applicant_phone,
-                applicant_status, norm_sec, status::text, source, expected, classify_reason
+                applicant_status, norm_sec, status::text, source, expected, classify_reason,
+                legend_statements
            FROM scenarios WHERE id = $1",
     )
     .bind(id)
@@ -157,25 +166,28 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
     .await?;
 
     let Some((ticket, call_no, legend, applicant_name, applicant_phone,
-              applicant_status, norm_sec, status, source, expected, classify_reason)) = row
+              applicant_status, norm_sec, status, source, expected, classify_reason,
+              legend_statements)) = row
     else {
         anyhow::bail!("сценарий не найден");
     };
 
-    let hidden: Vec<HiddenRow> = sqlx::query_as::<_, (String, String, String, Vec<String>)>(
-        "SELECT key, question, answer, unlocks FROM scenario_hidden_facts
+    #[allow(clippy::type_complexity)]
+    let hidden: Vec<HiddenRow> = sqlx::query_as::<_, (String, String, String, Vec<String>, Option<String>)>(
+        "SELECT key, question, answer, unlocks, statement FROM scenario_hidden_facts
           WHERE scenario_id = $1 AND NOT retired ORDER BY sort_order",
     )
     .bind(id)
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(key, question, answer, unlocks)| HiddenRow { key, question, answer, unlocks })
+    .map(|(key, question, answer, unlocks, statement)| HiddenRow { key, question, answer, unlocks, statement })
     .collect();
 
     Ok(ScenarioFull {
         id, ticket, call_no, legend, applicant_name, applicant_phone,
         applicant_status, norm_sec, status, source, expected, classify_reason, hidden,
+        legend_statements,
     })
 }
 
@@ -244,7 +256,14 @@ pub async fn turn(
                 "applicantName": scenario.applicant_name,
                 "applicantStatus": scenario.applicant_status,
                 "normSec": scenario.norm_sec,
-                "hidden": scenario.hidden,
+                // Утверждения — служебное поле сверки, модели правки
+                // оно не нужно и только сбивало бы её
+                "hidden": scenario.hidden.iter()
+                    .map(|f| json!({
+                        "key": f.key, "question": f.question,
+                        "answer": f.answer, "unlocks": f.unlocks,
+                    }))
+                    .collect::<Vec<_>>(),
                 "answers": scenario.expected.get("answers"),
             }))?)
     }));
@@ -317,6 +336,9 @@ pub async fn apply(
 
     sqlx::query(
         "UPDATE scenarios SET
+            -- Утверждения легенды устаревают вместе с ней
+            legend_statements = CASE WHEN $2 IS NOT NULL AND $2 <> legend
+                                     THEN NULL ELSE legend_statements END,
             legend           = COALESCE($2, legend),
             applicant_name   = COALESCE($3, applicant_name),
             applicant_status = COALESCE($4, applicant_status),
@@ -341,7 +363,8 @@ pub async fn apply(
         if !старое.is_empty() && старое != новое.trim() {
             sqlx::query(
                 "UPDATE scenario_hidden_facts
-                    SET answer = replace(answer, $2, $3)
+                    SET answer = replace(answer, $2, $3),
+                        statement = replace(statement, $2, $3)
                   WHERE scenario_id = $1 AND NOT retired AND answer LIKE '%' || $2 || '%'",
             )
             .bind(id)
@@ -392,6 +415,9 @@ pub async fn apply(
                          answer = EXCLUDED.answer,
                          unlocks = EXCLUDED.unlocks,
                          sort_order = EXCLUDED.sort_order,
+                         -- утверждение готовилось к прежнему ответу
+                         statement = CASE WHEN scenario_hidden_facts.answer = EXCLUDED.answer
+                                          THEN scenario_hidden_facts.statement END,
                          -- ключ мог быть снят с учёта прошлой правкой
                          retired = false",
             )
@@ -438,6 +464,12 @@ pub async fn apply(
         .bind(result.reason.as_ref())
         .execute(pool)
         .await?;
+
+    // Сброшенные правкой утверждения готовятся заново в очереди. Ошибка
+    // постановки правку не отменяет: утверждения дозаполнит и запуск
+    if let Err(e) = crate::domain::fact_statements::enqueue(pool, id, None).await {
+        tracing::warn!(error = %e, scenario = %id, "утверждения фактов не поставлены в очередь");
+    }
 
     load(pool, id).await
 }

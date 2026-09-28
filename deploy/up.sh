@@ -54,6 +54,18 @@ else
   echo "весов голоса нет ($voice_dir) — разговор со старшим бригады будет текстом"
 fi
 
+# Кросс-энкодер для сверки описания — так же, по наличию весов
+nli_dir="${NLI_DIR:-/opt/arm112/nli}"
+if [ -n "${NLI_BASE_URL:-}" ]; then
+  echo "кросс-энкодер по адресу $NLI_BASE_URL — свой контейнер не поднимаю"
+elif [ -d "$nli_dir/${NLI_MODEL:-qwen3.5-2b-nli-v5}" ]; then
+  export NLI_BASE_URL=http://nli:8093
+  profiles+=(nli)
+  echo "веса кросс-энкодера найдены: $nli_dir — поднимаю сверку описания"
+else
+  echo "весов кросс-энкодера нет ($nli_dir) — описание сверяет языковая модель"
+fi
+
 COMPOSE_PROFILES=$(IFS=,; echo "${profiles[*]}")
 export COMPOSE_PROFILES
 

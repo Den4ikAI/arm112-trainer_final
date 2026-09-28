@@ -35,6 +35,7 @@ fn факт(ключ: &str) -> HiddenRow {
         question: format!("вопрос про {ключ}"),
         answer: format!("ответ про {ключ}"),
         unlocks: vec![],
+        statement: None,
     }
 }
 

@@ -135,6 +135,7 @@ const AttemptBlock = ({ cardId, attempt, canGrade, onChange }: {
         <>
           <p className={s.muted} data-testid="analysis-status">
             {STATUS_LABEL[a.status]}
+            {a.engine && ` · ${a.engine === 'nli' ? 'кросс-энкодер OpenJEV' : 'языковая модель'}`}
             {a.status === 'ready' && a.modelMs != null && ` · ${Math.round(a.modelMs / 1000)} с`}
             {a.note && ` · ${a.note}`}
           </p>

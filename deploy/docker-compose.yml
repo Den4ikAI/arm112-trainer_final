@@ -5,6 +5,7 @@
 #   db      PostgreSQL 16                                только внутри
 #   model   llama.cpp + GigaChat 3.1 с MTP (профиль model) только внутри
 #   voice   распознавание и синтез речи (профиль voice)   только внутри
+#   nli     сверка описания кросс-энкодером (профиль nli) только внутри
 #
 # Поднимать через deploy/up.sh: он генерирует секреты при первом запуске
 # и сам решает, включать ли модель и голос — по наличию весов.
@@ -52,6 +53,9 @@ services:
       # Сервер голоса. Пусто — голоса нет, разговор идёт текстом;
       # up.sh ставит адрес своего контейнера, если нашёл веса голоса
       VOICE_BASE_URL: ${VOICE_BASE_URL:-}
+      # Кросс-энкодер для сверки описания курсанта; пусто — сверяет
+      # языковая модель (domain/text_analysis.rs)
+      NLI_BASE_URL: ${NLI_BASE_URL:-}
       # ТЗ: резервное копирование не реже раза в сутки
       BACKUP_DIR: /backups
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
@@ -128,6 +132,27 @@ services:
       timeout: 5s
       retries: 20
       start_period: 60s
+
+  # Кросс-энкодер — профиль nli, его включает up.sh, если нашёл веса.
+  # Нет его — описание курсанта сверяет языковая модель, как раньше
+  nli:
+    profiles: ["nli"]
+    build:
+      context: ..
+      dockerfile: deploy/nli.Dockerfile
+    image: arm112-nli
+    restart: unless-stopped
+    environment:
+      NLI_MODEL_DIR: /models/${NLI_MODEL:-qwen3.5-2b-nli-v5}
+      NLI_THREADS: ${NLI_THREADS:-6}
+    volumes:
+      - ${NLI_DIR:-/opt/arm112/nli}:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8093/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
 
 volumes:
   db-data:

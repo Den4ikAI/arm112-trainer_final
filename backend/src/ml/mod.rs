@@ -6,6 +6,7 @@
 
 pub mod http;
 pub mod mock;
+pub mod nli;
 pub mod voice;
 
 use anyhow::Result;
@@ -135,6 +136,8 @@ pub struct MlSuite {
     pub scorer: Box<dyn LabelScorer>,
     pub grammar: Box<dyn Grammar>,
     pub llm: Box<dyn Llm>,
+    /// Кросс-энкодер для сверки описания с фактами (`nli.rs`)
+    pub nli: Box<dyn nli::Nli>,
 }
 
 impl MlSuite {
@@ -143,6 +146,8 @@ impl MlSuite {
         // Голос — отдельный сервер и от языковой модели не зависит:
         // он нужен и на заглушке модели, и при модели во внешнем контуре
         voice::attach(&mut suite);
+        // Кросс-энкодер — тоже отдельный сервер, со своим адресом
+        nli::attach(&mut suite);
         Ok(suite)
     }
 

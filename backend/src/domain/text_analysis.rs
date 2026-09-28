@@ -422,7 +422,7 @@ pub async fn enqueue(
          ON CONFLICT (kind, card_id, service_id) DO UPDATE
             SET status = 'queued', findings = '[]'::jsonb, dropped = 0,
                 note = NULL, verdicts = '{}'::jsonb, model_ms = NULL,
-                created_at = now(), finished_at = NULL
+                engine = NULL, created_at = now(), finished_at = NULL
          RETURNING id",
     )
     .bind(kind.as_str())
@@ -564,6 +564,8 @@ pub async fn run(pool: &PgPool, llm: &dyn Llm, id: Uuid) -> Result<&'static str>
         }
     };
 
+    set_engine(pool, id, "llm").await?;
+
     // Нечего проверять — модель не зовём: пустой текст сам по себе
     // замечание правил («не заполнено»), а не нейросети
     if m.input_is_empty() {
@@ -590,6 +592,360 @@ pub async fn run(pool: &PgPool, llm: &dyn Llm, id: Uuid) -> Result<&'static str>
     }
 }
 
+// ─── Сверка кросс-энкодером (профиль ЦП) ─────────────────────────────
+//
+// Генеративная модель на процессоре сверяет описание десятки секунд и
+// не видит упущенного: на замере (backend/docs/замеры/ОПИСАНИЯ.md) из
+// 26 фактов, о которых описание молчит, GigaChat 16 назвал
+// подтверждёнными. Кросс-энкодер OpenJEV решает ту же задачу как NLI —
+// описание посылкой, факт вызова гипотезой — за секунды и одинаково при
+// повторе: 88–91 % на том же наборе.
+//
+// Сверяются только факты, которые курсант слышал: легенда и ответы на
+// заданные вопросы. Чего он не спросил, того он и не мог записать — это
+// «угадал» или «не выяснил» в разборе правил, а не пропуск в тексте.
+//
+// Кросс-энкодер находит упущенное и противоречия. Добавленное от себя
+// (обратное направление: фраза описания против всего разговора) не
+// проверено на замере, и в разбор его не пускаем — ложная тревога стоит
+// курсанту дороже пропущенного замечания. Это остаётся языковой модели.
+
+/// Чем разбирать текст — настройка `analysis.engine`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Engine {
+    /// Кросс-энкодер, если подключён, иначе языковая модель
+    Auto,
+    Nli,
+    Llm,
+}
+
+impl Engine {
+    pub fn from_setting(v: f64) -> Self {
+        match v.round() as i64 {
+            1 => Self::Nli,
+            2 => Self::Llm,
+            _ => Self::Auto,
+        }
+    }
+}
+
+/// Что делать с конкретным анализом.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Choice {
+    Nli,
+    Llm,
+    /// Нечем — и почему
+    Unavailable(&'static str),
+}
+
+/// Выбор движка. Комментарии диспетчера ДДС сверять не с чем — там нет
+/// фактов вызова, там доклады и мотивировка отказа, — их всегда читает
+/// языковая модель.
+pub fn choose(engine: Engine, kind: Kind, nli_ready: bool, llm_ready: bool) -> Choice {
+    let want_nli = kind == Kind::Card112
+        && match engine {
+            Engine::Nli => true,
+            Engine::Auto => nli_ready,
+            Engine::Llm => false,
+        };
+    if want_nli {
+        return if nli_ready {
+            Choice::Nli
+        } else {
+            Choice::Unavailable("кросс-энкодер не подключён (NLI_BASE_URL не задан или сервер недоступен)")
+        };
+    }
+    if llm_ready {
+        Choice::Llm
+    } else {
+        Choice::Unavailable("языковая модель не подключена (ML_PROVIDER=mock)")
+    }
+}
+
+/// Вид анализа по его строке.
+pub async fn kind_of(pool: &PgPool, id: Uuid) -> Result<Kind> {
+    let kind: String = sqlx::query_scalar("SELECT kind FROM text_analyses WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+    Kind::parse(&kind).ok_or_else(|| anyhow!("неизвестный вид анализа {kind}"))
+}
+
+/// Факт, который курсант слышал, в виде для сверки.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeardFact {
+    /// Гипотеза для кросс-энкодера: утверждение, а если его ещё не
+    /// подготовили — сырой ответ заявителя
+    pub hypothesis: String,
+    /// Слова заявителя — цитата для разбора
+    pub source: String,
+    /// Утверждение подготовлено; иначе сверка по сырому ответу
+    pub prepared: bool,
+}
+
+/// Части описания для цитаты противоречия: предложения и части через
+/// запятую. Цитата — часть, а не весь абзац, иначе преподавателю искать
+/// глазами; и на целом предложении «Горит баня на участке, есть
+/// пострадавший» кросс-энкодер не различает, какая часть спорит с каким
+/// фактом.
+pub fn sentences(text: &str) -> Vec<String> {
+    text.split(['.', '!', '?', ';', ',', '\n'])
+        .map(str::trim)
+        .filter(|s| s.chars().filter(|c| c.is_alphanumeric()).count() >= MIN_QUOTE_CHARS)
+        .map(str::to_string)
+        .collect()
+}
+
+/// Вердикты кросс-энкодера → замечания в том же виде, что у языковой
+/// модели: дальше их проверяет тот же `verify`, и цитаты сверяются тем
+/// же кодом.
+///
+/// `quotes` — для противоречий: предложение описания, которое сильнее
+/// всего противоречит факту (индекс факта → предложение).
+pub fn nli_findings(
+    facts: &[HeardFact],
+    verdicts: &[crate::ml::nli::Entailment],
+    quotes: &std::collections::HashMap<usize, String>,
+) -> Value {
+    use crate::ml::nli::Verdict;
+
+    // Замечания с одной и той же парой цитат склеиваются: несколько
+    // сведений легенды цитируют одну и ту же первую фразу, и `verify`
+    // оставил бы из них одно, потеряв остальные
+    let mut contradictions: Vec<(Option<String>, String, Vec<String>)> = Vec::new();
+    let mut missing: Vec<(String, Vec<String>)> = Vec::new();
+    for (i, (fact, e)) in facts.iter().zip(verdicts).enumerate() {
+        match e.verdict() {
+            Verdict::Entailment => {}
+            Verdict::Contradiction => {
+                let quote = quotes.get(&i).cloned();
+                match contradictions.iter_mut().find(|(q, s, _)| *q == quote && *s == fact.source) {
+                    Some((_, _, list)) => list.push(fact.hypothesis.clone()),
+                    None => contradictions.push((quote, fact.source.clone(), vec![fact.hypothesis.clone()])),
+                }
+            }
+            Verdict::Neutral => match missing.iter_mut().find(|(s, _)| *s == fact.source) {
+                Some((_, list)) => list.push(fact.hypothesis.clone()),
+                None => missing.push((fact.source.clone(), vec![fact.hypothesis.clone()])),
+            },
+        }
+    }
+
+    // Пропуск с той же фразой заявителя, что и противоречие, `verify`
+    // выбросит как повтор (у языковой модели так и есть). Здесь это
+    // другое сведение той же фразы — дописываем его к противоречию
+    let mut tails: Vec<(String, String)> = Vec::new();
+    missing.retain(|(source, list)| {
+        if contradictions.iter().any(|(_, s, _)| s == source) {
+            tails.push((source.clone(), list.join(" ")));
+            false
+        } else {
+            true
+        }
+    });
+
+    // Противоречие важнее пропуска: при обрезке до MAX_FINDINGS
+    // пропуски уходят первыми
+    let mut out: Vec<Value> = contradictions
+        .into_iter()
+        .map(|(quote, source, list)| {
+            let mut text = format!("В описании иначе, чем сказал заявитель: {}", list.join(" "));
+            for (_, tail) in tails.iter().filter(|(s, _)| *s == source) {
+                text.push_str(&format!(" Не записано: {tail}"));
+            }
+            json!({
+                "kind": "contradiction",
+                "text": text,
+                "quoteInput": quote,
+                "quoteSource": source,
+            })
+        })
+        .collect();
+    out.extend(missing.into_iter().map(|(source, list)| json!({
+        "kind": "missing",
+        "text": format!("Не записано: {}", list.join(" ")),
+        "quoteInput": "",
+        "quoteSource": source,
+    })));
+    json!({ "findings": out })
+}
+
+/// Посылка и факты по карточке 112.
+///
+/// Посылка — не только описание: адрес и ФИО заявителя курсант пишет
+/// в свои поля карточки, и факт «это Королёв» должен находить подтверждение
+/// в поле адреса, а не считаться упущенным в описании.
+async fn nli_material(pool: &PgPool, card_id: Uuid) -> Result<(String, Vec<HeardFact>)> {
+    let (session_id, description, address, applicant): (Option<Uuid>, String, Option<String>, String) =
+        sqlx::query_as(
+            "SELECT c.session_id, c.description,
+                    (SELECT string_agg(value, ', ') FROM jsonb_each_text(c.address)
+                      WHERE value <> ''),
+                    c.applicant_name
+               FROM cards c WHERE c.id = $1",
+        )
+        .bind(card_id)
+        .fetch_one(pool)
+        .await?;
+    let session_id = session_id.ok_or_else(|| anyhow!("у карточки нет учебного вызова"))?;
+
+    let mut premise = description.trim().to_string();
+    if let Some(a) = address.filter(|a| !a.trim().is_empty()) {
+        premise.push_str(&format!("\nАдрес: {a}."));
+    }
+    if !applicant.trim().is_empty() {
+        premise.push_str(&format!("\nЗаявитель: {}.", applicant.trim()));
+    }
+
+    let (legend, legend_statements): (String, Option<Vec<String>>) = sqlx::query_as(
+        "SELECT s.legend, s.legend_statements FROM sessions x
+           JOIN scenarios s ON s.id = x.scenario_id WHERE x.id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await?;
+
+    let mut facts: Vec<HeardFact> = match legend_statements.filter(|v| !v.is_empty()) {
+        Some(list) => list
+            .into_iter()
+            .map(|s| HeardFact { hypothesis: s, source: legend.clone(), prepared: true })
+            .collect(),
+        None => vec![HeardFact { hypothesis: legend.clone(), source: legend.clone(), prepared: false }],
+    };
+
+    // Ответы на заданные вопросы — в том порядке, в каком курсант их
+    // услышал
+    let revealed: Vec<(String, Option<String>)> = sqlx::query_as(
+        "SELECT f.answer, f.statement FROM revealed_facts r
+           JOIN scenario_hidden_facts f ON f.id = r.fact_id
+          WHERE r.session_id = $1 ORDER BY r.at_sec, f.sort_order",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await?;
+    for (answer, statement) in revealed {
+        facts.push(match statement.filter(|s| !s.trim().is_empty()) {
+            Some(s) => HeardFact { hypothesis: s, source: answer, prepared: true },
+            None => HeardFact { hypothesis: answer.clone(), source: answer, prepared: false },
+        });
+    }
+    Ok((premise, facts))
+}
+
+/// Разобрать описание 112 кросс-энкодером.
+pub async fn run_nli(pool: &PgPool, nli: &dyn crate::ml::nli::Nli, id: Uuid) -> Result<&'static str> {
+    use crate::ml::nli::Verdict;
+
+    let card_id: Uuid = sqlx::query_scalar("SELECT card_id FROM text_analyses WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await?;
+
+    let loaded = async {
+        let m = material(pool, Kind::Card112, card_id, None).await?;
+        let (premise, facts) = nli_material(pool, card_id).await?;
+        anyhow::Ok((m, premise, facts))
+    }
+    .await;
+    let (m, premise, facts) = match loaded {
+        Ok(v) => v,
+        Err(e) => {
+            store(pool, id, "failed", &[], 0, Some(&e.to_string()), None).await?;
+            return Ok("failed");
+        }
+    };
+    set_engine(pool, id, "nli").await?;
+
+    if m.input_is_empty() {
+        store(pool, id, "ready", &[], 0, Some("курсант не вводил текста"), None).await?;
+        return Ok("ready");
+    }
+
+    let started = std::time::Instant::now();
+    let hypotheses: Vec<String> = facts.iter().map(|f| f.hypothesis.clone()).collect();
+    let result = async {
+        let verdicts = nli.classify(&premise, &hypotheses).await?;
+
+        // Цитата противоречия — та часть описания, без которой противоречие
+        // пропадает сильнее всего. Спрашивать части по одной нельзя: без
+        // контекста кросс-энкодер считает противоречием крыше дома даже
+        // «Дом газифицирован» (0,97). Поэтому убираем часть из описания и
+        // смотрим, насколько упала вероятность. Проход на часть — их
+        // обычно две-четыре
+        let contradicted: Vec<usize> = verdicts
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.verdict() == Verdict::Contradiction)
+            .map(|(i, _)| i)
+            .collect();
+        let mut quotes = std::collections::HashMap::new();
+        if !contradicted.is_empty() {
+            let text = m.input.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n");
+            let parts = sentences(&text);
+            let targets: Vec<String> = contradicted.iter().map(|&i| hypotheses[i].clone()).collect();
+            if parts.len() == 1 {
+                for &i in &contradicted {
+                    quotes.insert(i, parts[0].clone());
+                }
+            } else if !parts.is_empty() {
+                let base = nli.classify(&text, &targets).await?;
+                let mut best: Vec<(f32, Option<String>)> = vec![(f32::MIN, None); targets.len()];
+                for part in &parts {
+                    let without = text.replacen(part.as_str(), "", 1);
+                    let scores = nli.classify(&without, &targets).await?;
+                    for (j, e) in scores.iter().enumerate() {
+                        let drop = base[j].contradiction - e.contradiction;
+                        if drop > best[j].0 {
+                            best[j] = (drop, Some(part.clone()));
+                        }
+                    }
+                }
+                for (j, &i) in contradicted.iter().enumerate() {
+                    if let Some(q) = best[j].1.clone() {
+                        quotes.insert(i, q);
+                    }
+                }
+            }
+        }
+        anyhow::Ok(nli_findings(&facts, &verdicts, &quotes))
+    }
+    .await;
+    let ms = started.elapsed().as_millis().min(i32::MAX as u128) as i32;
+
+    // Утверждения готовит модель при подготовке вызова. Где их ещё нет,
+    // сверка шла по сырому ответу заявителя — так и пишем: на сыром
+    // ответе точность заметно ниже
+    let raw = facts.iter().filter(|f| !f.prepared).count();
+    let note = (raw > 0).then(|| {
+        format!(
+            "{raw} из {} сведений сверялись по дословному ответу заявителя: утверждения к вызову \
+             ещё не подготовлены, точность ниже",
+            facts.len()
+        )
+    });
+
+    match result.and_then(|raw| verify(Kind::Card112, &raw, &m)) {
+        Ok((findings, dropped)) => {
+            store(pool, id, "ready", &findings, dropped, note.as_deref(), Some(ms)).await?;
+            Ok("ready")
+        }
+        Err(e) => {
+            let note: String = format!("кросс-энкодер не дал разбора: {e}").chars().take(300).collect();
+            store(pool, id, "failed", &[], 0, Some(&note), Some(ms)).await?;
+            Ok("failed")
+        }
+    }
+}
+
+async fn set_engine(pool: &PgPool, id: Uuid, engine: &str) -> Result<()> {
+    sqlx::query("UPDATE text_analyses SET engine = $2 WHERE id = $1")
+        .bind(id)
+        .bind(engine)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 // ─── Чтение ──────────────────────────────────────────────────────────
 
 /// Замечание вместе с решением преподавателя.
@@ -614,6 +970,8 @@ pub struct AnalysisView {
     pub note: Option<String>,
     /// Сколько думала модель, миллисекунды
     pub model_ms: Option<i32>,
+    /// Чем разобрано: `nli` — кросс-энкодер, `llm` — языковая модель
+    pub engine: Option<String>,
     pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -624,9 +982,9 @@ pub async fn view(
     service_id: Option<&str>,
 ) -> Result<Option<AnalysisView>> {
     #[allow(clippy::type_complexity)]
-    let row: Option<(Uuid, String, Value, i32, Option<String>, Value, Option<i32>, Option<chrono::DateTime<chrono::Utc>>)> =
+    let row: Option<(Uuid, String, Value, i32, Option<String>, Value, Option<i32>, Option<chrono::DateTime<chrono::Utc>>, Option<String>)> =
         sqlx::query_as(
-            "SELECT id, status, findings, dropped, note, verdicts, model_ms, finished_at
+            "SELECT id, status, findings, dropped, note, verdicts, model_ms, finished_at, engine
                FROM text_analyses
               WHERE kind = $1 AND card_id = $2 AND service_id IS NOT DISTINCT FROM $3",
         )
@@ -636,7 +994,7 @@ pub async fn view(
         .fetch_optional(pool)
         .await?;
 
-    let Some((id, status, findings, dropped, note, verdicts, model_ms, finished_at)) = row else {
+    let Some((id, status, findings, dropped, note, verdicts, model_ms, finished_at, engine)) = row else {
         return Ok(None);
     };
 
@@ -654,7 +1012,7 @@ pub async fn view(
         })
         .collect();
 
-    Ok(Some(AnalysisView { id, status, findings, dropped, note, model_ms, finished_at }))
+    Ok(Some(AnalysisView { id, status, findings, dropped, note, model_ms, engine, finished_at }))
 }
 
 #[cfg(test)]
@@ -801,5 +1159,71 @@ mod tests {
         let (kept, _) = verify(Kind::Dds, &raw, &m).unwrap();
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].kind, "no_reason");
+    }
+
+    // ─── Кросс-энкодер ───────────────────────────────────────────────
+
+    /// «Авто» берёт кросс-энкодер, если он есть; ДДС — всегда языковая
+    /// модель; нечем — так и написано, почему.
+    #[test]
+    fn выбор_движка_по_настройке_и_наличию() {
+        use Choice::*;
+        assert_eq!(choose(Engine::Auto, Kind::Card112, true, true), Nli);
+        assert_eq!(choose(Engine::Auto, Kind::Card112, false, true), Llm);
+        assert_eq!(choose(Engine::Llm, Kind::Card112, true, true), Llm);
+        assert_eq!(choose(Engine::Auto, Kind::Dds, true, true), Llm, "у ДДС нечего сверять с фактами");
+        assert!(matches!(choose(Engine::Nli, Kind::Card112, false, true), Unavailable(n) if n.contains("кросс-энкодер")));
+        assert!(matches!(choose(Engine::Auto, Kind::Card112, false, false), Unavailable(n) if n.contains("mock")));
+        assert_eq!(Engine::from_setting(1.0), Engine::Nli);
+        assert_eq!(Engine::from_setting(2.0), Engine::Llm);
+        assert_eq!(Engine::from_setting(7.0), Engine::Auto);
+    }
+
+    #[test]
+    fn описание_режется_на_предложения_без_огрызков() {
+        assert_eq!(
+            sentences("Горит баня на участке, есть пострадавший!\nДа. —"),
+            vec!["Горит баня на участке", "есть пострадавший"],
+        );
+    }
+
+    fn факт(h: &str, src: &str) -> HeardFact {
+        HeardFact { hypothesis: h.into(), source: src.into(), prepared: true }
+    }
+
+    fn вер(c: f32, e: f32, n: f32) -> crate::ml::nli::Entailment {
+        crate::ml::nli::Entailment { contradiction: c, entailment: e, neutral: n }
+    }
+
+    /// Сведения одной фразы заявителя склеиваются в одно замечание, иначе
+    /// `verify` оставил бы одно и потерял остальные; пропуск той же фразы,
+    /// что и противоречие, дописывается к противоречию.
+    #[test]
+    fn вердикты_одной_фразы_склеиваются() {
+        let легенда = "Горит крыша частного дома, Станционная, 28!";
+        let facts = vec![
+            факт("Горит крыша частного дома.", легенда),
+            факт("Адрес: Станционная, 28.", легенда),
+            факт("Пострадавших нет.", "Нет, пострадавших нет."),
+            факт("Дом не газифицирован.", "Нет, дом не газифицирован."),
+        ];
+        let verdicts = vec![вер(0.9, 0.05, 0.05), вер(0.1, 0.1, 0.8), вер(0.1, 0.8, 0.1), вер(0.1, 0.1, 0.8)];
+        let quotes = std::collections::HashMap::from([(0, "Горит баня".to_string())]);
+        let raw = nli_findings(&facts, &verdicts, &quotes);
+        let list = raw["findings"].as_array().unwrap();
+        assert_eq!(list.len(), 2, "{raw}");
+        assert_eq!(list[0]["kind"], "contradiction");
+        assert!(list[0]["text"].as_str().unwrap().contains("Не записано: Адрес"), "{raw}");
+        assert_eq!(list[1]["kind"], "missing");
+        assert_eq!(list[1]["quoteSource"], "Нет, дом не газифицирован.");
+
+        // И всё это проходит общую проверку цитат
+        let m = Material {
+            input: vec![("Описание со слов заявителя".into(), "Горит баня. Людей нет.".into())],
+            source: vec![("заявитель".into(), легенда.into()),
+                         ("заявитель".into(), "Нет, дом не газифицирован.".into())],
+        };
+        let (kept, dropped) = verify(Kind::Card112, &raw, &m).unwrap();
+        assert_eq!((kept.len(), dropped), (2, 0));
     }
 }

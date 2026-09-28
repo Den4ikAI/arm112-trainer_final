@@ -343,6 +343,8 @@ export interface HiddenRow {
   question: string;
   answer: string;
   unlocks: string[];
+  /** Ответ утверждением — для сверки описания кросс-энкодером. null — ещё не подготовлен. */
+  statement?: string | null;
 }
 
 export interface ScenarioFull {
@@ -367,6 +369,8 @@ export interface ScenarioFull {
   /** Чего не хватило классификатору. Непустое — утверждать рано. */
   classifyReason: string | null;
   hidden: HiddenRow[];
+  /** Первая фраза утверждениями, по одному на сведение. null — ещё не подготовлены. */
+  legendStatements?: string[] | null;
 }
 
 export interface ChatMessage {
@@ -445,6 +449,8 @@ export interface TextAnalysis {
   dropped: number;
   note: string | null;
   modelMs: number | null;
+  /** Чем разобрано: 'nli' — кросс-энкодер OpenJEV, 'llm' — языковая модель. */
+  engine?: 'nli' | 'llm' | null;
   finishedAt: string | null;
 }
 

@@ -31,6 +31,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/scenarios/{id}", get(one).patch(edit).delete(remove))
         .route("/api/scenarios/{id}/chat", get(chat_history).post(chat_turn))
         .route("/api/scenarios/{id}/approve", post(approve))
+        .route("/api/scenarios/{id}/statements", axum::routing::put(edit_statements))
+        .route("/api/scenarios/{id}/statements/prepare", post(prepare_statements))
 }
 
 /// Полный сценарий, вместе с эталоном. Только преподавателю:
@@ -299,6 +301,99 @@ async fn edit(
     .await;
 
     Ok(Json(scenario))
+}
+
+/// Правка утверждений фактов преподавателем.
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct StatementsEdit {
+    /// Утверждения первой фразы заявителя. Пустой список — подготовить
+    /// заново моделью
+    pub legend_statements: Option<Vec<String>>,
+    /// Ключ факта → утверждение. Пустая строка — подготовить заново
+    #[serde(default)]
+    pub facts: std::collections::HashMap<String, String>,
+}
+
+/// Утверждения фактов вызова: по ним описание курсанта сверяется
+/// кросс-энкодером. Готовит модель, преподаватель правит здесь —
+/// вместе с ответами заявителя, до утверждения вызова.
+#[utoipa::path(
+    put,
+    path = "/api/scenarios/{id}/statements",
+    tag = "Вызовы",
+    params(
+        ("id" = String, Path, description = "Идентификатор вызова"),
+    ),
+    request_body = StatementsEdit,
+    responses(
+        (status = 200, description = "Вызов с новыми утверждениями", body = crate::domain::scenario_edit::ScenarioFull),
+        (status = 400, description = "У вызова нет такого факта"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn edit_statements(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<StatementsEdit>,
+) -> AppResult<Json<ScenarioFull>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    scenario_edit::load(&state.db, id).await.map_err(|_| AppError::NotFound)?;
+
+    crate::domain::fact_statements::save_manual(
+        &state.db,
+        id,
+        req.legend_statements.as_deref(),
+        &req.facts,
+    )
+    .await
+    .map_err(|e| AppError::Validation(e.to_string()))?;
+
+    // Сброшенное пустой строкой готовит модель заново
+    crate::domain::fact_statements::enqueue(&state.db, id, Some(user.id))
+        .await
+        .map_err(AppError::Other)?;
+
+    audit::log(
+        &state.db,
+        audit::Event::new("scenario.statements")
+            .from_user(&user)
+            .about("scenario", id)
+            .with(json!({ "facts": req.facts.len(), "legend": req.legend_statements.is_some() })),
+    )
+    .await;
+
+    scenario_edit::load(&state.db, id).await.map(Json).map_err(AppError::Other)
+}
+
+/// Подготовить утверждения моделью заново, целиком.
+#[utoipa::path(
+    post,
+    path = "/api/scenarios/{id}/statements/prepare",
+    tag = "Вызовы",
+    params(
+        ("id" = String, Path, description = "Идентификатор вызова"),
+    ),
+    responses(
+        (status = 202, description = "Поставлено в очередь"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+        (status = 404, description = "Нет такого вызова"),
+    ),
+)]
+async fn prepare_statements(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> AppResult<StatusCode> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    scenario_edit::load(&state.db, id).await.map_err(|_| AppError::NotFound)?;
+    crate::domain::fact_statements::enqueue(&state.db, id, Some(user.id))
+        .await
+        .map_err(AppError::Other)?;
+    Ok(StatusCode::ACCEPTED)
 }
 
 /// Утвердить сценарий. После этого он виден курсантам.

@@ -34,6 +34,17 @@ async fn main() -> Result<()> {
         None => tracing::warn!("активной версии классификатора нет — опросные карты не выведены"),
     }
 
+    // Утверждения фактов для сверки описания кросс-энкодером: у вызовов,
+    // заведённых раньше, их нет. Готовит модель в очереди, на заглушке
+    // модели готовить некому — сверка тогда идёт по сырым ответам
+    if config.ml_provider != arm112::config::MlProvider::Mock {
+        match arm112::domain::fact_statements::backfill(&db).await {
+            Ok(n) if n > 0 => tracing::info!(n, "утверждения фактов поставлены в очередь"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "утверждения фактов не поставлены в очередь"),
+        }
+    }
+
     let bind_addr = config.bind_addr.clone();
     let state = AppState::new(db, config, ml);
 

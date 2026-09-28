@@ -96,6 +96,8 @@ use utoipa::{
         crate::api::scenarios::chat_history,
         crate::api::scenarios::chat_turn,
         crate::api::scenarios::approve,
+        crate::api::scenarios::edit_statements,
+        crate::api::scenarios::prepare_statements,
         crate::api::scenarios::generate,
         crate::api::lessons::list,
         crate::api::lessons::create,

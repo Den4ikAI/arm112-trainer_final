@@ -73,6 +73,7 @@ pub async fn execute(state: &AppState, job: &Job) -> anyhow::Result<Value> {
         "insights.group" => group_insights(&state.db, &state.ml, &job.input).await,
         "scenario.generate" => generate_scenarios(state, &job.input).await,
         crate::domain::text_analysis::JOB_KIND => analyse_text(state, &job.input).await,
+        crate::domain::fact_statements::JOB_KIND => prepare_statements(state, &job.input).await,
         other => anyhow::bail!("неизвестный вид задачи: {other}"),
     }
 }
@@ -91,16 +92,27 @@ async fn analyse_text(state: &AppState, input: &Value) -> anyhow::Result<Value> 
         .and_then(|s| s.parse().ok())
         .context("в задаче нет analysisId")?;
 
-    let status = if state.config.ml_provider == crate::config::MlProvider::Mock {
-        text_analysis::mark_unavailable(
-            &state.db,
-            id,
-            "языковая модель не подключена (ML_PROVIDER=mock)",
-        )
-        .await?;
-        "unavailable"
-    } else {
-        text_analysis::run(&state.db, state.ml.llm.as_ref(), id).await?
+    let engine = text_analysis::Engine::from_setting(
+        crate::reports::forecast::setting(&state.db, "analysis.engine", 0.0).await,
+    );
+    let llm_ready = state.config.ml_provider != crate::config::MlProvider::Mock;
+
+    let status = match text_analysis::choose(
+        engine,
+        text_analysis::kind_of(&state.db, id).await?,
+        state.ml.nli.available(),
+        llm_ready,
+    ) {
+        text_analysis::Choice::Nli => {
+            text_analysis::run_nli(&state.db, state.ml.nli.as_ref(), id).await?
+        }
+        text_analysis::Choice::Llm => {
+            text_analysis::run(&state.db, state.ml.llm.as_ref(), id).await?
+        }
+        text_analysis::Choice::Unavailable(note) => {
+            text_analysis::mark_unavailable(&state.db, id, note).await?;
+            "unavailable"
+        }
     };
 
     Ok(json!({ "analysisId": id, "status": status }))
@@ -313,8 +325,28 @@ async fn save_generated(
     .execute(&mut *tx)
     .await?;
 
+    // Утверждения фактов для сверки описания — следующей задачей той же
+    // очереди: вызов уже сохранён и виден преподавателю, ждать их незачем
+    crate::domain::fact_statements::enqueue_in(&mut tx, id).await?;
+
     tx.commit().await?;
     Ok(id)
+}
+
+/// Утверждения фактов вызова для сверки описания кросс-энкодером.
+///
+/// На заглушке модели утверждений не будет: сверка тогда берёт сырые
+/// ответы заявителя и так и пишет в разборе.
+async fn prepare_statements(state: &AppState, input: &Value) -> anyhow::Result<Value> {
+    let id: Uuid = input
+        .get("scenarioId")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .context("в задаче нет scenarioId")?;
+    if state.config.ml_provider == crate::config::MlProvider::Mock {
+        return Ok(json!({ "scenarioId": id, "skipped": "языковая модель не подключена" }));
+    }
+    crate::domain::fact_statements::run(&state.db, state.ml.llm.as_ref(), id).await
 }
 
 async fn finish(pool: &PgPool, id: Uuid, result: anyhow::Result<Value>) -> anyhow::Result<()> {

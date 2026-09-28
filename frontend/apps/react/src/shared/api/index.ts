@@ -63,6 +63,10 @@ export const scenarios = {
   edit: (id: string, patch: Record<string, unknown>) =>
     api.patch<ScenarioFull>(`/api/scenarios/${id}`, patch),
   approve: (id: string) => api.post<ScenarioFull>(`/api/scenarios/${id}/approve`),
+  /** Правка утверждений фактов. Пустая строка — подготовить заново моделью. */
+  statements: (id: string, body: { legendStatements?: string[]; facts?: Record<string, string> }) =>
+    api.put<ScenarioFull>(`/api/scenarios/${id}/statements`, body),
+  prepareStatements: (id: string) => api.post<void>(`/api/scenarios/${id}/statements/prepare`),
   remove: (id: string) => api.del<void>(`/api/scenarios/${id}`),
 };
 
