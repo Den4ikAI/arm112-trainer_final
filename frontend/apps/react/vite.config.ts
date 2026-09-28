@@ -8,7 +8,7 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 // Доступ снаружи (например, через обратный SSH-туннель при удалённой
 // работе). По умолчанию ничего не меняется: dev-сервер как был доступен
 // только с localhost, так и остаётся.
-//   VITE_ALLOWED_HOSTS=87.242.101.125  — чей Host принимать
+//   VITE_ALLOWED_HOSTS=203.0.113.10    — чей Host принимать (адрес для примера)
 //   VITE_HMR_PORT=25565                — на какой порт стучится HMR
 const allowedHosts = process.env.VITE_ALLOWED_HOSTS?.split(',').filter(Boolean);
 const hmrPort = process.env.VITE_HMR_PORT ? Number(process.env.VITE_HMR_PORT) : undefined;
