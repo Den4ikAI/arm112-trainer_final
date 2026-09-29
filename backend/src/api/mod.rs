@@ -19,6 +19,7 @@ pub mod monitor;
 pub mod forecast;
 pub mod lessons;
 pub mod drill;
+pub mod dds_incidents;
 pub mod scenarios;
 pub mod sessions;
 pub mod health;
@@ -43,6 +44,7 @@ pub fn routes() -> Router<AppState> {
         .merge(review::routes())
         .merge(chief::routes())
         .merge(drill::routes())
+        .merge(dds_incidents::routes())
         .merge(voice::routes())
         .merge(grading::routes())
         .merge(monitor::routes())

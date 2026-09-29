@@ -136,7 +136,7 @@ const SYSTEM: &str = "\
 операторов Системы-112. Отвечай только JSON, без пояснений и без разметки.";
 
 /// Шаг 1: выбрать тип происшествия и признаки из закрытых словарей.
-async fn pick_signs(
+pub async fn pick_signs(
     llm: &dyn Llm,
     pool: &PgPool,
     call: &TicketCall,
@@ -240,7 +240,7 @@ async fn pick_signs(
 /// Модель иногда «улучшает» формулировку — пишет «Частный дом» вместо
 /// «Дом частный». Для классификатора это разные строки, и позиция
 /// не найдётся. Сверяем дословно.
-async fn keep_known_answers(
+pub async fn keep_known_answers(
     pool: &PgPool,
     type_ids: &[String],
     answers: std::collections::HashMap<String, Vec<String>>,

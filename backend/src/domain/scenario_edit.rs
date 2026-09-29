@@ -26,6 +26,9 @@ use uuid::Uuid;
 #[serde(rename_all = "camelCase")]
 pub struct ScenarioFull {
     pub id: Uuid,
+    /// Тема вызова, как её назвал преподаватель. У подготовленных из
+    /// билетов её нет — там подписью служит номер билета
+    pub title: Option<String>,
     pub ticket: Option<i32>,
     pub call_no: Option<i32>,
     pub legend: String,
@@ -63,6 +66,16 @@ pub struct HiddenRow {
 #[derive(Debug, Deserialize, Default, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Patch {
+    /// Тема вызова. Модель её не присылает — правит преподаватель
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Типы происшествия эталона. Модель их не меняет: смена типа меняет
+    /// всю опросную карту, это решение преподавателя
+    #[serde(default)]
+    pub type_ids: Option<Vec<String>>,
+    /// Адрес, который оператор должен выяснить: те же поля, что в карточке
+    #[serde(default)]
+    pub address: Option<Value>,
     pub legend: Option<String>,
     pub applicant_name: Option<String>,
     pub applicant_status: Option<String>,
@@ -154,11 +167,11 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
     #[allow(clippy::type_complexity)]
     let row: Option<(
         Option<i32>, Option<i32>, String, String, String, String,
-        i32, String, String, Value, Option<String>, Option<Vec<String>>,
+        i32, String, String, Value, Option<String>, Option<Vec<String>>, Option<String>,
     )> = sqlx::query_as(
         "SELECT ticket, call_no, legend, applicant_name, applicant_phone,
                 applicant_status, norm_sec, status::text, source, expected, classify_reason,
-                legend_statements
+                legend_statements, title
            FROM scenarios WHERE id = $1",
     )
     .bind(id)
@@ -167,7 +180,7 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
 
     let Some((ticket, call_no, legend, applicant_name, applicant_phone,
               applicant_status, norm_sec, status, source, expected, classify_reason,
-              legend_statements)) = row
+              legend_statements, title)) = row
     else {
         anyhow::bail!("сценарий не найден");
     };
@@ -185,7 +198,7 @@ pub async fn load(pool: &PgPool, id: Uuid) -> Result<ScenarioFull> {
     .collect();
 
     Ok(ScenarioFull {
-        id, ticket, call_no, legend, applicant_name, applicant_phone,
+        id, title, ticket, call_no, legend, applicant_name, applicant_phone,
         applicant_status, norm_sec, status, source, expected, classify_reason, hidden,
         legend_statements,
     })
@@ -354,7 +367,10 @@ pub async fn apply(
             legend           = COALESCE($2, legend),
             applicant_name   = COALESCE($3, applicant_name),
             applicant_status = COALESCE($4, applicant_status),
-            norm_sec         = COALESCE($5, norm_sec)
+            norm_sec         = COALESCE($5, norm_sec),
+            -- Пустая тема — снять её
+            title            = CASE WHEN $6::text IS NULL THEN title
+                                    ELSE NULLIF(btrim($6), '') END
           WHERE id = $1",
     )
     .bind(id)
@@ -362,6 +378,7 @@ pub async fn apply(
     .bind(patch.applicant_name.as_ref())
     .bind(patch.applicant_status.as_ref())
     .bind(patch.norm_sec)
+    .bind(patch.title.as_ref())
     .execute(pool)
     .await?;
 
@@ -454,18 +471,26 @@ pub async fn apply(
             .map(crate::api::sessions::answers_to_map)
             .unwrap_or_default(),
     };
-    let type_ids: Vec<String> = current
-        .expected
-        .get("typeIds")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
-        .unwrap_or_default();
+    let type_ids: Vec<String> = match &patch.type_ids {
+        Some(t) => t.clone(),
+        None => current
+            .expected
+            .get("typeIds")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default(),
+    };
+    let address = patch
+        .address
+        .clone()
+        .or_else(|| current.expected.get("address").cloned())
+        .unwrap_or(json!({}));
 
     let result = classify(pool, version_id, &type_ids, &answers).await?;
     let expected = json!({
         "typeIds": type_ids,
         "answers": answers,
-        "address": current.expected.get("address").cloned().unwrap_or(json!({})),
+        "address": address,
         "services": result.services.iter().map(|s| s.service_id.clone()).collect::<Vec<_>>(),
         "outcome": result.outcome,
     });

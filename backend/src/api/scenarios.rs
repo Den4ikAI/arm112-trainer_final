@@ -28,6 +28,9 @@ use uuid::Uuid;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/scenarios/generate", post(generate))
+        .route("/api/teacher/scenarios", get(library))
+        .route("/api/scenarios/manual", post(create_manual))
+        .route("/api/scenarios/from-prompt", post(create_from_prompt))
         .route("/api/scenarios/{id}", get(one).patch(edit).delete(remove))
         .route("/api/scenarios/{id}/chat", get(chat_history).post(chat_turn))
         .route("/api/scenarios/{id}/approve", post(approve))
@@ -569,11 +572,358 @@ async fn generate(
     Ok((StatusCode::ACCEPTED, Json(Accepted { job_id })))
 }
 
-async fn active_version(pool: &sqlx::PgPool) -> AppResult<Uuid> {
+pub(crate) async fn active_version(pool: &sqlx::PgPool) -> AppResult<Uuid> {
     sqlx::query_scalar(
         "SELECT id FROM classifier_versions ORDER BY is_active DESC, imported_at DESC LIMIT 1",
     )
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| AppError::Conflict("в базе нет ни одной версии классификатора".into()))
+}
+
+// ─── Учебный материал преподавателя ────────────────────────────────────
+//
+// Пункт 6 замечаний команды: преподаватель создаёт вызовы сам — по
+// описанию для модели (потом правит перепиской и вручную и утверждает)
+// или вручную целиком. Все утверждённые попадают в составление занятия.
+
+/// Строка списка вызовов у преподавателя: с темой, статусом и тем,
+/// откуда вызов взялся. Список курсанта (`/api/scenarios`) черновиков
+/// не показывает и темы не знает, поэтому у преподавателя свой.
+#[derive(Serialize, sqlx::FromRow, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryItem {
+    pub id: Uuid,
+    pub title: Option<String>,
+    pub ticket: Option<i32>,
+    pub call_no: Option<i32>,
+    pub legend: String,
+    pub status: String,
+    /// `generated` — из билета моделью, `prompt` — по описанию
+    /// преподавателя, `manual` — собран вручную
+    pub source: String,
+    pub norm_sec: i32,
+    /// Итоговый тип эталона: по нему преподаватель узнаёт тему
+    pub outcome: Option<String>,
+    pub type_ids: Vec<String>,
+    pub questions_count: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/teacher/scenarios",
+    tag = "Вызовы",
+    responses(
+        (status = 200, description = "Все вызовы, кроме архивных, с темой и статусом", body = Vec<LibraryItem>),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn library(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> AppResult<Json<Vec<LibraryItem>>> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    let rows: Vec<LibraryItem> = sqlx::query_as(
+        "SELECT s.id, s.title, s.ticket, s.call_no, s.legend, s.status::text AS status,
+                s.source, s.norm_sec,
+                s.expected->>'outcome' AS outcome,
+                COALESCE(ARRAY(SELECT jsonb_array_elements_text(
+                                  COALESCE(s.expected->'typeIds', '[]'::jsonb))),
+                         '{}') AS type_ids,
+                (SELECT count(*) FROM scenario_hidden_facts f
+                  WHERE f.scenario_id = s.id AND NOT f.retired) AS questions_count,
+                s.created_at
+           FROM scenarios s
+          WHERE s.status <> 'archived'
+          ORDER BY s.created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+/// Вызов, собранный преподавателем вручную.
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NewScenario {
+    /// Тема — как вызов будет называться в списке и в составлении занятия
+    pub title: String,
+    /// Первая фраза заявителя
+    pub legend: String,
+    #[serde(default)]
+    pub applicant_name: String,
+    #[serde(default)]
+    pub applicant_phone: String,
+    #[serde(default)]
+    pub applicant_status: String,
+    /// Норматив заполнения, секунды
+    #[serde(default)]
+    pub norm_sec: Option<i32>,
+    /// Эталон: типы происшествия и ответы опросной карты. Службы и
+    /// итоговый тип посчитает классификатор
+    #[serde(default)]
+    pub type_ids: Vec<String>,
+    #[serde(default)]
+    pub answers: std::collections::HashMap<String, Vec<String>>,
+    /// Адрес, который оператор должен выяснить
+    #[serde(default)]
+    pub address: Option<Value>,
+    /// Что заявитель скажет только в ответ на вопрос
+    #[serde(default)]
+    pub hidden: Vec<crate::domain::scenario_edit::HiddenRow>,
+}
+
+/// Завести черновик вызова и досчитать эталон — общая часть ручного
+/// создания и создания по описанию.
+async fn save_draft(
+    state: &AppState,
+    user: &AuthUser,
+    source: &str,
+    source_ref: Option<&str>,
+    req: &NewScenario,
+) -> AppResult<Uuid> {
+    let version_id = active_version(&state.db).await?;
+    let status = if req.applicant_status.trim().is_empty() {
+        "очевидец"
+    } else {
+        req.applicant_status.trim()
+    };
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO scenarios
+             (title, legend, applicant_name, applicant_phone, applicant_status,
+              norm_sec, expected, version_id, status, source, source_ref, created_by)
+         VALUES (NULLIF(btrim($1), ''), $2, $3, $4, $5, $6, $7, $8, 'draft', $9, $10, $11)
+         RETURNING id",
+    )
+    .bind(&req.title)
+    .bind(req.legend.trim())
+    .bind(req.applicant_name.trim())
+    .bind(req.applicant_phone.trim())
+    .bind(status)
+    .bind(req.norm_sec.unwrap_or(60).clamp(20, 1800))
+    .bind(json!({ "typeIds": req.type_ids, "answers": req.answers,
+                  "address": req.address.clone().unwrap_or(json!({})) }))
+    .bind(version_id)
+    .bind(source)
+    .bind(source_ref)
+    .bind(user.id)
+    .fetch_one(&state.db)
+    .await?;
+
+    // Факты и эталон — через ту же правку, что у переписки: там факты
+    // пишутся, утверждения ставятся в очередь, эталон считает
+    // классификатор
+    let hidden: Vec<_> = req
+        .hidden
+        .iter()
+        .filter(|h| !h.question.trim().is_empty() && !h.answer.trim().is_empty())
+        .enumerate()
+        .map(|(i, h)| crate::domain::scenario_edit::HiddenRow {
+            key: if h.key.trim().is_empty() { format!("f{}", i + 1) } else { h.key.trim().to_string() },
+            question: h.question.trim().to_string(),
+            answer: h.answer.trim().to_string(),
+            unlocks: h.unlocks.clone(),
+            statement: None,
+        })
+        .collect();
+    let patch = Patch {
+        hidden: Some(hidden),
+        answers: Some(req.answers.clone()),
+        type_ids: Some(req.type_ids.clone()),
+        ..Default::default()
+    };
+    scenario_edit::apply(&state.db, version_id, id, &patch)
+        .await
+        .map_err(AppError::Other)?;
+    Ok(id)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/scenarios/manual",
+    tag = "Вызовы",
+    request_body = NewScenario,
+    responses(
+        (status = 201, description = "Черновик вызова, эталон посчитан классификатором", body = crate::domain::scenario_edit::ScenarioFull),
+        (status = 400, description = "Нет темы или первой фразы"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn create_manual(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<NewScenario>,
+) -> AppResult<(StatusCode, Json<ScenarioFull>)> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    if req.title.trim().is_empty() || req.legend.trim().is_empty() {
+        return Err(AppError::Validation("нужны тема и первая фраза заявителя".into()));
+    }
+    let id = save_draft(&state, &user, "manual", None, &req).await?;
+    chat_note(&state.db, id, "Вызов собран преподавателем вручную. Эталон посчитан классификатором.").await?;
+    audit::log(
+        &state.db,
+        audit::Event::new("scenario.create").from_user(&user).about("scenario", id)
+            .with(json!({ "source": "manual" })),
+    )
+    .await;
+    let full = scenario_edit::load(&state.db, id).await.map_err(AppError::Other)?;
+    Ok((StatusCode::CREATED, Json(full)))
+}
+
+/// Описание вызова для модели.
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptRequest {
+    /// Тема — как вызов будет называться в списке
+    #[serde(default)]
+    pub title: String,
+    /// Что произошло, словами преподавателя: «пожилая женщина сообщает
+    /// о запахе газа в подъезде, адрес — …»
+    pub prompt: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/scenarios/from-prompt",
+    tag = "Вызовы",
+    request_body = PromptRequest,
+    responses(
+        (status = 201, description = "Черновик по описанию: реплики пишет модель, эталон — классификатор", body = crate::domain::scenario_edit::ScenarioFull),
+        (status = 400, description = "Пустое описание"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn create_from_prompt(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<PromptRequest>,
+) -> AppResult<(StatusCode, Json<ScenarioFull>)> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    let prompt = req.prompt.trim().to_string();
+    if prompt.is_empty() {
+        return Err(AppError::Validation("опишите вызов словами".into()));
+    }
+    let title = if req.title.trim().is_empty() {
+        prompt.chars().take(60).collect::<String>()
+    } else {
+        req.title.trim().to_string()
+    };
+
+    // Тот же конвейер, что у вызовов из билетов: модель выбирает тип и
+    // признаки из закрытых словарей и пишет реплики, эталон считает
+    // классификатор. Описание преподавателя — вместо текста билета
+    let call = crate::ingest::tickets::TicketCall {
+        ticket: 0,
+        call_no: 0,
+        situation: prompt.clone(),
+        address: String::new(),
+        address_hidden: None,
+        applicant_name: None,
+        applicant_phone: None,
+    };
+    let version_id = active_version(&state.db).await?;
+    let generated =
+        crate::domain::scenario_gen::generate(state.ml.llm.as_ref(), &state.db, version_id, &call).await;
+
+    let (draft, note) = match generated {
+        Ok(g) => {
+            let answers = g
+                .expected
+                .get("answers")
+                .map(crate::api::sessions::answers_to_map)
+                .unwrap_or_default();
+            let type_ids: Vec<String> = g
+                .expected
+                .get("typeIds")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            // Пустая легенда от заглушки или модели — не вызов
+            if g.legend.trim().is_empty() {
+                (fallback_draft(&title, &prompt), "Модель не написала первую фразу заявителя. \
+                    Сохранён черновик с описанием — допишите вручную.".to_string())
+            } else {
+                (
+                    NewScenario {
+                        title: title.clone(),
+                        legend: g.legend,
+                        applicant_name: g.applicant_name,
+                        applicant_phone: g.applicant_phone,
+                        applicant_status: String::new(),
+                        norm_sec: None,
+                        type_ids,
+                        answers,
+                        address: g.expected.get("address").cloned(),
+                        hidden: g
+                            .hidden
+                            .into_iter()
+                            .map(|h| crate::domain::scenario_edit::HiddenRow {
+                                key: h.key,
+                                question: h.question,
+                                answer: h.answer,
+                                unlocks: h.unlocks,
+                                statement: None,
+                            })
+                            .collect(),
+                    },
+                    "Вызов подготовлен моделью по описанию преподавателя. Признаки выбраны \
+                     из опросной карты, эталон посчитан классификатором. Проверьте, \
+                     поправьте перепиской или вручную и утвердите."
+                        .to_string(),
+                )
+            }
+        }
+        // Модель недоступна или ответила не по форме — не отказываем:
+        // черновик с описанием вместо первой фразы, остальное
+        // преподаватель допишет вручную. Причину говорим прямо
+        Err(e) => {
+            tracing::warn!(error = %e, "вызов по описанию не подготовлен моделью");
+            (
+                fallback_draft(&title, &prompt),
+                format!(
+                    "Модель не подготовила вызов ({e}). Сохранён черновик с описанием \
+                     вместо первой фразы — допишите тип, признаки и вопросы вручную."
+                ),
+            )
+        }
+    };
+
+    let id = save_draft(&state, &user, "prompt", Some(&prompt), &draft).await?;
+    sqlx::query(
+        "INSERT INTO scenario_chat (scenario_id, role, content, user_id)
+         VALUES ($1, 'teacher', $2, $3)",
+    )
+    .bind(id)
+    .bind(format!("Описание вызова: {prompt}"))
+    .bind(user.id)
+    .execute(&state.db)
+    .await?;
+    chat_note(&state.db, id, &note).await?;
+    audit::log(
+        &state.db,
+        audit::Event::new("scenario.create").from_user(&user).about("scenario", id)
+            .with(json!({ "source": "prompt" })),
+    )
+    .await;
+    let full = scenario_edit::load(&state.db, id).await.map_err(AppError::Other)?;
+    Ok((StatusCode::CREATED, Json(full)))
+}
+
+fn fallback_draft(title: &str, prompt: &str) -> NewScenario {
+    NewScenario {
+        title: title.to_string(),
+        legend: prompt.to_string(),
+        applicant_name: String::new(),
+        applicant_phone: String::new(),
+        applicant_status: String::new(),
+        norm_sec: None,
+        type_ids: Vec::new(),
+        answers: Default::default(),
+        address: None,
+        hidden: Vec::new(),
+    }
 }
