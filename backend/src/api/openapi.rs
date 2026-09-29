@@ -118,6 +118,7 @@ use utoipa::{
         crate::api::lessons::start,
         crate::api::lessons::finish,
         crate::api::drill::protocol,
+        crate::api::me::work,
         crate::api::forecast::group,
         crate::api::forecast::mine,
         crate::api::forecast::my_advice,

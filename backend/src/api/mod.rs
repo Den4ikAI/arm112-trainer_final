@@ -20,6 +20,7 @@ pub mod forecast;
 pub mod lessons;
 pub mod drill;
 pub mod dds_incidents;
+pub mod me;
 pub mod scenarios;
 pub mod sessions;
 pub mod health;
@@ -48,6 +49,7 @@ pub fn routes() -> Router<AppState> {
         .merge(voice::routes())
         .merge(grading::routes())
         .merge(monitor::routes())
+        .merge(me::routes())
     // сюда добавляются роутеры задач:
     // .merge(catalog::routes())   — задача 5
     // .merge(classifier::routes())— задачи 2, 3, 6

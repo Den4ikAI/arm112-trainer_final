@@ -390,7 +390,30 @@ pub async fn view(
     visible_card(&state.db, id, &user).await?;
     let service_id = service_of(&user, q.service_id.as_deref())?;
     in_card(&state.db, id, &service_id).await?;
-    Ok(Json(load(&state.db, id, &service_id, user.role != Role::Student).await?))
+    let mut view = load(&state.db, id, &service_id, user.role != Role::Student).await?;
+
+    // Экзамен ДДС: как и у оператора 112, разбор — после конца экзамена,
+    // иначе замечания по первому происшествию подсказывали бы следующие
+    if user.role == Role::Student {
+        let экзамен: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM lesson_cards lc
+                  JOIN lessons l ON l.id = lc.lesson_id
+                  JOIN group_members m ON m.group_id = l.group_id
+                 WHERE lc.card_id = $1 AND m.user_id = $2
+                   AND l.kind = 'marathon' AND l.mode = 'dds'
+                   AND l.started_at IS NOT NULL AND l.finished_at IS NULL)",
+        )
+        .bind(id)
+        .bind(user.id)
+        .fetch_one(&state.db)
+        .await?;
+        if экзамен {
+            view.debrief.findings.clear();
+            view.debrief.score = None;
+        }
+    }
+    Ok(Json(view))
 }
 
 #[utoipa::path(

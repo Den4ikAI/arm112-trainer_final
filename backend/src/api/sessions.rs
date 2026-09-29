@@ -1008,8 +1008,9 @@ async fn save(
     )
     .await;
 
-    // Вот ради чего канал и нужен: карточка уходит диспетчерам
-    // профильных ДДС, и у них начинают тикать 30 секунд
+    // Сохранённая курсантом 112 карточка к диспетчерам ДДС не уходит
+    // (Денис, 29.09: все карточки ДДС выдаёт преподаватель) — событие
+    // только самому оператору, его группе и преподавателю
     state.ws.publish(ws::routes::card_event(
         "card.dispatched",
         serde_json::json!({
@@ -1019,7 +1020,7 @@ async fn save(
             "services": card.service_ids,
             "operator": card.operator,
         }),
-        ws::routes::card_topics(&card.service_ids, Some(id)),
+        ws::routes::card_topics(&[], Some(id)),
     ));
 
     // Балл в событии — тот же, что курсант увидит на экране: канал

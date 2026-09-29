@@ -165,10 +165,22 @@ async fn list(
     // 135 мс на запрос (`backend/docs/замеры/НАГРУЗКА.md`)
     let sql = "
         WITH page AS (
-            SELECT c.id, COALESCE(lc.release_at, c.saved_at) AS arrived_at
+            SELECT c.id, COALESCE(lc.release_at, rel.release_at, c.saved_at) AS arrived_at
               FROM cards c
               LEFT JOIN lesson_cards lc ON lc.lesson_id = $7 AND lc.card_id = c.id
+              -- Диспетчеру ДДС — только учебные происшествия, выданные ему
+              -- преподавателем занятием (Денис, 29.09): карточки курсантов 112
+              -- в ленту ДДС не попадают. Поступление — выдача в занятии
+              LEFT JOIN LATERAL (
+                    SELECT max(lc2.release_at) AS release_at
+                      FROM lesson_cards lc2
+                      JOIN lessons l2 ON l2.id = lc2.lesson_id
+                      JOIN group_members m2 ON m2.group_id = l2.group_id
+                     WHERE lc2.card_id = c.id AND m2.user_id = $9
+                       AND l2.started_at IS NOT NULL AND lc2.release_at <= now()) rel
+                    ON $9::uuid IS NOT NULL
              WHERE c.saved_at IS NOT NULL
+               AND ($9::uuid IS NULL OR (c.origin = 'teacher' AND rel.release_at IS NOT NULL))
                AND ($1::text IS NULL OR EXISTS (
                      SELECT 1 FROM card_services cs
                       WHERE cs.card_id = c.id AND cs.service_id = $1))
@@ -201,6 +213,10 @@ async fn list(
          ORDER BY page.arrived_at DESC, c.id";
 
     let service_filter = (scope == "service").then(|| user.service_id.clone()).flatten();
+    // Курсант ДДС: лента — только выданное ему преподавателем
+    let ddsник: Option<Uuid> = (user.role == Role::Student
+        && user.duty == Some(crate::api::auth::Duty::Dds))
+        .then_some(user.id);
     let own_filter = (scope == "own").then_some(user.id);
 
     let items: Vec<CardBrief> = sqlx::query_as(sql)
@@ -212,6 +228,7 @@ async fn list(
         .bind(offset)
         .bind(lesson)
         .bind(user.service_id.as_deref().filter(|_| user.role == Role::Student))
+        .bind(ddsник)
         .fetch_all(&state.db)
         .await?;
 
@@ -228,13 +245,20 @@ async fn list(
                  OR lower(c.address::text) LIKE $4)
             AND ($5::uuid IS NULL OR c.id IN (
                   SELECT card_id FROM lesson_cards
-                   WHERE lesson_id = $5 AND release_at <= now()))",
+                   WHERE lesson_id = $5 AND release_at <= now()))
+            AND ($6::uuid IS NULL OR (c.origin = 'teacher' AND EXISTS (
+                  SELECT 1 FROM lesson_cards lc2
+                    JOIN lessons l2 ON l2.id = lc2.lesson_id
+                    JOIN group_members m2 ON m2.group_id = l2.group_id
+                   WHERE lc2.card_id = c.id AND m2.user_id = $6
+                     AND l2.started_at IS NOT NULL AND lc2.release_at <= now())))",
     )
     .bind(&service_filter)
     .bind(own_filter)
     .bind(&q.status)
     .bind(&pattern)
     .bind(lesson)
+    .bind(ddsник)
     .fetch_one(&state.db)
     .await?;
 
@@ -628,26 +652,30 @@ pub(crate) async fn visible_card(pool: &sqlx::PgPool, id: Uuid, user: &AuthUser)
         return if exists { Ok(()) } else { Err(AppError::NotFound) };
     }
 
+    // Оператор 112 видит только свои карточки. Диспетчер ДДС — только
+    // учебные происшествия, которые ему выдал преподаватель занятием, и
+    // только когда их время пришло: карточки, заполненные курсантами 112,
+    // к диспетчерам не попадают никогда (Денис, 29.09)
     let visible: bool = sqlx::query_scalar(
         "SELECT EXISTS (
             SELECT 1 FROM cards c
              WHERE c.id = $1
-               AND (c.created_by = $2
-                    OR EXISTS (SELECT 1 FROM card_services cs
-                                WHERE cs.card_id = c.id AND cs.service_id = $3))
-               -- Карточка идущего занятия курсанта, время которой ещё не
-               -- пришло, не видна и по прямой ссылке — как и в ленте
-               AND NOT EXISTS (
-                     SELECT 1 FROM lesson_cards lc
-                       JOIN lessons l ON l.id = lc.lesson_id
-                       JOIN group_members m ON m.group_id = l.group_id
-                      WHERE lc.card_id = c.id AND m.user_id = $2
-                        AND l.started_at IS NOT NULL AND l.finished_at IS NULL
-                        AND lc.release_at > now()))",
+               AND (($4 = 'op112' AND c.created_by = $2)
+                    OR ($4 = 'dds' AND c.origin = 'teacher'
+                        AND EXISTS (SELECT 1 FROM card_services cs
+                                     WHERE cs.card_id = c.id AND cs.service_id = $3)
+                        AND EXISTS (
+                              SELECT 1 FROM lesson_cards lc
+                                JOIN lessons l ON l.id = lc.lesson_id
+                                JOIN group_members m ON m.group_id = l.group_id
+                               WHERE lc.card_id = c.id AND m.user_id = $2
+                                 AND l.started_at IS NOT NULL
+                                 AND lc.release_at <= now()))))",
     )
     .bind(id)
     .bind(user.id)
     .bind(&user.service_id)
+    .bind(match user.duty { Some(crate::api::auth::Duty::Dds) => "dds", _ => "op112" })
     .fetch_one(pool)
     .await?;
 

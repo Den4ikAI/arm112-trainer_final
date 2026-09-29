@@ -2,6 +2,8 @@
 //!
 //! Запуск: `cargo test --test cards_api`
 
+mod common;
+
 use arm112::{api, config::Config, ml::MlSuite, state::AppState};
 use axum::{
     body::Body,
@@ -83,6 +85,13 @@ async fn saved_fire_card(app: &Router, pool: &sqlx::PgPool) -> Option<(String, S
           saved["card"]["number"].as_str().unwrap().to_string()))
 }
 
+/// Выдать карточку диспетчеру МЧС (student3), как это делает преподаватель.
+async fn выдать_мчс(pool: &sqlx::PgPool, card_id: &str) {
+    let student: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'student3'")
+        .fetch_one(pool).await.unwrap();
+    common::выдать(pool, card_id.parse().unwrap(), student).await;
+}
+
 /// «Чтобы в их ленту попадали только профильные события» — требование
 /// ТЗ. Фильтр стоит в SQL, а не в интерфейсе.
 #[tokio::test]
@@ -90,7 +99,18 @@ async fn в_ленту_ддс_попадают_только_профильные
     let Some((app, pool)) = app().await else { return };
     let Some((card_id, number)) = saved_fire_card(&app, &pool).await else { return };
 
+    // Карточка, заполненная курсантом 112, к диспетчеру не попадает
+    // (Денис, 29.09) — ни в ленту, ни по прямой ссылке
     let mchs = token(&app, "student3").await;
+    let (_, feed) = call(&app, Method::GET, "/api/cards", Some(&mchs), None).await;
+    assert!(!feed["items"].as_array().unwrap().iter().any(|c| c["number"] == number.as_str()),
+        "карточка курсанта 112 попала в ленту ДДС");
+    let (status, _) = call(&app, Method::GET, &format!("/api/cards/{card_id}"),
+        Some(&mchs), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "карточка курсанта 112 открылась у ДДС");
+
+    // Выдал преподаватель — пришла, и только профильной службе
+    выдать_мчс(&pool, &card_id).await;
     let (status, feed) = call(&app, Method::GET, "/api/cards", Some(&mchs), None).await;
     assert_eq!(status, StatusCode::OK, "{feed}");
     assert!(feed["items"].as_array().unwrap().iter().any(|c| c["number"] == number.as_str()),
@@ -154,6 +174,7 @@ async fn курсант_не_может_запросить_всю_ленту() {
 async fn статусы_проставляются_только_последовательно() {
     let Some((app, pool)) = app().await else { return };
     let Some((card_id, _)) = saved_fire_card(&app, &pool).await else { return };
+    выдать_мчс(&pool, &card_id).await;
     let tok = token(&app, "student3").await;
     let url = format!("/api/cards/{card_id}/responses");
 
@@ -185,6 +206,7 @@ async fn статусы_проставляются_только_последов
 async fn отказ_без_комментария_не_проходит() {
     let Some((app, pool)) = app().await else { return };
     let Some((card_id, _)) = saved_fire_card(&app, &pool).await else { return };
+    выдать_мчс(&pool, &card_id).await;
     let tok = token(&app, "student3").await;
     let url = format!("/api/cards/{card_id}/responses");
 
@@ -216,6 +238,7 @@ async fn отказ_без_комментария_не_проходит() {
 async fn диспетчер_не_ставит_статус_за_чужую_службу() {
     let Some((app, pool)) = app().await else { return };
     let Some((card_id, _)) = saved_fire_card(&app, &pool).await else { return };
+    выдать_мчс(&pool, &card_id).await;
     let tok = token(&app, "student3").await;
 
     let (status, _) = call(&app, Method::POST, &format!("/api/cards/{card_id}/responses"),
@@ -228,6 +251,7 @@ async fn диспетчер_не_ставит_статус_за_чужую_сл�
 async fn завершение_работ_переводит_карточку_в_отработана() {
     let Some((app, pool)) = app().await else { return };
     let Some((card_id, _)) = saved_fire_card(&app, &pool).await else { return };
+    выдать_мчс(&pool, &card_id).await;
     let tok = token(&app, "student3").await;
     let url = format!("/api/cards/{card_id}/responses");
 

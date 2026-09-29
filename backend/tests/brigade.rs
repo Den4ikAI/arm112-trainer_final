@@ -11,6 +11,7 @@
 //!
 //! Запуск: `cargo test --test brigade`
 
+mod common;
 use arm112::{api, config::Config, jobs, ml::MlSuite, state::AppState, ws::Hub};
 use axum::{
     body::Body,
@@ -101,6 +102,8 @@ async fn стенд(pool: &PgPool) -> Стенд {
     .bind(&номер).fetch_one(pool).await.unwrap();
     sqlx::query("INSERT INTO card_services (card_id, service_id) VALUES ($1, $2)")
         .bind(card).bind(&service).execute(pool).await.unwrap();
+    // Диспетчеру карточку выдаёт преподаватель
+    common::выдать(pool, card, user_id).await;
 
     Стенд { service, login, user_id, card }
 }
@@ -414,6 +417,12 @@ async fn ход_занятия_ддс_получает_балл() {
 /// Карточка поступила давно: сдвигаем сохранение, а не ждём.
 async fn поступила(pool: &PgPool, с: &Стенд, секунд_назад: i64) {
     sqlx::query("UPDATE cards SET saved_at = now() - make_interval(secs => $2) WHERE id = $1")
+        .bind(с.card).bind(секунд_назад as f64).execute(pool).await.unwrap();
+    // Поступление к диспетчеру — выдача преподавателем: сдвигаем и её
+    sqlx::query(
+        "UPDATE lesson_cards SET release_at = now() - make_interval(secs => $2)
+          WHERE card_id = $1 AND lesson_id IN (
+                SELECT id FROM lessons WHERE title = 'выдача происшествия')")
         .bind(с.card).bind(секунд_назад as f64).execute(pool).await.unwrap();
 }
 

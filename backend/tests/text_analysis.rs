@@ -7,6 +7,7 @@
 //!
 //! Запуск: `cargo test --test text_analysis`
 
+mod common;
 use arm112::{
     api,
     config::Config,
@@ -318,7 +319,8 @@ async fn вердикт_преподавателя_по_замечанию_со�
     assert_eq!(body["attempts"][0]["analysis"]["findings"][0]["verdict"], "confirmed");
 }
 
-/// Чужой разбор курсанту не показывается, даже если карточка ему видна.
+/// Чужой разбор курсанту не показывается. С 29.09 карточка курсанта 112
+/// диспетчеру ДДС не видна вовсе — даже профильной службе.
 #[tokio::test]
 async fn чужой_разбор_курсанту_не_виден() {
     let Some((app, pool, _)) = app().await else { return };
@@ -337,8 +339,7 @@ async fn чужой_разбор_курсанту_не_виден() {
     let чужой = токен(&app, "student2").await;
     let (status, body) = call(&app, Method::GET, &format!("/api/cards/{}/review", в.card),
         Some(&чужой), None).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert!(body["attempts"].as_array().unwrap().is_empty(), "{body}");
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
 }
 
 /// Настоящая модель на настоящем вызове. Нужен поднятый сервер модели
@@ -407,6 +408,8 @@ async fn отказ_диспетчера_ставит_анализ_коммен�
         .bind(format!("А{}", &метка[..10])).fetch_one(&pool).await.unwrap();
     sqlx::query("INSERT INTO card_services (card_id, service_id) VALUES ($1, $2)")
         .bind(card).bind(&service).execute(&pool).await.unwrap();
+    // Диспетчеру карточку выдаёт преподаватель
+    common::выдать(&pool, card, user).await;
 
     let курсант = токен(&app, &login).await;
     let (status, body) = call(&app, Method::POST, &format!("/api/cards/{card}/responses"),

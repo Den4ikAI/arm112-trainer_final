@@ -63,6 +63,11 @@ pub struct NewLesson {
     /// Вызовы, выбранные преподавателем, в порядке прохождения
     #[serde(default)]
     pub scenario_ids: Vec<Uuid>,
+    /// Режим ДДС: учебные происшествия, выбранные преподавателем поимённо,
+    /// в порядке выдачи. Пусто — подбираются случайно из созданных
+    /// преподавателем по категориям занятия
+    #[serde(default)]
+    pub card_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema, sqlx::FromRow)]
@@ -85,6 +90,8 @@ pub struct LessonBrief {
     pub call_count: Option<i32>,
     /// Вызовы, выбранные преподавателем, по порядку
     pub scenario_ids: Vec<Uuid>,
+    /// Учебные происшествия ДДС, выбранные преподавателем, по порядку
+    pub card_ids: Vec<Uuid>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Сколько человек в группе
@@ -141,11 +148,8 @@ const ВИДЫ: [&str; 3] = ["training", "marathon", "blitz"];
 fn правила_вида(req: &NewLesson, kind: &str) -> AppResult<(Option<String>, Option<i32>)> {
     use crate::domain::drill::{BLITZ_CALLS, DEFAULT_CALLS, MARATHON_CALLS, SEGMENTS_112, SEGMENT_DDS};
 
-    if kind == "marathon" && req.mode != "card112" {
-        return Err(AppError::Validation(
-            "марафон — экзамен по приёму вызова: режим «card112»".into(),
-        ));
-    }
+    // Экзамен бывает у обоих рабочих мест: у оператора 112 — вызовы
+    // подряд, у диспетчера ДДС — учебные происшествия подряд
 
     let сегмент = match kind {
         "blitz" => {
@@ -170,7 +174,13 @@ fn правила_вида(req: &NewLesson, kind: &str) -> AppResult<(Option<Str
         _ => None,
     };
 
-    // У ДДС материал — карточки служб группы, вызовы не раздаются
+    if req.mode == "card112" && !req.card_ids.is_empty() {
+        return Err(AppError::Validation(
+            "учебные происшествия выдаются диспетчерам ДДС: режим «dds»".into(),
+        ));
+    }
+
+    // У ДДС материал — учебные происшествия, вызовы не раздаются
     if req.mode == "dds" {
         if !req.scenario_ids.is_empty() || req.call_count.is_some() {
             return Err(AppError::Validation(
@@ -207,6 +217,12 @@ fn правила_вида(req: &NewLesson, kind: &str) -> AppResult<(Option<Str
         )));
     }
 
+    // Обычному занятию с выбранными вызовами число задаёт сам список:
+    // записывать его в call_count нельзя — у поля нижняя граница 3,
+    // и занятие на один-два вызова падало с 500
+    if kind == "training" && !req.scenario_ids.is_empty() {
+        return Ok((сегмент, None));
+    }
     Ok((сегмент, Some(n as i32)))
 }
 
@@ -251,7 +267,16 @@ pub async fn create(
             "режим занятия — «card112» или «dds»".into(),
         ));
     }
-    let source = req.source.clone().unwrap_or_else(|| "mixed".into());
+    let source = req.source.clone().unwrap_or_else(|| "generated".into());
+    // Карточки, заполненные курсантами 112, диспетчерам не выдаются
+    // (Денис, 29.09): материал ДДС — только учебные происшествия,
+    // созданные преподавателем
+    if source == "by_students" {
+        return Err(AppError::Validation(
+            "карточки курсантов 112 диспетчерам ДДС не выдаются: материал — \
+             учебные происшествия, созданные преподавателем".into(),
+        ));
+    }
     if !ИСТОЧНИКИ.contains(&source.as_str()) {
         return Err(AppError::Validation(
             "источник карточек — «generated», «by_students» или «mixed»".into(),
@@ -290,6 +315,22 @@ pub async fn create(
         }
     }
 
+    if !req.card_ids.is_empty() {
+        let годных: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT id) FROM cards
+              WHERE id = ANY($1) AND origin = 'teacher' AND saved_at IS NOT NULL",
+        )
+        .bind(&req.card_ids)
+        .fetch_one(&state.db)
+        .await?;
+        if годных != req.card_ids.len() as i64 {
+            return Err(AppError::Validation(
+                "среди выбранных происшествий есть несуществующие, повторы или \
+                 карточки курсантов — выдаются только созданные преподавателем".into(),
+            ));
+        }
+    }
+
     let есть_группа: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM training_groups WHERE id = $1)")
             .bind(req.group_id)
@@ -301,9 +342,10 @@ pub async fn create(
 
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO lessons (group_id, teacher_id, title, mode, type_ids, source,
-                              card_interval_sec, kind, segment, call_count, scenario_ids)
+                              card_interval_sec, kind, segment, call_count, scenario_ids,
+                              card_ids)
          VALUES ($1, $2, $3, $4::session_mode, $5, $6::lesson_source, $7,
-                 $8::lesson_kind, $9, $10, $11)
+                 $8::lesson_kind, $9, $10, $11, $12)
          RETURNING id",
     )
     .bind(req.group_id)
@@ -317,6 +359,7 @@ pub async fn create(
     .bind(&segment)
     .bind(call_count)
     .bind(&req.scenario_ids)
+    .bind(&req.card_ids)
     .fetch_one(&state.db)
     .await?;
 
@@ -353,11 +396,13 @@ pub async fn start(
     user.require(&[Role::Teacher, Role::Admin])?;
     своё(&state.db, id, &user).await?;
 
-    type Занятие = (String, String, Vec<String>, Uuid, bool, i32, String, Option<i32>, Vec<Uuid>);
-    let (mode, source, type_ids, group_id, начато, интервал, kind, call_count, выбраны): Занятие =
+    type Занятие = (String, String, Vec<String>, Uuid, bool, i32, String, Option<i32>, Vec<Uuid>,
+                    Vec<Uuid>);
+    let (mode, _source, type_ids, group_id, начато, интервал, kind, call_count, выбраны,
+         происшествия): Занятие =
         sqlx::query_as(
             "SELECT mode::text, source::text, type_ids, group_id, started_at IS NOT NULL,
-                    card_interval_sec, kind::text, call_count, scenario_ids
+                    card_interval_sec, kind::text, call_count, scenario_ids, card_ids
                FROM lessons WHERE id = $1",
         )
         .bind(id)
@@ -417,7 +462,7 @@ pub async fn start(
         }
         раздать_вызовы(&state.db, id, group_id, &вызовы, kind == "marathon").await?
     } else {
-        раздать_карточки(&state.db, id, group_id, &type_ids, &source, интервал).await?
+        раздать_карточки(&state.db, id, group_id, &type_ids, &происшествия, интервал).await?
     };
 
     // Пустое занятие запускать бессмысленно: курсанты увидят
@@ -427,9 +472,8 @@ pub async fn start(
             "по выбранным категориям не нашлось ни одного утверждённого вызова: \
              подготовьте их или выберите другие категории"
         } else {
-            "не нашлось карточек, которые касались бы служб этой группы и ещё \
-             ждали бы работы: проведите сначала занятие по приёму вызовов \
-             или выберите другие категории"
+            "не нашлось учебных происшествий для служб этой группы: создайте \
+             их в разделе вызовов или выберите другие категории"
         };
         return Err(AppError::Validation(причина.into()));
     }
@@ -591,16 +635,31 @@ async fn раздать_карточки(
     lesson_id: Uuid,
     group_id: Uuid,
     type_ids: &[String],
-    source: &str,
+    выбраны: &[Uuid],
     интервал: i32,
 ) -> AppResult<i64> {
-    // «Сформированные обучающимися» — те, что заполнены в занятиях
-    // по карточке 112; «созданные системой» — заведённые без занятия
-    let условие = match source {
-        "by_students" => "c.session_id IS NOT NULL",
-        "generated" => "c.session_id IS NULL",
-        _ => "TRUE",
-    };
+    // Выбранные преподавателем — ровно они, в его порядке: первое сразу,
+    // следующие через интервал. Только созданные преподавателем
+    if !выбраны.is_empty() {
+        let роздано = sqlx::query(
+            "INSERT INTO lesson_cards (lesson_id, card_id, release_at)
+             SELECT $1, t.id, now() + make_interval(secs => (t.ord - 1) * $3::float8)
+               FROM unnest($2::uuid[]) WITH ORDINALITY AS t(id, ord)
+               JOIN cards c ON c.id = t.id AND c.origin = 'teacher'
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(lesson_id)
+        .bind(выбраны)
+        .bind(интервал as f64)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        return Ok(роздано as i64);
+    }
+
+    // Иначе — случайные учебные происшествия служб группы. Карточки,
+    // заполненные курсантами 112, диспетчерам не выдаются никогда
+    let условие = "c.origin = 'teacher'";
 
     let запрос = format!(
         "INSERT INTO lesson_cards (lesson_id, card_id, release_at)
@@ -763,7 +822,7 @@ const ОСНОВА: &str = "
     SELECT l.id, l.title, l.group_id, g.title AS group_title,
            l.mode::text AS mode, l.source::text AS source, l.type_ids,
            l.card_interval_sec, l.kind::text AS kind, l.segment, l.call_count,
-           l.scenario_ids, l.started_at, l.finished_at,
+           l.scenario_ids, l.card_ids, l.started_at, l.finished_at,
            (SELECT count(*) FROM group_members m WHERE m.group_id = l.group_id) AS members,
            (SELECT count(*) FROM assignments a WHERE a.lesson_id = l.id)
          + (SELECT count(*) FROM lesson_cards c WHERE c.lesson_id = l.id) AS items

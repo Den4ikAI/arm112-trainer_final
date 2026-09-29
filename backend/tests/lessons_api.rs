@@ -401,8 +401,8 @@ async fn отдельно(pool: &PgPool) -> Отдельно {
 async fn карточка_для(pool: &PgPool, service: &str, закрыта: bool) -> Uuid {
     let номер = format!("П{}", &Uuid::new_v4().simple().to_string()[..10]);
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO cards (number, saved_at, type_ids, description)
-         VALUES ($1, now(), '{101}', 'проверочная карточка') RETURNING id",
+        "INSERT INTO cards (number, saved_at, type_ids, description, origin)
+         VALUES ($1, now(), '{101}', 'проверочная карточка', 'teacher') RETURNING id",
     )
     .bind(&номер).fetch_one(pool).await.unwrap();
 
@@ -457,10 +457,10 @@ async fn занятие_ддс_ограничивает_ленту_своими_
     let курсант = токен(&app, &о.login).await;
     let лента = "/api/cards?scope=service";
 
-    // Без занятия видны обе: лента службы как есть
+    // Без занятия не видно ничего: происшествия выдаёт преподаватель
+    // (Денис, 29.09), лента службы «как есть» диспетчеру не положена
     let (_, до) = call(&app, Method::GET, лента, Some(&курсант), None).await;
-    let до = номера(&до);
-    assert!(до.contains(&открытая.to_string()) && до.contains(&закрытая.to_string()));
+    assert!(номера(&до).is_empty(), "невыданное попало в ленту: {до}");
 
     let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
         Some(json!({ "groupId": о.group_id, "title": "Статусы реагирования",
@@ -480,8 +480,10 @@ async fn занятие_ддс_ограничивает_ленту_своими_
 
     call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
 
+    // После занятия выданное остаётся — посмотреть свою работу и ошибки
     let (_, после) = call(&app, Method::GET, лента, Some(&курсант), None).await;
-    assert_eq!(номера(&после).len(), до.len(), "после занятия лента снова открыта");
+    assert_eq!(номера(&после), vec![открытая.to_string()],
+               "после занятия в ленте — только выданное");
 
     прибрать_отдельно(&pool, &о, &[открытая, закрытая]).await;
 }

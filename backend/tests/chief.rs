@@ -7,6 +7,7 @@
 //!
 //! Запуск: `cargo test --test chief`
 
+mod common;
 use arm112::{
     api,
     config::{Config, MlProvider},
@@ -103,6 +104,8 @@ async fn стенд(pool: &PgPool, пострадавших: i32) -> Стенд 
         sqlx::query("INSERT INTO card_services (card_id, service_id) VALUES ($1, $2)")
             .bind(card).bind(sv).execute(pool).await.unwrap();
     }
+    // Диспетчеру карточку выдаёт преподаватель
+    common::выдать(pool, card, user_id).await;
     Стенд { service, login, user_id, card }
 }
 

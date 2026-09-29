@@ -175,6 +175,24 @@ pub async fn check_start(pool: &PgPool, assignment_id: Uuid, user_id: Uuid) -> A
     .fetch_optional(pool)
     .await?;
     let Some((lesson_id, kind, seq)) = row else { return Ok(()) };
+
+    // Выданное преподавателем задание проходится один раз: закончил —
+    // дальше только просмотр разбора (Денис, 29.09: «при открытии уже
+    // выполненной карточки обучающийся не должен иметь возможность
+    // повторно её пройти»)
+    let закончен: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM sessions
+                         WHERE assignment_id = $1 AND finished_at IS NOT NULL)",
+    )
+    .bind(assignment_id)
+    .fetch_one(pool)
+    .await?;
+    if закончен {
+        return Err(AppError::Conflict(
+            "задание уже выполнено: повторно пройти нельзя, открыть можно разбор".into(),
+        ));
+    }
+
     if kind != "marathon" {
         return Ok(());
     }

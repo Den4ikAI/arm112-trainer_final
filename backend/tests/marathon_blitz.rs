@@ -288,10 +288,12 @@ async fn марафон_собирается_только_из_пяти_до_д�
     })).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let (status, _) = занятие(&app, &teacher, json!({
+    // Экзамен бывает и у диспетчеров ДДС (Денис, 29.09) — такое занятие
+    // заводится; а вот вызовы 112 ему поимённо не выбираются
+    let (status, ответ) = занятие(&app, &teacher, json!({
         "groupId": с.group_id, "title": "ДДС", "mode": "dds", "kind": "marathon",
     })).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::CREATED, "{ответ}");
 
     // Выбрать можно только утверждённые
     let черновик: Uuid = sqlx::query_scalar(

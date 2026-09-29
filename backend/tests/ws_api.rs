@@ -9,6 +9,7 @@
 //!
 //! Запуск: `cargo test --test ws_api`
 
+mod common;
 use arm112::{api, config::Config, ml::MlSuite, state::AppState, ws};
 use axum::{
     body::Body,
@@ -34,6 +35,7 @@ use tower::ServiceExt;
 struct Server {
     app: Router,
     addr: String,
+    pool: sqlx::PgPool,
 }
 
 /// Куда ходят проверки.
@@ -50,7 +52,7 @@ async fn start() -> Option<Server> {
     let pool = sqlx::PgPool::connect(&адрес_базы(&config)).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
     let ml = MlSuite::build(config.ml_provider).ok()?;
-    let state = AppState::new(pool, config, ml);
+    let state = AppState::new(pool.clone(), config, ml);
 
     let app = api::routes()
         .merge(ws::routes::routes())
@@ -63,7 +65,7 @@ async fn start() -> Option<Server> {
         axum::serve(listener, served).await.ok();
     });
 
-    Some(Server { app, addr })
+    Some(Server { app, addr, pool })
 }
 
 impl Server {
@@ -160,10 +162,10 @@ async fn dispatch_fire(server: &Server, operator: &str) -> Value {
     server.post(&format!("/api/sessions/{session}/save"), Some(operator), json!({})).await
 }
 
-/// Критерий приёмки: сохранение карточки одним пользователем
-/// в течение секунды долетает до другого, подписанного на свою службу.
+/// Карточка, сохранённая курсантом 112, в канал диспетчера ДДС не
+/// уходит: все карточки ДДС выдаёт преподаватель (Денис, 29.09).
 #[tokio::test]
-async fn карточка_долетает_до_диспетчера_профильной_ддс() {
+async fn карточка_курсанта_112_в_канал_ддс_не_уходит() {
     let Some(server) = start().await else { return };
     let mchs = server.token("student3").await;
     let operator = server.token("student1").await;
@@ -172,14 +174,24 @@ async fn карточка_долетает_до_диспетчера_профи�
     let ack = subscribe(&mut socket, &["service:mchs"]).await;
     assert_eq!(ack["type"], "subscribed");
 
-    let saved = dispatch_fire(&server, &operator).await;
-    let number = saved["card"]["number"].as_str().unwrap().to_string();
+    dispatch_fire(&server, &operator).await;
+    assert!(next(&mut socket).await.is_none(), "карточка курсанта 112 пришла диспетчеру");
+}
 
-    let event = next(&mut socket).await.expect("карточка не долетела за секунду");
-    assert_eq!(event["type"], "card.dispatched");
-    assert_eq!(event["number"], number.as_str());
-    assert_eq!(event["outcomeType"], "пожар: частный дом");
-    assert!(event["services"].as_array().unwrap().iter().any(|s| s == "mchs"));
+/// Учебное происшествие, выданное преподавателем: статусы по нему
+/// расходятся по каналу службы.
+async fn выданное_мчс(server: &Server) -> String {
+    let card: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO cards (number, saved_at, type_ids, description)
+         VALUES ($1, now(), '{101}', 'учебное происшествие') RETURNING id")
+        .bind(format!("У{}", &uuid::Uuid::new_v4().simple().to_string()[..10]))
+        .fetch_one(&server.pool).await.unwrap();
+    sqlx::query("INSERT INTO card_services (card_id, service_id) VALUES ($1, 'mchs')")
+        .bind(card).execute(&server.pool).await.unwrap();
+    let student: uuid::Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'student3'")
+        .fetch_one(&server.pool).await.unwrap();
+    common::выдать(&server.pool, card, student).await;
+    card.to_string()
 }
 
 /// Пожар в частном доме не профилен для Мослифта — в его канал
@@ -227,15 +239,19 @@ async fn на_чужую_службу_подписаться_нельзя() {
 async fn преподаватель_подписывается_на_любую_службу() {
     let Some(server) = start().await else { return };
     let teacher = server.token("teacher1").await;
-    let operator = server.token("student1").await;
+    let mchs = server.token("student3").await;
 
     let mut socket = connect(&server, &teacher).await;
     let ack = subscribe(&mut socket, &["service:mchs", "service:codd"]).await;
     assert_eq!(ack["topics"].as_array().unwrap().len(), 2);
 
-    dispatch_fire(&server, &operator).await;
-    let event = next(&mut socket).await.expect("карточка не долетела");
-    assert_eq!(event["type"], "card.dispatched");
+    // Диспетчер МЧС работает по выданному происшествию — преподаватель
+    // видит это в канале службы
+    let card_id = выданное_мчс(&server).await;
+    server.post(&format!("/api/cards/{card_id}/responses"), Some(&mchs),
+        json!({ "serviceId": "mchs", "status": "Принята", "comment": "Принято" })).await;
+    let event = next(&mut socket).await.expect("статус не долетел");
+    assert_eq!(event["type"], "response.recorded");
 }
 
 /// Диспетчер проставил статус — это видят все, кто следит
@@ -249,9 +265,8 @@ async fn статус_реагирования_уходит_в_канал() {
     let mut socket = connect(&server, &mchs).await;
     subscribe(&mut socket, &["service:mchs"]).await;
 
-    let saved = dispatch_fire(&server, &operator).await;
-    let card_id = saved["card"]["id"].as_str().unwrap().to_string();
-    next(&mut socket).await.expect("карточка не долетела");
+    let _ = &operator;
+    let card_id = выданное_мчс(&server).await;
 
     server.post(&format!("/api/cards/{card_id}/responses"), Some(&mchs),
         json!({ "serviceId": "mchs", "status": "Принята", "orderNo": "23" })).await;
