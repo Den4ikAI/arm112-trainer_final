@@ -130,6 +130,8 @@ services:
     environment:
       # Шесть ядер из ТЗ делятся с моделью, сервером и базой
       VOICE_THREADS: ${VOICE_THREADS:-4}
+      VOICE_STYLES: ${VOICE_STYLES:-}
+      VOICE_PHONE_ROLES: ${VOICE_PHONE_ROLES-applicant_m,applicant_f,brigade,chief}
     volumes:
       - ${VOICE_DIR:-/opt/arm112/voice}:/models:ro
       - voice-cache:/cache

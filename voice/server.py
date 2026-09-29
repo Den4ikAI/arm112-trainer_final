@@ -9,8 +9,11 @@ Python и onnxruntime, а тренажёр должен работать и бе
 
 * распознавание — GigaAM v3 e2e RNNT через пакет onnx_asr: сразу
   с пунктуацией и заглавными буквами;
-* синтез — TeraTTSv2 с готовыми голосами из поставки модели. Голоса
-  никого не клонируют: это стили, которые идут вместе с весами.
+* синтез — TeraTTSv2. Голоса — стили: готовые из поставки модели и
+  свои из `voice/styles/` (стиль посчитан энкодером стиля TeraTTSv2 по
+  образцу голоса, происхождение — PROVENANCE.md, «Голос»). Кто каким
+  голосом говорит, задаёт `VOICE_STYLES`; голоса «по телефону»
+  (`VOICE_PHONE_ROLES`) проходят через телефонный тракт.
 
 Каталог моделей — `VOICE_MODELS_DIR`:
 
@@ -65,7 +68,8 @@ VOICES = {
     "brigade": "ru_m5",
     "chief": "ru_m1",
     "applicant_m": "ru_m1",
-    "applicant_f": "ru_f1",
+    # Свой стиль из voice/styles: взволнованный женский голос звонящего
+    "applicant_f": "alina",
     # Голоса демо-ролика (docs/demo). Разведены так, чтобы в каждой сцене
     # все звучали по-разному: у оператора 112 — заявитель (applicant_*),
     # у ДДС — старший бригады и начальник. Реплики курсанта подаются
@@ -74,6 +78,47 @@ VOICES = {
     "operator": "ru_m5",
     "dispatcher": "ru_f1",
 }
+
+# Выбор голоса без правки кода: VOICE_STYLES="chief=ru_m5,applicant_f=ru_f1"
+for _pair in filter(None, os.environ.get("VOICE_STYLES", "").split(",")):
+    _role, _, _style = _pair.partition("=")
+    if _role.strip() and _style.strip():
+        VOICES[_role.strip()] = _style.strip()
+
+# Свои стили лежат в репозитории рядом с сервером; стили поставки — в
+# каталоге модели. Рантайм TeraTTS ищет стиль в своём каталоге styles/,
+# абсолютный путь он принимает как есть
+OWN_STYLES = Path(__file__).resolve().parent / "styles"
+
+# Кого слышно через телефон: заявитель, старший бригады, начальник.
+# Диктор и сам курсант звучат чисто. Пустая переменная — без тракта
+PHONE_ROLES = {
+    r.strip()
+    for r in os.environ.get(
+        "VOICE_PHONE_ROLES", "applicant_m,applicant_f,brigade,chief").split(",")
+    if r.strip()
+}
+
+
+def _style_ref(style: str) -> str:
+    own = OWN_STYLES / style
+    return str(own) if own.is_dir() else style
+
+
+def _phone(samples: np.ndarray, rate: int) -> np.ndarray:
+    """Телефонный тракт: полоса 300–3400 Гц и 8-битный μ-law, как в
+    обычной телефонной линии. Разборчивость сохраняется, звук — «из трубки»."""
+    spec = np.fft.rfft(samples)
+    freqs = np.fft.rfftfreq(len(samples), 1 / rate)
+    spec[(freqs < 300) | (freqs > 3400)] = 0
+    x = np.fft.irfft(spec, n=len(samples))
+    peak = np.max(np.abs(x)) or 1.0
+    x = x / peak * 0.9
+    mu = 255.0
+    enc = np.sign(x) * np.log1p(mu * np.abs(x)) / np.log1p(mu)
+    enc = np.round(enc * 127) / 127
+    return (np.sign(enc) * np.expm1(np.abs(enc) * np.log1p(mu)) / mu).astype(np.float32)
+
 
 app = FastAPI(title="Голос тренажёра АРМ-112")
 
@@ -122,6 +167,17 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict:
     return {"asr": _asr is not None, "tts": _tts is not None, "voices": sorted(VOICES)}
+
+
+@app.get("/voices")
+def voices() -> dict:
+    """Кто каким стилем говорит и какие стили есть — чтобы выбрать голос
+    через VOICE_STYLES."""
+    styles = set()
+    if _teratts is not None:
+        styles |= {p.name for p in (MODELS / "TeraTTSv2" / "styles").glob("*") if p.is_dir()}
+    styles |= {p.name for p in OWN_STYLES.glob("*") if p.is_dir()}
+    return {"roles": VOICES, "phone": sorted(PHONE_ROLES), "styles": sorted(styles)}
 
 
 # ─── Распознавание ───────────────────────────────────────────────────
@@ -218,7 +274,8 @@ def tts(req: TtsRequest) -> Response:
 
     # Реплики собеседников повторяются («прибыли на место»), и синтез
     # одной и той же фразы дважды — лишняя секунда процессора
-    key = hashlib.sha256(f"{style}\0{text}".encode()).hexdigest()
+    phone = req.voice in PHONE_ROLES
+    key = hashlib.sha256(f"{style}\0{int(phone)}\0{text}".encode()).hexdigest()
     cached = CACHE / f"{key}.wav"
     if cached.exists():
         return Response(cached.read_bytes(), media_type="audio/wav",
@@ -226,9 +283,11 @@ def tts(req: TtsRequest) -> Response:
 
     started = time.monotonic()
     with _tts_lock:
-        samples = _teratts.generate_speech(_tts, normalize(text), style)
+        samples = _teratts.generate_speech(_tts, normalize(text), _style_ref(style))
     took = time.monotonic() - started
     rate = _teratts.SAMPLE_RATE
+    if phone:
+        samples = _phone(samples, rate)
     log.info("tts: %.2f с аудио за %.2f с (%s)", len(samples) / rate, took, style)
 
     data = _wav_bytes(samples, rate)

@@ -18,6 +18,7 @@ WORKDIR /app
 COPY voice/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY voice/server.py .
+COPY voice/styles ./styles
 
 ENV VOICE_MODELS_DIR=/models VOICE_CACHE_DIR=/cache
 VOLUME /models
