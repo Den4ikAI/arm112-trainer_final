@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   analytics, CHECK_GROUP, type CheckGroup, type GroupAnalytics, type StudentAnalytics,
 } from '@/shared/api/teacher';
@@ -31,12 +31,30 @@ export const PeopleAnalytics = ({ groupId }: { groupId: string }) => {
   const [data, setData] = useState<GroupAnalytics | null>(null);
   const [student, setStudent] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  // Вкладку выбирает сама страница, пока преподаватель её не нажал:
+  // у группы диспетчеров вкладка 112 пуста, и аналитика открывалась
+  // пустым экраном (UX-проход 1)
+  const сам = useRef(true);
 
   useEffect(() => {
     if (!groupId) return;
+    let alive = true;
     setData(null); setError(false);
-    void analytics.group(groupId, duty).then(setData).catch(() => setError(true));
+    void analytics.group(groupId, duty)
+      .then((d) => {
+        if (!alive) return;
+        if (сам.current && duty === 'op112' && d.students.length === 0) {
+          сам.current = false;
+          setDuty('dds');
+          return;
+        }
+        setData(d);
+      })
+      .catch(() => { if (alive) setError(true); });
+    return () => { alive = false; };
   }, [groupId, duty]);
+
+  const вкладка = (d: 'op112' | 'dds') => { сам.current = false; setDuty(d); };
 
   if (student) return <StudentView id={student} onBack={() => setStudent(null)} />;
 
@@ -50,10 +68,12 @@ export const PeopleAnalytics = ({ groupId }: { groupId: string }) => {
   return (
     <section data-testid="people-analytics">
       <div className={s.tabs}>
-        <button className={clsx(s.btn, duty === 'op112' && s.on)} onClick={() => setDuty('op112')}>
+        <button className={clsx(s.btn, duty === 'op112' && s.on)} aria-pressed={duty === 'op112'}
+                onClick={() => вкладка('op112')}>
           Операторы 112
         </button>
-        <button className={clsx(s.btn, duty === 'dds' && s.on)} onClick={() => setDuty('dds')}>
+        <button className={clsx(s.btn, duty === 'dds' && s.on)} aria-pressed={duty === 'dds'}
+                onClick={() => вкладка('dds')}>
           Диспетчеры ДДС
         </button>
       </div>

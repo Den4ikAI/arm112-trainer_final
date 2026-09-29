@@ -103,7 +103,7 @@ export const AnalyticsPage = () => {
                 onClick={() => setView('people')}>Операторы 112 и диспетчеры ДДС · по ученикам</button>
       </div>
 
-      {view === 'people' && <PeopleAnalytics groupId={groupId} />}
+      {view === 'people' && <PeopleAnalytics key={groupId} groupId={groupId} />}
 
       {view === 'report' && state === 'working' && <p className={s.empty}>Отчёт считается…</p>}
       {view === 'report' && state === 'error' && <p className={s.empty}>Не удалось получить отчёт.</p>}
