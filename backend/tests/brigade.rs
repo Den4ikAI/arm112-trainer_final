@@ -551,6 +551,76 @@ async fn в_занятии_нормативы_от_выпуска_карточк
     прибрать(&pool, &с).await;
 }
 
+/// Блиц «статусы по докладам» отрабатывает только статусы: приём
+/// карточки в нём не оценивается, сколько бы она ни ждала открытия
+/// (UX-проход 2, проблема D).
+#[tokio::test]
+async fn в_блице_по_статусам_нормативы_приёма_не_снимают_баллов() {
+    let Some((app, pool, _)) = app().await else { return };
+    let с = стенд(&pool).await;
+    let курсант = токен(&app, &с.login).await;
+
+    let учитель: Uuid = sqlx::query_scalar("SELECT id FROM users WHERE login = 'teacher1'")
+        .fetch_one(&pool).await.unwrap();
+    let занятие: Uuid = sqlx::query_scalar(
+        "WITH г AS (INSERT INTO training_groups (title, teacher_id) VALUES ($1, $2) RETURNING id)
+         INSERT INTO lessons (group_id, teacher_id, title, mode, kind, segment, started_at)
+         SELECT id, $2, 'Статусы', 'dds', 'blitz', 'statuses', now() FROM г RETURNING id")
+        .bind(format!("блиц-{}", Uuid::new_v4().simple()))
+        .bind(учитель)
+        .fetch_one(&pool).await.unwrap();
+    // Выпущена десять минут назад, не открыта
+    sqlx::query("INSERT INTO lesson_cards (lesson_id, card_id, release_at)
+                 VALUES ($1, $2, now() - interval '10 minutes')")
+        .bind(занятие).bind(с.card).execute(&pool).await.unwrap();
+
+    let вид = бригада(&app, &с, &курсант).await;
+    assert!(виды(&вид).is_empty(), "приём в блице по статусам не оценивается: {вид}");
+    assert_eq!(вид["debrief"]["pending"], 0, "{вид}");
+
+    // Принял без текста — замечаний за приём тоже нет
+    принять(&app, &с, &курсант).await;
+    call(&app, Method::POST, &format!("/api/cards/{}/responses", с.card),
+        Some(&курсант), Some(json!({ "serviceId": с.service, "status": "Прибытие на место" }))).await;
+    let вид = бригада(&app, &с, &курсант).await;
+    for вид_замечания in виды(&вид) {
+        assert!(!["openedLate", "firstRecordLate", "firstRecordNoText"]
+                    .contains(&вид_замечания.as_str()), "{вид}");
+    }
+
+    sqlx::query("DELETE FROM training_groups WHERE id = (SELECT group_id FROM lessons WHERE id = $1)")
+        .bind(занятие).execute(&pool).await.ok();
+    прибрать(&pool, &с).await;
+}
+
+/// Служба закончила работу — звонить старшему незачем: сервер отвечает
+/// 409 (UX-проход 2, проблема C).
+#[tokio::test]
+async fn после_конца_работ_звонок_старшему_отклоняется() {
+    let Some((app, pool, _)) = app().await else { return };
+    let с = стенд(&pool).await;
+    let курсант = токен(&app, &с.login).await;
+    принять(&app, &с, &курсант).await;
+    назначить(&app, &с, &курсант).await;
+    let звонок = format!("/api/cards/{}/brigade/call", с.card);
+
+    let (status, ответ) = call(&app, Method::POST, &звонок, Some(&курсант),
+        Some(json!({ "serviceId": с.service }))).await;
+    assert_eq!(status, StatusCode::OK, "{ответ}");
+
+    for статус in ["Отказ от выполнения работ"] {
+        sqlx::query(
+            "INSERT INTO response_entries (card_id, service_id, status, operator)
+             VALUES ($1, $2, $3::response_status, 'оп. 0')")
+            .bind(с.card).bind(&с.service).bind(статус).execute(&pool).await.unwrap();
+    }
+    let (status, ответ) = call(&app, Method::POST, &звонок, Some(&курсант),
+        Some(json!({ "serviceId": с.service }))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{ответ}");
+
+    прибрать(&pool, &с).await;
+}
+
 /// Экзамен ДДС: разбор прячется до конца не только в просмотре
 /// бригады, но и в ответах на назначение и звонок старшему — их
 /// интерфейс показывает сразу, и замечания мелькали посреди экзамена.

@@ -190,6 +190,7 @@ pub async fn view(
         (status = 200, description = "Звонок начат: начальник слушает", body = ChiefView),
         (status = 401, description = "Требуется вход"),
         (status = 403, description = "Звонит только диспетчер своей службы"),
+        (status = 409, description = "Служба уже закончила работу по карточке"),
     ),
 )]
 pub async fn start(
@@ -205,6 +206,12 @@ pub async fn start(
     let service_id = dispatcher_service(&state.db, id, &user, req.service_id.as_deref()).await?;
 
     let fresh = open_report(&state.db, id, &service_id, user.id).await?.is_none();
+    // Начатый разговор договорить можно, новый после конца работ — нет
+    if fresh && crate::api::brigade::service_closed(&state.db, id, &service_id).await? {
+        return Err(AppError::Conflict(
+            "служба закончила работу по карточке — новый звонок начальнику не нужен".into(),
+        ));
+    }
     chief::open(&state.db, id, &service_id, user.id).await.map_err(AppError::Other)?;
     if fresh {
         audit::log(

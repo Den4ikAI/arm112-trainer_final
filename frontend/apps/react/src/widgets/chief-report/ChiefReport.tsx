@@ -16,7 +16,9 @@ const POLL_MS = 5_000;
  * можно голосом или набирать текстом: без сервера голоса звонок идёт
  * текстом целиком.
  */
-export const ChiefReport = ({ cardId }: { cardId: string }) => {
+/** `closed` — служба закончила работу («Работы завершены» или «Отказ»):
+ *  начатый разговор договорить можно, новый звонок сервер отклоняет. */
+export const ChiefReport = ({ cardId, closed = false }: { cardId: string; closed?: boolean }) => {
   const [report, setReport] = useState<Report | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState('');
@@ -110,7 +112,8 @@ export const ChiefReport = ({ cardId }: { cardId: string }) => {
 
       {!open && (
         <div className={s.row}>
-          <button className={s.btn} disabled={busy} data-testid="chief-start"
+          <button className={s.btn} disabled={busy || closed} data-testid="chief-start"
+                  title={closed ? 'Служба закончила работу по карточке' : undefined}
                   onClick={() => void run(() => chief.start(cardId))}>
             {report ? 'Позвонить ещё раз' : 'Позвонить начальнику'}
           </button>

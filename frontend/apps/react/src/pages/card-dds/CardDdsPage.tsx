@@ -47,6 +47,10 @@ export const CardDdsPage = () => {
   // повтор и открытие преподавателем
   const own = user?.serviceId ?? '';
   const addressed = !!card?.services.some((sv) => sv.serviceId === own);
+  // Своя служба закончила работу — карточка только для просмотра:
+  // звонки старшему и новый звонок начальнику закрыты (сервер — 409)
+  const closed = !!card?.services.find((sv) => sv.serviceId === own)?.entries
+    .some((e) => e.status === 'Работы завершены' || e.status === 'Отказ от выполнения работ');
   useEffect(() => {
     if (user?.role !== 'student' || !addressed) return;
     void cards.opened(id).then(reload).catch(() => {});
@@ -124,12 +128,12 @@ export const CardDdsPage = () => {
           {/* Бригада и доклады — только своей службы: чужую бригаду
               диспетчер не направляет и докладов её не слышит */}
           {own && card.services.some((sv) => sv.serviceId === own) && (
-            <BrigadePanel cardId={card.id} serviceId={own} stamp={card} />
+            <BrigadePanel cardId={card.id} serviceId={own} stamp={card} closed={closed} />
           )}
 
           {/* Доклад начальнику ведёт диспетчер своей службы; преподаватель
               видит его в разборе попытки ниже */}
-          {user?.role === 'student' && addressed && <ChiefReport cardId={card.id} />}
+          {user?.role === 'student' && addressed && <ChiefReport cardId={card.id} closed={closed} />}
 
           {/* Оператор 112 открывает здесь свою сохранённую карточку: смотреть
               и читать разбор. Работа ДДС по ней — у диспетчеров служб */}

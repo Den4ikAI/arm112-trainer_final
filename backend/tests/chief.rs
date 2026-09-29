@@ -183,6 +183,37 @@ async fn доклад_начальнику_до_принял() {
 /// Начальник спрашивает о каждом недоложенном сведении — по одному
 /// разу — и только потом говорит «Принял». Молчание диспетчера не
 /// превращает звонок в допрос: тем не больше, чем сведений в докладе.
+
+/// Служба закончила работу — новый звонок начальнику не начать (409),
+/// а начатый до этого разговор договорить можно (UX-проход 2, проблема C).
+#[tokio::test]
+async fn после_конца_работ_новый_звонок_начальнику_отклоняется() {
+    let Some((app, pool)) = app().await else { return };
+    let с = стенд(&pool, 0).await;
+    let т = токен(&app, &с.login).await;
+    let старт = format!("/api/cards/{}/chief/start", с.card);
+
+    let (status, вид) = call(&app, Method::POST, &старт, Some(&т), Some(json!({}))).await;
+    assert_eq!(status, StatusCode::OK, "{вид}");
+    for статус in ["Принята", "Работы завершены"] {
+        sqlx::query(
+            "INSERT INTO response_entries (card_id, service_id, status, operator)
+             VALUES ($1, $2, $3::response_status, 'оп. 0')")
+            .bind(с.card).bind(&с.service).bind(статус).execute(&pool).await.unwrap();
+    }
+    // Начатый разговор идёт дальше
+    сказать(&app, &с, &т, "Докладываю: у нас пожар, горит частный дом.").await;
+    let (status, _) = call(&app, Method::POST, &format!("/api/cards/{}/chief/finish", с.card),
+        Some(&т), Some(json!({}))).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Новый — нет
+    let (status, ответ) = call(&app, Method::POST, &старт, Some(&т), Some(json!({}))).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{ответ}");
+
+    прибрать(&pool, &с).await;
+}
+
 #[tokio::test]
 async fn начальник_спрашивает_обо_всём_недоложенном() {
     let Some((app, pool)) = app().await else { return };

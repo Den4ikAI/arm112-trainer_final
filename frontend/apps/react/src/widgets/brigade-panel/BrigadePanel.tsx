@@ -13,6 +13,9 @@ interface Props {
   serviceId: string;
   /** Меняется при каждом перечитывании карточки: новый статус меняет разбор. */
   stamp: unknown;
+  /** Служба закончила работу («Работы завершены» или «Отказ»): звонить
+   *  старшему незачем, сервер такой звонок отклоняет. */
+  closed?: boolean;
 }
 
 const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ru-RU',
@@ -48,7 +51,7 @@ const errorText = (e: unknown) =>
  * старшего и его доклады озвучиваются. Нет голоса или микрофона — всё
  * то же текстом: голос дополняет занятие, а не держит его.
  */
-export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
+export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props) => {
   const [brigade, setBrigade] = useState<Brigade | null>(null);
   const [choice, setChoice] = useState(1);
   const [answer, setAnswer] = useState('');
@@ -205,13 +208,15 @@ export const BrigadePanel = ({ cardId, serviceId, stamp }: Props) => {
 
       {assignment && (
         <div className={s.row}>
-          <button className={s.btn} data-testid="brigade-call" disabled={busy || !!recording}
+          <button className={s.btn} data-testid="brigade-call"
+                  disabled={busy || !!recording || closed}
+                  title={closed ? 'Служба закончила работу по карточке' : undefined}
                   onClick={() => void call()}>
             Позвонить старшему
           </button>
           {voiceTalk && (
             <button className={clsx(s.btn, recording && s.live)} data-testid="brigade-talk"
-                    disabled={busy} aria-pressed={!!recording}
+                    disabled={busy || (closed && !recording)} aria-pressed={!!recording}
                     title="Сказать старшему голосом: нажмите, говорите, нажмите ещё раз"
                     onClick={() => void talk()}>
               {recording ? '■ Закончить' : '🎤 Сказать голосом'}

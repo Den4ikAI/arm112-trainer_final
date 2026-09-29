@@ -176,6 +176,22 @@ async fn chain(pool: &PgPool, card_id: Uuid, service_id: &str) -> AppResult<Vec<
     Ok(rows.into_iter().map(|(status, at)| brigade::Status { status, at }).collect())
 }
 
+/// Закончила ли служба работу по карточке: «Работы завершены» или
+/// «Отказ от выполнения работ». После этого карточка у диспетчера —
+/// только просмотр: звонок старшему и новый звонок начальнику
+/// отклоняются (UX-проход 2, проблема C).
+pub async fn service_closed(pool: &PgPool, card_id: Uuid, service_id: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM response_entries
+                         WHERE card_id = $1 AND service_id = $2
+                           AND status::text IN ('Работы завершены', 'Отказ от выполнения работ'))",
+    )
+    .bind(card_id)
+    .bind(service_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Приём карточки службой: когда поступила, когда открыта, первая запись.
 ///
 /// Поступление — момент, когда карточка встала строкой в список ДДС.
@@ -186,24 +202,31 @@ async fn chain(pool: &PgPool, card_id: Uuid, service_id: &str) -> AppResult<Vec<
 ///
 /// Если карточка побывала в нескольких занятиях, берём последний
 /// наступивший выпуск.
+///
+/// Блиц «статусы по докладам» отрабатывает только статусы: приём в нём
+/// не оценивается. Иначе карточка блица, открытая через десять минут
+/// после запуска, теряла баллы за «открыта позже 30 с» и «первая запись
+/// позже 3 мин» (UX-проход 2, проблема D).
 async fn intake(
     pool: &PgPool,
     card_id: Uuid,
     service_id: &str,
     statuses: &[brigade::Status],
 ) -> AppResult<Option<brigade::Intake>> {
-    let arrived_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+    let row: Option<(Option<DateTime<Utc>>, bool)> = sqlx::query_as(
         "SELECT COALESCE(
                   (SELECT max(lc.release_at) FROM lesson_cards lc
                     WHERE lc.card_id = c.id AND lc.release_at <= now()),
-                  c.saved_at)
+                  c.saved_at),
+                EXISTS (SELECT 1 FROM lesson_cards lc JOIN lessons l ON l.id = lc.lesson_id
+                         WHERE lc.card_id = c.id AND l.segment = $2)
            FROM cards c WHERE c.id = $1",
     )
     .bind(card_id)
+    .bind(crate::domain::drill::SEGMENT_DDS)
     .fetch_optional(pool)
-    .await?
-    .flatten();
-    let Some(arrived_at) = arrived_at else {
+    .await?;
+    let Some((Some(arrived_at), false)) = row else {
         return Ok(None);
     };
 
@@ -542,6 +565,7 @@ pub async fn assign(
         (status = 400, description = "Бригада не назначена"),
         (status = 401, description = "Требуется вход"),
         (status = 403, description = "Недостаточно прав"),
+        (status = 409, description = "Служба уже закончила работу по карточке"),
     ),
 )]
 pub async fn call(
@@ -567,6 +591,11 @@ pub async fn call(
     let Some((assignment_id, brigade_no)) = assignment else {
         return Err(AppError::Validation("звонить некому: бригада не назначена".into()));
     };
+    if service_closed(&state.db, id, &service_id).await? {
+        return Err(AppError::Conflict(
+            "служба закончила работу по карточке — звонить старшему незачем".into(),
+        ));
+    }
 
     // Второй вариант из ответа заказчика: «диспетчер сам через
     // определённое время набирает по телефону старшего и уточняет ход
