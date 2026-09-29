@@ -64,7 +64,7 @@ interface TrainingState {
 }
 
 interface Actions {
-  start(scenarioId: string): Promise<void>;
+  start(scenarioId: string, assignmentId?: string): Promise<void>;
   /**
    * Продолжить вызов после обновления страницы, повторного входа или
    * в новой вкладке. `number` — номер карточки из адреса страницы:
@@ -195,8 +195,8 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     // Новая попытка — всегда новая карточка. Продолжение незаконченного
     // вызова — отдельное действие: журнал предлагает его сам, и F5 на
     // карточке его восстанавливает (`resume`)
-    start: async (scenarioId) => {
-      const r = await sessions.create(scenarioId);
+    start: async (scenarioId, assignmentId) => {
+      const r = await sessions.create(scenarioId, 'card112', assignmentId);
       pending = {};
       if (timer) clearTimeout(timer);
       remember(r.session.id);

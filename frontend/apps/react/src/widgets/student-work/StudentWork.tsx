@@ -78,7 +78,10 @@ export const StudentWork = () => {
         return;
       }
       if (it.status === 'not_started' && it.scenarioId) {
-        await start(it.scenarioId);
+        // Задание называется явно: тот же вызов может быть выдан и в
+        // идущем экзамене, и в блице, и без него сервер взял бы
+        // занятие, начатое последним
+        await start(it.scenarioId, it.id);
         const number = useTraining.getState().card?.number;
         if (number) nav(`/card/${number}`);
       }

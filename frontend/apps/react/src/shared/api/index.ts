@@ -384,9 +384,11 @@ export const chief = {
 };
 
 export const sessions = {
-  create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112') =>
+  /** `assignmentId` — какое именно задание начато: один и тот же вызов
+   *  бывает выдан сразу в экзамене и в блице. */
+  create: (scenarioId: string, mode: 'card112' | 'dds' = 'card112', assignmentId?: string) =>
     api.post<{ session: TrainingSession; card: Card; scenario: ScenarioPublic }>(
-      '/api/sessions', { scenarioId, mode }),
+      '/api/sessions', { scenarioId, mode, assignmentId }),
   ask: (id: string, factId: string) =>
     api.post<{ answer: string; atSec: number; unlocks: string[] }>(
       `/api/sessions/${id}/ask`, { factId }),

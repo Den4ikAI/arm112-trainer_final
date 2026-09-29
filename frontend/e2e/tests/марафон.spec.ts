@@ -168,6 +168,48 @@ test.describe('Блиц', () => {
   });
 });
 
+test.describe('Экзамен и блиц одновременно', () => {
+  // UX-проход 1: вызов, выданный и в экзамене, и в блице, из раздела
+  // «Экзамены» начинался как задание блица — занятия, запущенного позже
+  test('«Начать» в экзамене идёт в зачёт экзамена, а не блица с тем же вызовом',
+    async ({ page }, info) => {
+      const с = стенд(5);
+      try {
+        const teacher = await токен(page, 'teacher1');
+        const занятие = async (data: Record<string, unknown>) => {
+          const r = await page.request.post('/api/lessons', {
+            headers: { authorization: `Bearer ${teacher}` },
+            data: { groupId: с.groupId, mode: 'card112', ...data },
+          });
+          expect(r.status()).toBe(201);
+          const { id } = await r.json();
+          const пуск = await page.request.post(`/api/lessons/${id}/start`,
+            { headers: { authorization: `Bearer ${teacher}` } });
+          expect(пуск.status()).toBe(200);
+        };
+        await занятие({ title: 'Экзамен', kind: 'marathon', scenarioIds: с.вызовы });
+        // Блиц запущен позже и начинается тем же вызовом, что и экзамен
+        await занятие({ title: 'Блиц адреса', kind: 'blitz', segment: 'address',
+                        scenarioIds: [с.вызовы[0], с.вызовы[1], с.вызовы[2]] });
+
+        await login(page, info, с.login);
+        await пройти_вызов(page);
+        // Экзамен: разбора до последнего вызова нет, блицевого — тем более
+        await expect(page.getByRole('heading', { name: 'Разбор блица' })).toHaveCount(0);
+        await expect(page).not.toHaveURL(/debrief/);
+
+        await page.getByTestId('section-blitz').click();
+        const блиц = page.locator('[data-testid^="work-row-"]');
+        await expect(блиц).toHaveCount(3);
+        for (let i = 0; i < 3; i++) {
+          await expect(блиц.nth(i).getByTestId('work-status')).toHaveText('не начато');
+        }
+      } finally {
+        прибрать(с);
+      }
+    });
+});
+
 test.describe('Удаление учётной записи', () => {
   test('администратор удаляет запись с подтверждением', async ({ page }, info) => {
     const admin = await токен(page, 'admin');
