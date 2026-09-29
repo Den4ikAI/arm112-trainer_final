@@ -29,14 +29,24 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
     [types],
   );
 
+  // Уже выбранные типы в списке не предлагаем: список только добавляет,
+  // а снимают тип крестиком на его плашке. Иначе повторный выбор того же
+  // пункта молча убирал тип вместе с заполненной опросной картой
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase().replace(/[-,]/g, ' ');
     const words = q.split(/\s+/).filter(Boolean);
     return types.filter((t) => {
+      if (selected.includes(t.id)) return false;
       const title = t.title.toLowerCase().replace(/[-,]/g, ' ');
       return words.every((w) => title.includes(w));
     });
-  }, [query, types]);
+  }, [query, types, selected]);
+
+  const pick = (id: string) => {
+    if (!selected.includes(id)) onToggle(id);
+    setQuery('');
+    setOpen(false);
+  };
 
   const hasSelection = selected.length > 0;
 
@@ -55,10 +65,17 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
         placeholder={hasSelection ? 'добавить тип происшествия' : ''}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        // После выбора типа фокус остаётся в поле, и повторный клик по
+        // нему фокуса уже не даёт — без этого второй тип было не добавить
+        onClick={() => setOpen(true)}
         // Задержка: клик по пункту списка должен успеть сработать раньше,
         // чем список закроется из-за потери фокуса
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setOpen(false);
+          // Enter берёт первый подходящий тип — так быстрее с клавиатуры
+          if (e.key === 'Enter' && matches.length > 0) { e.preventDefault(); pick(matches[0].id); }
+        }}
         autoComplete="off"
       />
 
@@ -69,8 +86,11 @@ export const IncidentPanel = ({ selected, onToggle }: Props) => {
               <button
                 className={s.option}
                 role="option"
-                aria-selected={selected.includes(t.id)}
-                onClick={() => { onToggle(t.id); setQuery(''); setOpen(false); }}
+                aria-selected={false}
+                // Фокус остаётся в поле: иначе поле теряло его на нажатии,
+                // список закрывался по таймеру, и долгий клик не доходил
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pick(t.id)}
               >
                 {t.title}
               </button>

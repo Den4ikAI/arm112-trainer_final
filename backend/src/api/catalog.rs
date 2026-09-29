@@ -186,7 +186,7 @@ async fn survey_card(
     type Row = (String, String, String, bool, Option<String>, Option<serde_json::Value>);
     let questions: Vec<Row> = sqlx::query_as(
         "SELECT id, label, kind::text, derived, depends_on, show_when FROM survey_questions
-          WHERE type_id = $1 ORDER BY sort_order",
+          WHERE type_id = $1 ORDER BY sort_order, derived, id",
     )
     .bind(&type_id)
     .fetch_all(&state.db)
@@ -199,7 +199,9 @@ async fn survey_card(
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
 
-    let derived = questions.iter().any(|q| q.3);
+    // Карта со скриншота, дополненная уровнями из классификатора, остаётся
+    // картой со скриншота: выведенная — только целиком выведенная
+    let derived = questions.iter().all(|q| q.3);
     let mut out = Vec::with_capacity(questions.len());
     for (id, label, kind, _, depends_on, show_when) in questions {
         let rows: Vec<(String, Option<Vec<String>>)> = sqlx::query_as(

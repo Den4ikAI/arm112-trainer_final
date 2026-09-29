@@ -272,6 +272,191 @@ pub async fn materialise(pool: &PgPool, version_id: Uuid) -> Result<usize> {
         built += 1;
     }
 
+    supplement_screenshot_cards(&mut tx, pool, version_id, &mut trees).await?;
+
     tx.commit().await?;
     Ok(built)
+}
+
+/// Сравнение признаков без учёта регистра и пробелов по краям:
+/// «Аэропорт» и «аэропорт» — один признак.
+fn norm(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+/// Дополнить карты, снятые со скриншотов, уровнями, которых на кадрах
+/// не было.
+///
+/// Кадр показывает одну открытую ветку: у 104 — только «Признаки
+/// происшествия», у «Взрыва» — только «Где взрыв», у 101 для «Здание /
+/// объект» — вопросы про жилой дом. Второй и третий признаки классификатора
+/// под этими вариантами оператор выбрать не мог, и позицию было не
+/// определить. Дополняем из классификатора: вопрос «Признак 2 (вариант)»
+/// появляется, когда выбран вариант первого уровня, «Признак 3» зависит
+/// от второго. Формулировки со скриншотов не трогаем; дописанные вопросы
+/// помечены как выведенные и пересобираются вместе с остальными.
+///
+/// Дописываем только непокрытое: если второй признак уже есть в карте
+/// (у 101 «квартира», «балкон» во внутридомовых объектах), второй раз
+/// его не предлагаем. Вариант, который сам задаёт второй признак
+/// («Опасный объект» → «опасный»), не дополняем.
+async fn supplement_screenshot_cards(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    pool: &PgPool,
+    version_id: Uuid,
+    trees: &mut BTreeMap<i32, Option<DerivedCard>>,
+) -> Result<usize> {
+    use std::collections::BTreeSet;
+
+    let types: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT t.id, t.group_no FROM incident_types t
+          WHERE t.group_no IS NOT NULL
+            AND EXISTS (SELECT 1 FROM survey_questions q
+                         WHERE q.type_id = t.id AND NOT q.derived)
+          ORDER BY t.id",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut added = 0usize;
+    for (type_id, group_no) in types {
+        if let std::collections::btree_map::Entry::Vacant(slot) = trees.entry(group_no) {
+            slot.insert(derive(pool, version_id, group_no).await?);
+        }
+        let Some(card) = trees.get(&group_no).and_then(Option::as_ref) else {
+            continue;
+        };
+
+        let mappings: Vec<(String, String, i16, String, i32)> = sqlx::query_as(
+            "SELECT m.question_id, m.option_value, m.sign_level, m.sign_text, q.sort_order
+               FROM sign_mapping m
+               JOIN survey_questions q ON q.type_id = m.type_id AND q.id = m.question_id
+              WHERE m.type_id = $1 AND NOT q.derived
+              ORDER BY q.sort_order, m.question_id, m.option_value",
+        )
+        .bind(&type_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let covered = |level: i16| -> BTreeSet<String> {
+            mappings.iter().filter(|m| m.2 == level).map(|m| norm(&m.3)).collect()
+        };
+        let covered2 = covered(2);
+        let covered3 = covered(3);
+        // Варианты, которые сами задают второй признак
+        let fixed2: BTreeSet<(String, String)> = mappings
+            .iter()
+            .filter(|m| m.2 == 2)
+            .map(|m| (m.0.clone(), m.1.clone()))
+            .collect();
+
+        let mut n = 0usize;
+        for (qid, option, _, sign, sort) in mappings.iter().filter(|m| m.2 == 1) {
+            if fixed2.contains(&(qid.clone(), option.clone())) {
+                continue;
+            }
+            let Some(branch) = card
+                .branches
+                .iter()
+                .find(|(s1, _)| norm(s1) == norm(sign))
+                .map(|(_, b)| b)
+            else {
+                continue;
+            };
+            let missing: Vec<&String> = branch
+                .objects
+                .keys()
+                .filter(|s2| !s2.is_empty() && !covered2.contains(&norm(s2)))
+                .collect();
+            if missing.is_empty() {
+                continue;
+            }
+
+            n += 1;
+            let p2 = format!("{type_id}-x{n}-p2");
+            let show_when = serde_json::json!([{ "question": qid, "values": [option] }]);
+            sqlx::query(
+                "INSERT INTO survey_questions
+                     (type_id, id, label, kind, sort_order, derived, depends_on, show_when)
+                 VALUES ($1, $2, $3, 'single', $4, true, NULL, $5)",
+            )
+            .bind(&type_id)
+            .bind(&p2)
+            .bind(format!("Признак 2 ({option})"))
+            .bind(sort)
+            .bind(&show_when)
+            .execute(&mut **tx)
+            .await?;
+
+            let mut level3: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for (order, s2) in missing.iter().enumerate() {
+                insert_option(tx, &type_id, &p2, s2, order, None, 2).await?;
+                for s3 in &branch.objects[*s2] {
+                    if covered3.contains(&norm(s3)) {
+                        continue;
+                    }
+                    let parents = level3.entry(s3.clone()).or_default();
+                    if !parents.contains(s2) {
+                        parents.push((*s2).clone());
+                    }
+                }
+            }
+
+            if !level3.is_empty() {
+                let p3 = format!("{type_id}-x{n}-p3");
+                sqlx::query(
+                    "INSERT INTO survey_questions
+                         (type_id, id, label, kind, sort_order, derived, depends_on)
+                     VALUES ($1, $2, $3, 'single', $4, true, $5)",
+                )
+                .bind(&type_id)
+                .bind(&p3)
+                .bind(format!("Признак 3 ({option})"))
+                .bind(sort)
+                .bind(&p2)
+                .execute(&mut **tx)
+                .await?;
+                for (order, (s3, parents)) in level3.iter().enumerate() {
+                    insert_option(tx, &type_id, &p3, s3, order, Some(parents), 3).await?;
+                }
+            }
+            added += 1;
+        }
+    }
+    Ok(added)
+}
+
+/// Вариант выведенного вопроса и его сопоставление с признаком
+/// классификатора: вариант и есть признак, дословно.
+async fn insert_option(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    type_id: &str,
+    question_id: &str,
+    value: &str,
+    order: usize,
+    parents: Option<&Vec<String>>,
+    level: i16,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO survey_options (type_id, question_id, value, sort_order, parents)
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(type_id)
+    .bind(question_id)
+    .bind(value)
+    .bind(order as i32 + 1)
+    .bind(parents)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO sign_mapping (type_id, question_id, option_value, sign_level, sign_text)
+         VALUES ($1, $2, $3, $4, $3)",
+    )
+    .bind(type_id)
+    .bind(question_id)
+    .bind(value)
+    .bind(level)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }

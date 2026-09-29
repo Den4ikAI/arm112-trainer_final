@@ -55,8 +55,11 @@ async fn формулировки_карты_101_дословны() {
 async fn карта_104_соответствует_версии_2026() {
     let Some(pool) = pool().await else { return };
 
+    // Только снятое с кадра: вторые и третьи признаки, дописанные из
+    // классификатора (ingest/survey.rs), помечены как выведенные
     let questions: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM survey_questions WHERE type_id = '104' ORDER BY sort_order",
+        "SELECT id FROM survey_questions WHERE type_id = '104' AND NOT derived
+          ORDER BY sort_order",
     )
     .fetch_all(&pool)
     .await

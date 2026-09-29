@@ -12,6 +12,7 @@
  * угадал» можно было бы посмотреть в DevTools.
  */
 import { create } from 'zustand';
+import { useCatalog } from '@/entities/catalog/model';
 import {
   sessions, ApiError,
   type Card, type ClassifyResult, type Grade, type ScenarioPublic, type SessionState,
@@ -238,11 +239,31 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
     toggleType: (typeId) => {
       const card = get().card;
       if (!card) return;
-      const typeIds = card.typeIds.includes(typeId)
+      const removing = card.typeIds.includes(typeId);
+      const typeIds = removing
         ? card.typeIds.filter((t) => t !== typeId)
         : [...card.typeIds, typeId];
-      set({ card: { ...card, typeIds } });
-      queue({ typeIds });
+
+      // Убрали тип — снимаем и ответы его опросной карты: иначе они
+      // продолжали бы подбирать службы уже несуществующего типа. Вопрос,
+      // который есть и у оставшегося типа («Угроза людям» у 101 и 104),
+      // не трогаем
+      let answers = card.answers;
+      const cleared: Record<string, string[] | string> = {};
+      if (removing) {
+        const cards = useCatalog.getState().cards;
+        const ids = (t: string) => new Set(cards[t]?.questions.map((q) => q.id) ?? []);
+        const stay = new Set(typeIds.flatMap((t) => [...ids(t)]));
+        for (const qid of ids(typeId)) {
+          const v = card.answers[qid];
+          const has = Array.isArray(v) ? v.length > 0 : Boolean(v);
+          if (has && !stay.has(qid)) cleared[qid] = Array.isArray(v) ? [] : '';
+        }
+        answers = { ...card.answers, ...cleared };
+      }
+
+      set({ card: { ...card, typeIds, answers } });
+      queue(Object.keys(cleared).length > 0 ? { typeIds, answers: cleared } : { typeIds });
     },
 
     setAnswer: (questionId, value) => {
