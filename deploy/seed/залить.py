@@ -19,6 +19,8 @@
   например: python3 залить.py http://127.0.0.1:8080 arm112
 """
 import json
+import os
+import ssl
 import subprocess
 import sys
 import urllib.error
@@ -62,7 +64,10 @@ DELETE FROM users WHERE login <> 'admin';
 
 
 def sql(текст):
-    r = subprocess.run(["docker", "exec", "-i", "arm112-db", "psql", "-U", "arm112", "-d", ИМЯ_БАЗЫ,
+    # Контейнер базы: у локальной разработки — arm112-db, у deploy/ — compose
+    # называет его deploy-db-1 (ARM112_DB_CONTAINER=deploy-db-1)
+    контейнер = os.environ.get("ARM112_DB_CONTAINER", "arm112-db")
+    r = subprocess.run(["docker", "exec", "-i", контейнер, "psql", "-U", "arm112", "-d", ИМЯ_БАЗЫ,
                         "-v", "ON_ERROR_STOP=1", "-Atq"], input=текст, capture_output=True, text=True)
     if r.returncode != 0:
         raise SystemExit(f"SQL: {r.stderr}")
@@ -79,7 +84,10 @@ def api(метод, путь, тело=None, токен=None):
                                  headers={"Content-Type": "application/json",
                                           **({"Authorization": f"Bearer {токен}"} if токен else {})})
     try:
-        with urllib.request.urlopen(req, timeout=300) as r:
+        # На стенде deploy/ сервер доступен только через nginx по HTTPS
+        # с самоподписанным сертификатом
+        ctx = ssl._create_unverified_context() if БАЗА.startswith("https") else None
+        with urllib.request.urlopen(req, timeout=300, context=ctx) as r:
             сырое = r.read()
             return json.loads(сырое) if сырое else None
     except urllib.error.HTTPError as e:
