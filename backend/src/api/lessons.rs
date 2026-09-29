@@ -706,6 +706,20 @@ async fn раздать_карточки(
 /// секунд от начала занятия он приходит.
 async fn выдать_копии(pool: &sqlx::PgPool, lesson_id: Uuid, выдача: &[(Uuid, f64)]) -> AppResult<i64> {
     let mut tx = pool.begin().await?;
+    // Два запуска разом (двойной щелчок) не должны выдать копии дважды:
+    // раньше повтор гасил ON CONFLICT по (занятие, карточка), у копий
+    // карточки каждый раз новые
+    sqlx::query("SELECT 1 FROM lessons WHERE id = $1 FOR UPDATE")
+        .bind(lesson_id)
+        .execute(&mut *tx)
+        .await?;
+    let уже: i64 = sqlx::query_scalar("SELECT count(*) FROM lesson_cards WHERE lesson_id = $1")
+        .bind(lesson_id)
+        .fetch_one(&mut *tx)
+        .await?;
+    if уже > 0 {
+        return Ok(уже);
+    }
     for (исходник, через) in выдача {
         let копия: Uuid = sqlx::query_scalar(
             "INSERT INTO cards (created_by, workstation, phone_aon, phone_provided, phone_on_site,

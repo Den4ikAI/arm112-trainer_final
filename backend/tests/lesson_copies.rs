@@ -331,3 +331,32 @@ async fn исходник_с_копиями_не_удаляется_копии_�
     sqlx::query("DELETE FROM cards WHERE id = $1").bind(копия).execute(&pool).await.ok();
     прибрать(&app, &pool, &учитель, &с, &[занятие]).await;
 }
+
+/// Два запуска занятия разом (двойной щелчок) выдают копию один раз:
+/// раньше повтор гасил ON CONFLICT, а у копий карточки каждый раз новые.
+#[tokio::test]
+async fn двойной_запуск_не_выдаёт_копию_дважды() {
+    let Some((app, pool)) = app().await else { return };
+    let учитель = токен(&app, "teacher1").await;
+    let mut с = стенд(&pool).await;
+    let (группа_а, _) = группа(&pool, &mut с).await;
+
+    let (status, занятие) = call(&app, Method::POST, "/api/lessons", Some(&учитель),
+        Some(json!({ "groupId": группа_а, "title": "Статусы", "mode": "dds",
+                     "cardIds": [с.исходник] }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{занятие}");
+    let id = занятие["id"].as_str().unwrap().to_string();
+    let путь = format!("/api/lessons/{id}/start");
+    let _ = tokio::join!(
+        call(&app, Method::POST, &путь, Some(&учитель), None),
+        call(&app, Method::POST, &путь, Some(&учитель), None),
+    );
+
+    let (копий, в_занятии): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM cards WHERE source_card_id = $1),
+                (SELECT count(*) FROM lesson_cards WHERE lesson_id = $2::uuid)")
+        .bind(с.исходник).bind(&id).fetch_one(&pool).await.unwrap();
+    assert_eq!((копий, в_занятии), (1, 1));
+
+    прибрать(&app, &pool, &учитель, &с, &[id]).await;
+}
