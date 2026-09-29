@@ -180,22 +180,28 @@ async fn доклад_начальнику_до_принял() {
     прибрать(&pool, &с).await;
 }
 
-/// Начальник не ведёт допрос: три вопроса — и «Принял», даже если
-/// доложено не всё. Недоложенное остаётся в разборе.
+/// Начальник спрашивает о каждом недоложенном сведении — по одному
+/// разу — и только потом говорит «Принял». Молчание диспетчера не
+/// превращает звонок в допрос: тем не больше, чем сведений в докладе.
 #[tokio::test]
-async fn начальник_задаёт_не_больше_трёх_вопросов() {
+async fn начальник_спрашивает_обо_всём_недоложенном() {
     let Some((app, pool)) = app().await else { return };
     let с = стенд(&pool, 0).await;
     let т = токен(&app, &с.login).await;
     call(&app, Method::POST, &format!("/api/cards/{}/chief/start", с.card), Some(&т), Some(json!({}))).await;
 
     let mut вид = Value::Null;
-    for _ in 0..4 {
+    for _ in 0..(chief::MAX_QUESTIONS + 2) {
         вид = сказать(&app, &с, &т, "Алло, это диспетчер.").await;
+        if последняя(&вид)["text"] == chief::ACCEPTED { break; }
     }
-    let вопросов = вид["lines"].as_array().unwrap().iter()
-        .filter(|l| l["who"] == "chief" && l["topic"].is_string()).count();
-    assert_eq!(вопросов, chief::MAX_QUESTIONS);
+    let темы: Vec<String> = вид["lines"].as_array().unwrap().iter()
+        .filter(|l| l["who"] == "chief")
+        .filter_map(|l| l["topic"].as_str().map(String::from)).collect();
+    let сведений = вид["review"]["total"].as_u64().unwrap() as usize;
+    assert_eq!(темы.len(), сведений, "начальник спросил не обо всём: {темы:?}");
+    let mut разные = темы.clone(); разные.sort(); разные.dedup();
+    assert_eq!(разные.len(), темы.len(), "одну тему спросил дважды: {темы:?}");
     assert_eq!(последняя(&вид)["text"], chief::ACCEPTED);
     assert_eq!(вид["review"]["reported"], 0);
     assert_eq!(сведение(&вид, "what")["status"], "missing");

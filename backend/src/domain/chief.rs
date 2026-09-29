@@ -34,10 +34,11 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-/// Сколько уточняющих вопросов задаёт начальник. Дальше — «Принял»:
-/// начальник на телефоне не ведёт допрос, а разбор и так покажет,
-/// чего в докладе не было.
-pub const MAX_QUESTIONS: usize = 3;
+/// Сколько уточняющих вопросов задаёт начальник — по одному на каждое
+/// сведение доклада. Раньше было три, и начальник говорил «Принял»,
+/// когда диспетчер не доложил половину (замечание Дениса 29.09): что
+/// недоложено, начальник спрашивает, каждую тему — один раз.
+pub const MAX_QUESTIONS: usize = PRIORITY.len();
 
 pub const GREETING: &str = "Слушаю вас. Докладывайте.";
 pub const ACCEPTED: &str = "Принял.";
@@ -352,6 +353,13 @@ impl ChiefReview {
     pub fn missing(&self) -> Vec<&str> {
         self.items.iter().filter(|i| i.status == "missing").map(|i| i.key.as_str()).collect()
     }
+
+    /// Что спросить: недоложенное и доложенное неверно — начальник
+    /// переспросит «Пострадавшие есть?», если сказано не то, что в карточке
+    pub fn to_ask(&self) -> Vec<&str> {
+        self.items.iter().filter(|i| i.status == "missing" || i.status == "wrong")
+            .map(|i| i.key.as_str()).collect()
+    }
 }
 
 /// Разбор правилами: ключевые слова в докладе.
@@ -536,11 +544,11 @@ pub fn next_topic(review: &ChiefReview, asked: &[String], questions: usize) -> O
     if questions >= MAX_QUESTIONS {
         return None;
     }
-    let missing = review.missing();
+    let to_ask = review.to_ask();
     PRIORITY
         .iter()
         .copied()
-        .find(|k| missing.contains(k) && !asked.iter().any(|a| a == k))
+        .find(|k| to_ask.contains(k) && !asked.iter().any(|a| a == k))
 }
 
 /// Разобрать доклад и выбрать реплику начальника.
@@ -792,12 +800,26 @@ mod tests {
     }
 
     #[test]
-    fn вопросы_по_порядку_и_не_больше_трёх() {
+    fn вопросы_по_порядку_обо_всём_недоложенном() {
         let r = evaluate_rules(&факты(), &сказал(&["Докладываю."]));
         assert_eq!(next_topic(&r, &[], 0), Some("what"));
         assert_eq!(next_topic(&r, &["what".into()], 1), Some("where"));
         assert_eq!(next_topic(&r, &["what".into(), "where".into()], 2), Some("victims"));
-        assert_eq!(next_topic(&r, &[], MAX_QUESTIONS), None, "после трёх вопросов — «Принял»");
+        // Четвёртый вопрос тоже задаётся: раньше после трёх начальник
+        // говорил «Принял», не спросив про остальное
+        let спрошено: Vec<String> = ["what", "where", "victims"].iter().map(|s| s.to_string()).collect();
+        let четвёртый = next_topic(&r, &спрошено, 3);
+        assert!(четвёртый.is_some() || r.to_ask().len() <= 3, "недоложенное осталось без вопроса");
+        // Каждую тему — один раз: всё спрошено — «Принял»
+        let всё: Vec<String> = r.to_ask().iter().map(|s| s.to_string()).collect();
+        assert_eq!(next_topic(&r, &всё, всё.len()), None);
+    }
+
+    #[test]
+    fn доложенное_неверно_начальник_переспрашивает() {
+        let r = evaluate_rules(&факты(), &сказал(&["Пожар, Королёв, Станционная 28, пострадавших нет."]));
+        assert_eq!(r.items[2].status, "wrong");
+        assert_eq!(next_topic(&r, &[], 0), Some("victims"));
     }
 
     #[test]
