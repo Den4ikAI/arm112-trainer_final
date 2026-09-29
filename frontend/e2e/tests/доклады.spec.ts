@@ -1,6 +1,6 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { login, launchTicket3, fillFireCard, USERS } from './helpers';
+import { login, launchTicket3, fillFireCard, USERS, выдатьПроисшествие } from './helpers';
 
 /**
  * Бригада диспетчера ДДС: назначение, доклады старшего и разбор.
@@ -36,6 +36,8 @@ const карточкаМчс = async (page: Page, info: TestInfo): Promise<strin
   const number = (await page.getByTestId('card-number').innerText()).trim();
   await page.getByTestId('save-card').click();
   await expect(page.getByTestId('score')).toBeVisible();
+
+  выдатьПроисшествие(number);
 
   await login(page, info, USERS.mchs);
   await page.getByTestId(`journal-row-${number}`).click();

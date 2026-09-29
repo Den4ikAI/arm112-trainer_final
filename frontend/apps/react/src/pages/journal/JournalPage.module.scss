@@ -128,3 +128,11 @@
 
   &:hover { opacity: 1; }
 }
+
+// Заголовок вместо поиска у оператора 112 — тем же шрифтом, что поле поиска
+.opTitle {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 300;
+  color: #3a3f44;
+}

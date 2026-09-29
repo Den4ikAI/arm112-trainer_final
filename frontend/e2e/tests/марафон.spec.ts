@@ -79,7 +79,9 @@ const токен = async (page: Page, login: string): Promise<string> => {
 
 /** Сохранить пустую карточку единственного доступного вызова. */
 const пройти_вызов = async (page: Page) => {
-  const кнопки = page.locator('section[aria-label="Учебные вызовы"] button');
+  // Экзамен — в своём разделе; начать можно только очередной вызов
+  await page.getByTestId('section-exam').click();
+  const кнопки = page.locator('[data-testid^="launch-"]');
   await expect(кнопки).toHaveCount(1);
   await кнопки.first().click();
   await page.getByTestId('card-timer').waitFor();
@@ -149,7 +151,8 @@ test.describe('Блиц', () => {
 
       await login(page, info, с.login);
       await expect(page.getByTestId('lesson-banner')).toContainText('оценивается только «Адрес»');
-      await page.locator('section[aria-label="Учебные вызовы"] button').first().click();
+      await page.getByTestId('section-blitz').click();
+      await page.locator('[data-testid^="launch-"]').first().click();
       await page.getByTestId('card-timer').waitFor();
       await page.getByTestId('save-card').click();
 

@@ -1,6 +1,7 @@
 import { test, type Page, type TestInfo } from '@playwright/test';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
+import { выдатьВызов, выдатьПроисшествие } from '../tests/helpers';
 
 /**
  * Съёмка экранов. Кадры складываются в screenshots/react/ и сопоставимы
@@ -38,7 +39,7 @@ const login = async (page: Page, info: TestInfo, user = OPERATOR) => {
   await page.locator('input[name="password"]').fill('arm112');
   await page.getByTestId('login-submit').click();
   // Журнал есть у всех; «Учебные вызовы» — только у оператора 112
-  await page.getByLabel('Поиск происшествий').waitFor();
+  await page.getByTestId('student-work').or(page.getByLabel('Поиск происшествий')).first().waitFor();
 };
 
 const pickFireType = async (page: Page) => {
@@ -62,7 +63,9 @@ const pickFireSigns = async (page: Page) => {
 /** Оператор заполняет и сохраняет карточку; возвращает её номер. */
 const createFireCard = async (page: Page, info: TestInfo): Promise<string> => {
   await login(page, info);
-  await page.getByTestId('launch-t3-c1').click();
+  выдатьВызов('student1'); await page.reload();
+    await page.getByTestId('section-training').click();
+    await page.getByTestId('launch-t3-c1').first().click();
   await page.getByTestId('card-timer').waitFor();
   await pickFireType(page);
   await pickFireSigns(page);
@@ -103,7 +106,9 @@ test.describe('Съёмка экранов', () => {
 
   test('карточка 112', async ({ page }, info) => {
     await login(page, info);
-    await page.getByTestId('launch-t3-c1').click();
+    выдатьВызов('student1'); await page.reload();
+    await page.getByTestId('section-training').click();
+    await page.getByTestId('launch-t3-c1').first().click();
     await page.getByTestId('card-timer').waitFor();
     await shot(page, info, '03-card112-empty');
 
@@ -133,7 +138,9 @@ test.describe('Съёмка экранов', () => {
   test('превышение норматива', async ({ page }, info) => {
     test.setTimeout(120_000);
     await login(page, info);
-    await page.getByTestId('launch-t3-c1').click();
+    выдатьВызов('student1'); await page.reload();
+    await page.getByTestId('section-training').click();
+    await page.getByTestId('launch-t3-c1').first().click();
     await page.getByTestId('card-timer').waitFor();
     await pickFireType(page);
     // Норматив сценария — 60 секунд. Ждём, чтобы снять красный таймер:
@@ -144,7 +151,9 @@ test.describe('Съёмка экранов', () => {
 
   test('разбор: узнал против угадал', async ({ page }, info) => {
     await login(page, info);
-    await page.getByTestId('launch-t3-c1').click();
+    выдатьВызов('student1'); await page.reload();
+    await page.getByTestId('section-training').click();
+    await page.getByTestId('launch-t3-c1').first().click();
     await page.getByTestId('card-timer').waitFor();
 
     await pickFireType(page);
@@ -171,6 +180,8 @@ test.describe('Съёмка экранов', () => {
   // в ленту Деп. ЖКХ он не попадает
   test('карточка ДДС', async ({ page }, info) => {
     const number = await createFireCard(page, info);
+
+    выдатьПроисшествие(number);
 
     await login(page, info, MCHS);
     await page.getByTestId(`journal-row-${number}`).click();
@@ -205,6 +216,8 @@ test.describe('Съёмка экранов', () => {
   test('отказ без комментария', async ({ page }, info) => {
     const number = await createFireCard(page, info);
 
+    выдатьПроисшествие(number);
+
     await login(page, info, MCHS);
     await page.getByTestId(`journal-row-${number}`).click();
     await page.getByTestId('card-class').waitFor();
@@ -221,7 +234,9 @@ test.describe('Съёмка экранов', () => {
     await login(page, info);
     await shot(page, info, '17-mobile-journal');
 
-    await page.getByTestId('launch-t3-c1').click();
+    выдатьВызов('student1'); await page.reload();
+    await page.getByTestId('section-training').click();
+    await page.getByTestId('launch-t3-c1').first().click();
     await page.getByTestId('card-timer').waitFor();
     await shot(page, info, '18-mobile-card112');
   });

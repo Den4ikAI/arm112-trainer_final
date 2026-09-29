@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { go, login, launchTicket3, fillFireCard, ageCard, USERS, PASSWORD } from './helpers';
+import { go, login, launchTicket3, fillFireCard, ageCard, USERS, PASSWORD, выдатьПроисшествие } from './helpers';
 
 /**
  * Прогон против живого сервера: классификатор, оценка и машина статусов
@@ -46,13 +46,13 @@ test.describe('Вход', () => {
     await launchTicket3(page);
 
     await page.getByTestId('leave-card').click();
-    await expect(page.getByRole('heading', { name: 'Учебные вызовы' })).toBeVisible();
+    await expect(page.getByTestId('student-work')).toBeVisible();
   });
 
   test('перезагрузка страницы не выкидывает на вход', async ({ page }, info) => {
     await login(page, info);
     await page.reload();
-    await expect(page.getByRole('heading', { name: 'Учебные вызовы' })).toBeVisible();
+    await expect(page.getByTestId('student-work')).toBeVisible();
   });
 });
 
@@ -211,11 +211,17 @@ test.describe('Режим ДДС', () => {
     return number.trim();
   };
 
-  test('пожар попадает в ленту МЧС и не попадает в ленту Мослифта',
+  test('карточка курсанта 112 к ДДС не попадает; выданная — только профильной службе',
     async ({ page }, info) => {
       const number = await createFireCard(page, info);
 
+      // Денис, 29.09: карточки, заполненные оператором 112, к диспетчерам
+      // не попадают — все происшествия выдаёт преподаватель
       await login(page, info, USERS.mchs);
+      await expect(page.getByTestId(`journal-row-${number}`)).toHaveCount(0);
+
+      выдатьПроисшествие(number);
+      await page.reload();
       await expect(page.getByTestId(`journal-row-${number}`)).toBeVisible();
 
       await login(page, info, USERS.lift);
@@ -231,7 +237,8 @@ test.describe('Режим ДДС', () => {
    * и следующие сценарии падали бы по чужой причине.
    */
   test('занятие ДДС ограничивает ленту и говорит об этом', async ({ page }, info) => {
-    await createFireCard(page, info);
+    // Материал занятия ДДС — учебные происшествия преподавателя
+    выдатьПроисшествие(await createFireCard(page, info));
 
     await login(page, info, 'teacher1');
     await go(page, info, '/lessons');
@@ -271,6 +278,7 @@ test.describe('Режим ДДС', () => {
   test('статусы проставляются последовательно и проверяются сервером',
     async ({ page }, info) => {
       const number = await createFireCard(page, info);
+      выдатьПроисшествие(number);
       await login(page, info, USERS.mchs);
       await page.getByTestId(`journal-row-${number}`).click();
       await expect(page.getByTestId('card-class')).toContainText('пожар: частный дом');
@@ -302,6 +310,7 @@ test.describe('Режим ДДС', () => {
 
   test('чужая служба статус не ставит', async ({ page }, info) => {
     const number = await createFireCard(page, info);
+    выдатьПроисшествие(number);
     await login(page, info, USERS.mchs);
     await page.getByTestId(`journal-row-${number}`).click();
 
@@ -317,6 +326,7 @@ test.describe('Режим ДДС', () => {
    */
   test('непринятая карточка краснеет после норматива', async ({ page }, info) => {
     const number = await createFireCard(page, info);
+    выдатьПроисшествие(number);
     await login(page, info, USERS.mchs);
 
     const row = page.getByTestId(`journal-row-${number}`);
@@ -332,6 +342,7 @@ test.describe('Режим ДДС', () => {
 
   test('история статусов раскрывается', async ({ page }, info) => {
     const number = await createFireCard(page, info);
+    выдатьПроисшествие(number);
     await login(page, info, USERS.mchs);
     await page.getByTestId(`journal-row-${number}`).click();
 
@@ -360,7 +371,7 @@ test.describe('Живой класс', () => {
    * Два окна: в одном оператор 112, в другом диспетчер МЧС. Карточка
    * должна долететь без обновления страницы.
    */
-  test('карточка от оператора появляется у диспетчера без перезагрузки',
+  test('выданное преподавателем происшествие появляется у диспетчера без перезагрузки',
     async ({ browser }, info) => {
       const operatorCtx = await browser.newContext();
       const dispatcherCtx = await browser.newContext();
@@ -371,22 +382,20 @@ test.describe('Живой класс', () => {
         // Диспетчер уже сидит в журнале и ничего не делает
         await login(dispatcher, info, USERS.mchs);
 
-        // Оператор заполняет и сохраняет карточку
+        // Оператор 112 сохраняет карточку — к диспетчеру она не идёт
         await login(operator, info);
         await launchTicket3(operator);
         await fillFireCard(operator);
         const number = (await operator.getByTestId('card-number').innerText()).trim();
-
-        // Номер выдан, но карточка ещё не сохранена — у диспетчера
-        // её быть не должно
-        const row = dispatcher.getByTestId(`journal-row-${number}`);
-        await expect(row).toHaveCount(0);
-
         await operator.getByTestId('save-card').click();
         await expect(operator.getByTestId('score')).toBeVisible();
+        const row = dispatcher.getByTestId(`journal-row-${number}`);
+        await dispatcher.waitForTimeout(2000);
+        await expect(row).toHaveCount(0);
 
-        // Диспетчер страницу не трогал — строка пришла каналом
-        await expect(row).toBeVisible({ timeout: 10_000 });
+        // Преподаватель выдаёт её занятием — строка приходит сама
+        выдатьПроисшествие(number);
+        await expect(row).toBeVisible({ timeout: 20_000 });
       } finally {
         await operatorCtx.close();
         await dispatcherCtx.close();

@@ -1,0 +1,95 @@
+// Разделы курсанта — в тех же цветах, что реестр боевой системы
+// (JournalTable, кадр dds_04): светло-серое поле, тёмные строки.
+$list: #838f97;
+$row: #49555d;
+$cell: #2f353a;
+
+.wrap { padding: var(--sp-3); background: $list; }
+
+.tabs { display: flex; gap: 2px; margin-bottom: var(--sp-2); flex-wrap: wrap; }
+
+.tab {
+  border: 0;
+  background: $row;
+  color: #dfe5ea;
+  font-size: var(--fs-md);
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+
+  &:hover { background: #56636b; }
+}
+
+.tabOn { background: $cell; color: #fff; font-weight: 700; box-shadow: inset 0 -3px 0 #ff7a45; }
+
+.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+
+.table th {
+  text-align: start;
+  font-weight: 400;
+  color: var(--c-text-on-shell);
+  padding: var(--sp-1) var(--sp-2);
+  white-space: nowrap;
+}
+
+.thDate { width: 110px; }
+.thLesson { width: 22%; }
+.thStatus { width: 120px; }
+.thScore { width: 60px; }
+.thAction { width: 120px; }
+
+.row {
+  background: $row;
+  color: #fff;
+
+  > td { padding: var(--sp-2); border-bottom: 2px solid $list; vertical-align: middle; }
+}
+
+.date { font-weight: 700; background: $cell; white-space: nowrap; }
+.topic { display: flex; flex-direction: column; gap: 2px; }
+.detail { font-size: var(--fs-xs); color: #cfd6db; }
+.lesson { color: #dfe5ea; }
+.score { font-weight: 700; font-size: var(--fs-md); text-align: center; background: $cell; }
+.action { text-align: end; }
+
+// Статус цветом: не начато — серый, выполняется — оранжевый,
+// закончено — зелёный, не пройдено — красный
+.badge {
+  display: inline-block;
+  padding: 2px var(--sp-2);
+  border-radius: 10px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.not_started { background: #c9cfd3; color: #2f353a; }
+.in_progress { background: #ff9f43; color: #2f1d05; }
+.done { background: #2ecc71; color: #06301a; }
+.missed { background: #e05a5a; color: #fff; }
+
+.btn {
+  border: 1px solid rgb(255 255 255 / .8);
+  background: transparent;
+  color: #fff;
+  padding: var(--sp-1) var(--sp-3);
+  cursor: pointer;
+
+  &:hover { background: rgb(255 255 255 / .12); }
+}
+
+.btnView { border-color: #9fd9b5; color: #d4f4e0; }
+
+.empty { color: #fff; margin: var(--sp-2) 0 0; font-size: var(--fs-sm); }
+
+.error {
+  background: #6d2230;
+  color: #fff;
+  padding: var(--sp-2);
+  margin-bottom: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 760px) {
+  .thLesson, .lesson { display: none; }
+  .thDate { width: 70px; }
+}

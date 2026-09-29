@@ -71,6 +71,11 @@ interface Actions {
    * чужой по номеру вызов не подставляем. `false` — продолжать нечего.
    */
   resume(number?: string): Promise<boolean>;
+  /**
+   * Открыть закончённую попытку на просмотр разбора — из раздела
+   * курсанта. Повторно её не пройти: сервер отвечает 409.
+   */
+  review(sessionId: string): Promise<boolean>;
   /** Локальная правка + отложенная отправка. */
   edit(patch: Partial<Card>): void;
   editAddress(field: string, value: string): void;
@@ -218,6 +223,13 @@ export const useTraining = create<TrainingState & Actions>((set, get) => {
       const id = remembered();
       const st = fits(id ? await sessions.state(id).catch(() => undefined) : undefined)
         ?? fits(await sessions.active().catch(() => undefined));
+      if (!st) return false;
+      restore(st);
+      return true;
+    },
+
+    review: async (sessionId) => {
+      const st = await sessions.state(sessionId).catch(() => undefined);
       if (!st) return false;
       restore(st);
       return true;

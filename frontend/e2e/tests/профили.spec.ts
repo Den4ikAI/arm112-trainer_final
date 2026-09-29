@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { go, login, PASSWORD, USERS } from './helpers';
+import { go, login, PASSWORD, USERS, выдатьВызов } from './helpers';
 
 /**
  * Два рабочих места в одном интерфейсе: оператор 112 и диспетчер ДДС.
@@ -45,12 +45,21 @@ test.describe('Профили рабочего места', () => {
     await expect(page.getByTestId('card-timer')).toHaveCount(0);
   });
 
-  test('у оператора 112 — билеты и свои вызовы, ленты ДДС нет', async ({ page }, info) => {
+  test('у оператора 112 — выданные карточки для заполнения, списка происшествий нет',
+    async ({ page }, info) => {
+    выдатьВызов(USERS.operator, 3, 1);
     await login(page, info, USERS.operator);
 
     await expect(page.getByTestId('duty-badge')).toHaveText('Оператор 112');
-    await expect(page.getByRole('heading', { name: 'Учебные вызовы' })).toBeVisible();
-    await expect(page.getByTestId('launch-t3-c1')).toBeVisible();
+    // Денис, 29.09: у оператора 112 нет списка происшествий — только
+    // разделы с выданными карточками
+    await expect(page.getByLabel('Поиск происшествий')).toHaveCount(0);
+    await expect(page.locator('[data-testid^="journal-row-"]')).toHaveCount(0);
+    await expect(page.getByTestId('section-training')).toHaveText('Учебные вызовы');
+    await expect(page.getByTestId('section-exam')).toHaveText('Экзамены');
+    await expect(page.getByTestId('section-blitz')).toHaveText('Тренировка по частям');
+    await page.getByTestId('section-training').click();
+    await expect(page.getByTestId('launch-t3-c1').first()).toBeVisible();
     await page.screenshot({ path: info.outputPath('журнал-112.png'), fullPage: true });
 
     // Чужая карточка ДДС (ушла только в МЧС) оператору не открывается

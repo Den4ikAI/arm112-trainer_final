@@ -118,6 +118,8 @@ export interface LessonBrief {
   callCount: number | null;
   /** Вызовы, выбранные преподавателем, по порядку. */
   scenarioIds: string[];
+  /** Учебные происшествия ДДС, выбранные преподавателем, по порядку. */
+  cardIds: string[];
   startedAt: string | null;
   finishedAt: string | null;
   members: number;
@@ -187,6 +189,38 @@ export interface Protocol {
   finished: boolean;
   rows: ProtocolRow[];
 }
+
+/** Раздел курсанта: учебные, экзамены, тренировка по частям карточки. */
+export type WorkSection = 'training' | 'exam' | 'blitz';
+export type WorkStatus = 'not_started' | 'in_progress' | 'done' | 'missed';
+
+/** Выданное курсанту преподавателем: вызов 112 или происшествие ДДС. */
+export interface WorkItem {
+  id: string;
+  lessonId: string;
+  lessonTitle: string;
+  kind: LessonKind;
+  segment: BlitzSegment | null;
+  lessonRunning: boolean;
+  issuedAt: string | null;
+  topic: string;
+  detail: string;
+  status: WorkStatus;
+  score: number | null;
+  /** Балл скрыт до конца экзамена. */
+  hidden: boolean;
+  seq: number | null;
+  scenarioId: string | null;
+  ticket: number | null;
+  callNo: number | null;
+  sessionId: string | null;
+  cardNumber: string | null;
+  cardId: string | null;
+}
+
+export const me = {
+  work: (section: WorkSection) => api.get<WorkItem[]>(`/api/me/work?section=${section}`),
+};
 
 export const lessons = {
   list: () => api.get<LessonBrief[]>('/api/lessons'),

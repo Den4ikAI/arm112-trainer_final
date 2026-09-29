@@ -1,5 +1,5 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test';
-import { login, launchTicket3, fillFireCard, USERS } from './helpers';
+import { login, launchTicket3, fillFireCard, USERS, выдатьПроисшествие } from './helpers';
 
 /**
  * Голос в разговоре диспетчера ДДС со старшим бригады.
@@ -47,6 +47,8 @@ const бригадаНаправлена = async (page: Page, info: TestInfo): P
   const number = (await page.getByTestId('card-number').innerText()).trim();
   await page.getByTestId('save-card').click();
   await expect(page.getByTestId('score')).toBeVisible();
+
+  выдатьПроисшествие(number);
 
   await login(page, info, USERS.mchs);
   await page.getByTestId(`journal-row-${number}`).click();

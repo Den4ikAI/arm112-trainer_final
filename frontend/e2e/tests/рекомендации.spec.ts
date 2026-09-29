@@ -37,7 +37,7 @@ const войти = async (page: Page, info: TestInfo, login: string) => {
   await page.locator('input[name="login"]').fill(login);
   await page.locator('input[name="password"]').fill(ЕГО_ПАРОЛЬ);
   await page.getByTestId('login-submit').click();
-  await page.getByRole('heading', { name: 'Учебные вызовы' }).waitFor();
+  await page.getByTestId('student-work').waitFor();
 };
 
 /**

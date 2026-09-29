@@ -3,6 +3,7 @@ import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTa
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
+import { StudentWork } from '@/widgets/student-work/StudentWork';
 import { ApiError, cards, channel, lessons, scenarios as scenariosApi, sessions, SEGMENT_LABEL,
          type CardBrief, type LessonBrief, type Protocol, type ScenarioBrief,
          type SessionState } from '@/shared/api';
@@ -145,13 +146,18 @@ export const JournalPage = () => {
     // отвечает отказом — и вместе с ней пропадали учебные вызовы,
     // а на экране было «Нет связи с сервером», хотя связь есть
     const load = async () => {
-      const scope = dds ? 'service' : op112 ? 'own' : 'all';
+      const scope = dds ? 'service' : 'all';
 
-      // Билеты для приёма вызова диспетчеру ДДС не нужны: он получает
-      // уже заполненные карточки, а не звонки
+      // Курсанту — только выданное преподавателем, в разделах (Денис,
+      // 29.09). Оператору 112 список происшествий не нужен вовсе, ему —
+      // карточки для заполнения; диспетчеру ДДС лента остаётся, но в
+      // ней только выданные ему происшествия. Билеты для свободного
+      // приёма — только преподавателю и администратору
       const [feed, list] = await Promise.allSettled([
-        cards.list({ scope, q: query || undefined, page, size: PAGE_SIZE }),
-        dds ? Promise.resolve([] as ScenarioBrief[]) : scenariosApi.list(),
+        op112
+          ? Promise.resolve({ items: [] as CardBrief[], total: 0, page: 0, size: PAGE_SIZE })
+          : cards.list({ scope, q: query || undefined, page, size: PAGE_SIZE }),
+        user?.role === 'student' ? Promise.resolve([] as ScenarioBrief[]) : scenariosApi.list(),
       ]);
       if (!alive) return;
 
@@ -231,6 +237,14 @@ export const JournalPage = () => {
   return (
     <div className={s.page}>
       <div className={s.top}>
+        {op112 ? (
+          // Оператору 112 искать нечего: списка происшествий у него нет,
+          // только выданные карточки для заполнения
+          <div className={s.searchArea}>
+            <h1 className={s.opTitle}>Карточки для заполнения</h1>
+            <div className={s.searchSub}>выдаёт преподаватель на занятии</div>
+          </div>
+        ) : (
         <div className={s.searchArea}>
           <div className={s.searchRow}>
             <input className={s.search} value={query} placeholder="Поиск происшествий"
@@ -245,6 +259,7 @@ export const JournalPage = () => {
             <button className={s.reset} onClick={() => { setQuery(''); setPage(0); }}>сбросить</button>
           </div>
         </div>
+        )}
 
         <div className={s.clock}>
           <div className={s.clockDate}>
@@ -262,7 +277,9 @@ export const JournalPage = () => {
         </div>
       </div>
 
-      {!dds && (
+      {user?.role === 'student' && <StudentWork />}
+
+      {user?.role !== 'student' && (
       <section className={s.launcher} aria-label="Учебные вызовы">
         <h2 className={s.launcherTitle}>Учебные вызовы</h2>
         <div className={s.launcherList}>
@@ -308,8 +325,10 @@ export const JournalPage = () => {
         <DrillBanner lesson={lesson} row={protocol?.rows[0] ?? null} />
       )}
 
-      <JournalTable rows={rows}
-                    pager={{ page, size: PAGE_SIZE, total, onPage: setPage }} />
+      {!op112 && (
+        <JournalTable rows={rows}
+                      pager={{ page, size: PAGE_SIZE, total, onPage: setPage }} />
+      )}
     </div>
   );
 };
