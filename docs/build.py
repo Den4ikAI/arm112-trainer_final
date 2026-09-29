@@ -36,6 +36,10 @@ table { border-collapse: collapse; width: 100%; font-size: 9.5pt;
 th, td { border: 1px solid #bbb; padding: 3pt 5pt; text-align: left;
          vertical-align: top; }
 th { background: #eee; }
+img { max-width: 100%; height: auto; border: 1px solid #ccc;
+      display: block; margin: 8pt auto 2pt; }
+p > img + img { display: inline-block; margin: 8pt 1%; }
+p:has(> img + img) { text-align: center; }
 hr { border: none; border-top: 1px solid #ccc; margin: 16pt 0; }
 """
 
@@ -46,6 +50,22 @@ def в_html(текст: str) -> str:
         '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
         f"<style>{СТИЛЬ}</style></head><body>{тело}</body></html>"
     )
+
+
+def вшить_картинки(html: str) -> str:
+    """Заменяет относительные пути картинок на data: URI."""
+    import base64
+    import re
+
+    def замена(m):
+        путь = os.path.join(ЗДЕСЬ, m.group(1))
+        if m.group(1).startswith("data:") or not os.path.exists(путь):
+            return m.group(0)
+        with open(путь, "rb") as f:
+            данные = base64.b64encode(f.read()).decode()
+        return f'src="data:image/png;base64,{данные}"'
+
+    return re.sub(r'src="([^"]+)"', замена, html)
 
 
 def собрать() -> int:
@@ -74,14 +94,20 @@ def собрать() -> int:
         ошибки += 1
 
     # DOCX через LibreOffice: единственный способ получить формат,
-    # который заказчик сможет открыть и поправить
+    # который можно открыть и поправить. Картинки вшиваются в HTML
+    # как data: URI, иначе LibreOffice оставляет на них ссылки.
+    путь_html_docx = os.path.join(ЗДЕСЬ, "документация.html")
     try:
+        with open(путь_html_docx, "w", encoding="utf-8") as f:
+            f.write(вшить_картинки(html))
         subprocess.run(
             ["soffice", "--headless", "--convert-to", "docx:MS Word 2007 XML",
-             "--outdir", ЗДЕСЬ, путь_html],
+             "--outdir", ЗДЕСЬ, путь_html_docx],
             check=True, capture_output=True, timeout=180,
         )
         print("собран документация.docx")
+        with open(путь_html_docx, "w", encoding="utf-8") as f:
+            f.write(html)
     except (subprocess.CalledProcessError, FileNotFoundError,
             subprocess.TimeoutExpired) as e:
         print(f"docx не собран: {e}", file=sys.stderr)
