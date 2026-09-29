@@ -28,7 +28,7 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.dml.color import RGBColor
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Emu, Pt
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1117,6 +1117,17 @@ PLAN = [
 
 # ─── Сборка ─────────────────────────────────────────────────────────────
 
+def fixed_size(slide, ids, size):
+    """Явный кегль без автоподгонки: иначе шаблон ужимает текст в каждой
+    рамке по-своему и соседние карточки выходят разного размера."""
+    for sid in ids:
+        tf = shape(slide, sid).text_frame
+        tf.auto_size = MSO_AUTO_SIZE.NONE
+        for para in tf.paragraphs:
+            for r in para.runs:
+                r.font.size = Pt(size)
+
+
 def uniform_fonts(slides):
     """Один набор кеглей на всех описательных слайдах: основной текст 11,
     заголовки карточек 13, таблицы 9,5, крупные цифры 24. Плашку-заголовок
@@ -1154,6 +1165,11 @@ def main(template):
     s09_team(tpl(9))
     s10_history(tpl(10))
     s11_short(tpl(11))
+    fixed_size(tpl(8), [5, 8, 14], 12)
+    fixed_size(tpl(9), [9, 57], 11)
+    fixed_size(tpl(9), [15, 58], 16)
+    fixed_size(tpl(10), [37, 43, 40], 12)
+    fixed_size(tpl(11), [3, 7], 12)
 
     # Номера: обязательный блок — слайды 1–5, дальше описательная часть
     for i, (key, _) in enumerate(PLAN):
