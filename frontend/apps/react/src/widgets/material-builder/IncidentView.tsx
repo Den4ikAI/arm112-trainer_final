@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ApiError, ddsIncidents, type Incident } from '@/shared/api';
 import { useCatalog } from '@/entities/catalog/model';
 import clsx from '@/shared/lib/clsx';
+import { SurveySummary } from '@/widgets/survey-card/SurveyCardView';
 import s from './MaterialBuilder.module.scss';
 
 interface Props {
@@ -29,7 +30,6 @@ export const IncidentView = ({ incident: inc, onChanged, onEdit }: Props) => {
   };
 
   const address = ADDRESS_ORDER.map((k) => inc.address[k]).filter(Boolean).join(', ');
-  const признаки = Object.values(inc.answers).flat().filter(Boolean).join(' . ');
 
   return (
     <section className={s.view} data-testid="incident-view">
@@ -60,7 +60,6 @@ export const IncidentView = ({ incident: inc, onChanged, onEdit }: Props) => {
         <dt>Описание</dt><dd data-testid="incident-view-description">{inc.description || '—'}</dd>
         <dt>Пострадавшие</dt><dd>{inc.victims ?? 'нет'}</dd>
         <dt>Тип</dt><dd>{inc.typeIds.map(typeTitle).join(', ') || '—'}</dd>
-        <dt>Признаки</dt><dd>{признаки || '—'}</dd>
         <dt>Класс</dt><dd>{inc.outcomeType ?? '—'}</dd>
         <dt>Службы</dt>
         <dd data-testid="incident-view-services">
@@ -68,6 +67,8 @@ export const IncidentView = ({ incident: inc, onChanged, onEdit }: Props) => {
             .join(', ') || '—'}
         </dd>
       </dl>
+      {/* Признаки — той же сводкой, что увидит диспетчер в карточке ДДС */}
+      {inc.typeIds.map((t) => <SurveySummary key={t} typeId={t} answers={inc.answers} />)}
       {inc.classifyReason && <p className={s.warn}>{inc.classifyReason}</p>}
     </section>
   );
