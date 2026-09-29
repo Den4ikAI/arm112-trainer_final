@@ -401,8 +401,8 @@ async fn отдельно(pool: &PgPool) -> Отдельно {
 async fn карточка_для(pool: &PgPool, service: &str, закрыта: bool) -> Uuid {
     let номер = format!("П{}", &Uuid::new_v4().simple().to_string()[..10]);
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO cards (number, saved_at, type_ids, description, origin)
-         VALUES ($1, now(), '{101}', 'проверочная карточка', 'teacher') RETURNING id",
+        "INSERT INTO cards (number, saved_at, type_ids, description, origin, approved_at)
+         VALUES ($1, now(), '{101}', 'проверочная карточка', 'teacher', now()) RETURNING id",
     )
     .bind(&номер).fetch_one(pool).await.unwrap();
 

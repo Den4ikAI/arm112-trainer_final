@@ -318,7 +318,8 @@ pub async fn create(
     if !req.card_ids.is_empty() {
         let годных: i64 = sqlx::query_scalar(
             "SELECT count(DISTINCT id) FROM cards
-              WHERE id = ANY($1) AND origin = 'teacher' AND saved_at IS NOT NULL",
+              WHERE id = ANY($1) AND origin = 'teacher' AND saved_at IS NOT NULL
+                AND approved_at IS NOT NULL",
         )
         .bind(&req.card_ids)
         .fetch_one(&state.db)
@@ -326,7 +327,8 @@ pub async fn create(
         if годных != req.card_ids.len() as i64 {
             return Err(AppError::Validation(
                 "среди выбранных происшествий есть несуществующие, повторы или \
-                 карточки курсантов — выдаются только созданные преподавателем".into(),
+                 карточки курсантов — выдаются только утверждённые учебные происшествия \
+                 преподавателя".into(),
             ));
         }
     }
@@ -646,6 +648,7 @@ async fn раздать_карточки(
              SELECT $1, t.id, now() + make_interval(secs => (t.ord - 1) * $3::float8)
                FROM unnest($2::uuid[]) WITH ORDINALITY AS t(id, ord)
                JOIN cards c ON c.id = t.id AND c.origin = 'teacher'
+                                 AND c.approved_at IS NOT NULL
              ON CONFLICT DO NOTHING",
         )
         .bind(lesson_id)
@@ -658,8 +661,9 @@ async fn раздать_карточки(
     }
 
     // Иначе — случайные учебные происшествия служб группы. Карточки,
-    // заполненные курсантами 112, диспетчерам не выдаются никогда
-    let условие = "c.origin = 'teacher'";
+    // заполненные курсантами 112, диспетчерам не выдаются никогда, а
+    // черновики преподавателя — пока он их не утвердил
+    let условие = "c.origin = 'teacher' AND c.approved_at IS NOT NULL";
 
     let запрос = format!(
         "INSERT INTO lesson_cards (lesson_id, card_id, release_at)

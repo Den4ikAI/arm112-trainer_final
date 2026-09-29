@@ -13,7 +13,8 @@ use uuid::Uuid;
 /// курсанту уже завершённым занятием его группы (своей группы нет —
 /// заводит). Завершённым — чтобы не подменять ленту идущего занятия.
 pub async fn выдать(pool: &PgPool, card: Uuid, user: Uuid) {
-    sqlx::query("UPDATE cards SET origin = 'teacher' WHERE id = $1")
+    sqlx::query("UPDATE cards SET origin = 'teacher', approved_at = COALESCE(approved_at, now())
+                  WHERE id = $1")
         .bind(card).execute(pool).await.unwrap();
 
     let group: Uuid = match sqlx::query_scalar::<_, Uuid>(

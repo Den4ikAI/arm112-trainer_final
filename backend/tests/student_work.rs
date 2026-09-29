@@ -136,7 +136,7 @@ async fn учебный_вызов_проходится_один_раз_и_ви�
 }
 
 /// Диспетчеру ДДС выдаются только учебные происшествия преподавателя,
-/// поимённо и по порядку; карточку курсанта 112 выдать нельзя.
+/// поимённо и по порядку; карточку курсанта 112 и черновик выдать нельзя.
 #[tokio::test]
 async fn происшествия_ддс_выдаются_поимённо_и_только_преподавательские() {
     let Some((app, pool)) = app().await else { return };
@@ -150,8 +150,8 @@ async fn происшествия_ддс_выдаются_поимённо_и_т
         let служба = служба.clone();
         async move {
             let id: Uuid = sqlx::query_scalar(
-                "INSERT INTO cards (number, saved_at, type_ids, description, origin)
-                 VALUES ($1, now(), '{101}', 'учебное происшествие', $2) RETURNING id")
+                "INSERT INTO cards (number, saved_at, type_ids, description, origin, approved_at)
+                 VALUES ($1, now(), '{101}', 'учебное происшествие', $2, now()) RETURNING id")
                 .bind(format!("Р{}", &Uuid::new_v4().simple().to_string()[..10]))
                 .bind(origin).fetch_one(&pool).await.unwrap();
             sqlx::query("INSERT INTO card_services (card_id, service_id) VALUES ($1, $2)")
@@ -162,11 +162,19 @@ async fn происшествия_ддс_выдаются_поимённо_и_т
     let первое = карточка("teacher").await;
     let второе = карточка("teacher").await;
     let курсантская = карточка("session").await;
+    let черновик = карточка("teacher").await;
+    sqlx::query("UPDATE cards SET approved_at = NULL WHERE id = $1")
+        .bind(черновик).execute(&pool).await.unwrap();
 
     // Карточку курсанта 112 выдать нельзя
     let (status, _) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
         Some(json!({ "groupId": group, "title": "Нельзя", "mode": "dds",
                      "cardIds": [курсантская] }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // И неутверждённый черновик преподавателя — тоже
+    let (status, _) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
+        Some(json!({ "groupId": group, "title": "Нельзя", "mode": "dds",
+                     "cardIds": [черновик] }))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
         Some(json!({ "groupId": group, "title": "Нельзя", "mode": "dds",
