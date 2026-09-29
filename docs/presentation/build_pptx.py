@@ -229,6 +229,7 @@ def s07_title(s):
 
 def s08_about(s):
     photo_in(s, 2, SCREENS / "team-both.jpg", cover=False)
+    fill_lines(shape(s, 18), ["КОМАНДА «ELABS»"], color=PLUM, bold=True)
     # Заголовок-заполнитель справа вверху в шаблоне пуст, а его текст
     # белый на светлом фоне — вписанное в него не видно. Менять цвет
     # на обязательном слайде нельзя, поэтому оставляем пустым, как в
@@ -265,7 +266,7 @@ TEAM = [
     ("Александр Головченко", ["Фуллстек-разработчик", "Telegram: @Angel3044",
                               "+7 914 883-66-57", "МАИ, 1 курс, ТОП-ИТ"]),
 ]
-PHOTOS = ["team-denis.jpg", "team-sasha.jpg"]
+PHOTOS = ["team-denis.jpg", "team-sasha-sq.jpg"]
 CARDS = [(17, 2, 15, 9), (56, 3, 58, 57), (59, 4, 61, 60), (62, 5, 64, 63),
          (65, 6, 67, 66)]
 
@@ -374,10 +375,9 @@ def pill(s, text):
     # Справа от плашки — логотипы партнёров из макета: длинный заголовок
     # не должен на них налезать, поэтому шрифт уменьшается под ширину
     limit = 6_150_000
-    size = 17.0
+    # Один кегль на всех слайдах; длинные заголовки укорочены под него.
     # 172 тыс. EMU на знак — средняя ширина прописных Montserrat Bold в 17 пт
-    while size > 12 and 520_000 + len(text) * 172_000 * size / 17 > limit:
-        size -= 0.5
+    size = 14.0
     w = min(limit, int(520_000 + len(text) * 172_000 * size / 17))
     sh = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Emu(X0), Emu(324_562),
                             Emu(w), Emu(560_000))
@@ -559,7 +559,7 @@ def c_map(s):
 
 
 def c_neuro(s):
-    pill(s, "Нейросетевая оценка: сказанное против заполненного")
+    pill(s, "Оценка: сказанное против заполненного")
     shot(s, SCREENS / "p08-экспертная-оценка.png", X0, TOP, 6_300_000, 4_950_000,
          crop=(0.004, 0.315, 0.525, 0.105))
     x = X0 + 6_550_000
@@ -1117,6 +1117,32 @@ PLAN = [
 
 # ─── Сборка ─────────────────────────────────────────────────────────────
 
+def uniform_fonts(slides):
+    """Один набор кеглей на всех описательных слайдах: основной текст 11,
+    заголовки карточек 13, таблицы 9,5, крупные цифры 24. Плашку-заголовок
+    слайда (14–17, её ширина посчитана под кегль) не трогаем."""
+    for s in slides:
+        for sh in s.shapes:
+            if sh.has_table:
+                for row in sh.table.rows:
+                    for cell in row.cells:
+                        for para in cell.text_frame.paragraphs:
+                            for r in para.runs:
+                                r.font.size = Pt(9.5)
+                continue
+            if not sh.has_text_frame:
+                continue
+            for para in sh.text_frame.paragraphs:
+                for r in para.runs:
+                    if r.font.size is None:
+                        continue
+                    pt = r.font.size.pt
+                    if pt >= 18:
+                        r.font.size = Pt(24)
+                    elif pt < 13:
+                        r.font.size = Pt(11)
+
+
 def main(template):
     prs = Presentation(template)
     slides = list(prs.slides)
@@ -1152,6 +1178,7 @@ def main(template):
         if el not in keep:
             prs.part.drop_rel(el.rId)
 
+    uniform_fonts(new)
     prs.save(OUT)
     print(f"собрано: {OUT} ({OUT.stat().st_size / 1e6:.1f} МБ, "
           f"{len(keep) + len(new_items)} слайдов)")
