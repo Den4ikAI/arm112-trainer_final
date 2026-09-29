@@ -34,3 +34,14 @@ for (const [w, h] of [[1280, 720], [1920, 1080]] as const) {
     await page.screenshot({ path: info.outputPath(`карточка-${w}x${h}.png`) });
   });
 }
+
+/** UX-проход 1, находка 9: в шапке было «Опер. , АРМ 4, Иванов И.И.». */
+test('шапка карточки: оператор и АРМ без пустого места перед запятой', async ({ page }, info) => {
+  await login(page, info);
+  await launchTicket3(page);
+  const строка = page.getByTestId('card-operator');
+  await expect(строка).toHaveText(/^Опер\. \S/);
+  // Строкой, а не toContainText: тот обрезает пробелы в ожидаемом
+  await expect(строка).not.toHaveText(/\s,|,\s*,|,\s*$/);
+  await expect(строка).toHaveText(/, АРМ \d+$/);
+});

@@ -23,6 +23,12 @@ interface Props {
 export const CardHeader = ({ number, savedAt, operator, workstation, mode, elapsedSec = 0, normSec = 60 }: Props) => {
   const over = elapsedSec > normSec;
   const nav = useNavigate();
+  // «Опер. Иванов И.И., АРМ 4». Раньше строка была «Опер. , АРМ 4,
+  // Иванов И.И.» — перед запятой пусто; пустые части не пишем вовсе
+  const оператор = [
+    operator.trim() && `Опер. ${operator.trim()}`,
+    workstation.trim() && `АРМ ${workstation.trim()}`,
+  ].filter(Boolean).join(', ');
   return (
     <section className={s.wrap} aria-label="Сведения о происшествии">
       <div className={s.meta}>
@@ -42,7 +48,7 @@ export const CardHeader = ({ number, savedAt, operator, workstation, mode, elaps
           </button>
         </div>
         <div className={s.line}>Сохр. {savedAt}</div>
-        <div className={s.line}>Опер. , АРМ {workstation}, {operator}</div>
+        {оператор && <div className={s.line} data-testid="card-operator">{оператор}</div>}
       </div>
 
       {mode === '112' ? (
