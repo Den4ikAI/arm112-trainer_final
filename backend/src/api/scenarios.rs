@@ -135,6 +135,18 @@ pub struct TurnResult {
 /// полминуты на процессоре. Здесь же сервер моделей держит KV-кэш,
 /// и второй ход стоит секунды.
 /// Служебная реплика в переписке: то, что сказала система, а не модель.
+/// Что сказать преподавателю, когда ход правки сорвался на модели.
+///
+/// «Нет JSON» — модель ответила, но не по схеме (оборвала ответ);
+/// остальное — модель не ответила вовсе.
+fn model_failure_note(error: &str) -> &'static str {
+    if error.contains("JSON") || error.contains("json") {
+        "Модель ответила не по форме — повторите замечание. Вызов остался прежним."
+    } else {
+        "Модель не ответила — повторите замечание позже. Вызов остался прежним."
+    }
+}
+
 async fn chat_note(pool: &sqlx::PgPool, id: Uuid, text: &str) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO scenario_chat (scenario_id, role, content) VALUES ($1, 'system', $2)",
@@ -157,6 +169,7 @@ async fn chat_note(pool: &sqlx::PgPool, id: Uuid, text: &str) -> AppResult<()> {
         (status = 200, description = "Замечание преподавателя и правка", body = TurnResult),
         (status = 401, description = "Требуется вход"),
         (status = 403, description = "Недостаточно прав"),
+        (status = 503, description = "Модель не ответила или ответила не по форме; вызов не изменён"),
     ),
 )]
 async fn chat_turn(
@@ -182,9 +195,21 @@ async fn chat_turn(
 
     let before = scenario_edit::load(&state.db, id).await.map_err(AppError::Other)?;
 
-    let (reply, patch, _raw) = scenario_edit::turn(state.ml.llm.as_ref(), &state.db, id, req.comment.trim())
-        .await
-        .map_err(AppError::Other)?;
+    // Сбой модели — не «internal». Qwen иногда обрывает JSON на
+    // середине правки, и преподаватель видел пятисотый без объяснений.
+    // Замечание уже в переписке: пишем рядом, что случилось, и отдаём
+    // 503 с тем же текстом — как для недоступного сервера голоса
+    let (reply, patch, _raw) =
+        match scenario_edit::turn(state.ml.llm.as_ref(), &state.db, id, req.comment.trim()).await {
+            Ok(t) => t,
+            Err(e) if e.downcast_ref::<sqlx::Error>().is_some() => return Err(AppError::Other(e)),
+            Err(e) => {
+                tracing::warn!(scenario = %id, error = %e, "ход правки сорвался на модели");
+                let text = model_failure_note(&e.to_string());
+                chat_note(&state.db, id, text).await?;
+                return Err(AppError::Unavailable(text.into()));
+            }
+        };
 
     // Правку применяем до записи реплики: иначе в переписке остаётся
     // «изменено: hidden» от хода, который сорвался на полпути.

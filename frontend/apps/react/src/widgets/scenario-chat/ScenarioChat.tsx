@@ -38,9 +38,12 @@ import s from './ScenarioChat.module.scss';
 export const ScenarioChat = ({
   scenario,
   onChanged,
+  onBusy,
 }: {
   scenario: ScenarioFull;
   onChanged: (next: ScenarioFull) => void;
+  /** Модель думает над замечанием — странице, чтобы не дать утвердить */
+  onBusy?: (busy: boolean) => void;
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState('');
@@ -63,6 +66,7 @@ export const ScenarioChat = ({
     if (!comment || busy) return;
 
     setBusy(true);
+    onBusy?.(true);
     setError(null);
     // Свою реплику показываем сразу: ответа ждать секунды, и пустое
     // поле без неё выглядит так, будто ничего не отправилось
@@ -81,6 +85,7 @@ export const ScenarioChat = ({
       setMessages(await scenarios.chat(scenario.id).catch(() => []));
     } finally {
       setBusy(false);
+      onBusy?.(false);
     }
   };
 

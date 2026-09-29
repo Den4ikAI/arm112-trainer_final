@@ -83,4 +83,47 @@ test.describe('Учебный материал преподавателя', () =
     await expect(page.getByTestId('scenario-title')).toHaveText(тема, { timeout: 180_000 });
     await expect(page.getByTestId('scenario-view')).toContainText('черновик');
   });
+
+  /**
+   * UX-проход 1, находки 10 и 11: пока модель думает, «утвердить»
+   * нажималось, и правка ложилась на уже утверждённый вызов; сбой
+   * модели показывался как «internal». Ответ модели задерживаем и
+   * отдаём тем же 503, что сервер отдаёт на оборванный JSON.
+   */
+  test('пока модель правит вызов, утвердить нельзя; сбой модели объяснён', async ({ page }, info) => {
+    await login(page, info, 'teacher1');
+    await page.getByTestId('scenarios-link').click();
+    await page.getByTestId('create-prompt').click();
+    const тема = `Правка в диалоге ${Date.now()}`;
+    await page.getByTestId('prompt-title').fill(тема);
+    await page.getByTestId('prompt-text').fill('Мужчина сообщает о дыме из окна соседней квартиры.');
+    await page.getByTestId('prompt-submit').click();
+    await expect(page.getByTestId('scenario-title')).toHaveText(тема, { timeout: 180_000 });
+
+    let отпустить: () => void = () => {};
+    const ответ = new Promise<void>((r) => { отпустить = r; });
+    await page.route('**/api/scenarios/*/chat', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      await ответ;
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'unavailable',
+          detail: 'Модель ответила не по форме — повторите замечание. Вызов остался прежним.',
+        }),
+      });
+    });
+
+    const view = page.getByTestId('scenario-view');
+    await expect(view.getByTestId('approve')).toBeEnabled();
+    await page.getByTestId('chat-input').fill('Сделай заявителя пожилой женщиной');
+    await page.getByTestId('chat-send').click();
+    await expect(view.getByTestId('approve')).toBeDisabled();
+
+    отпустить();
+    await expect(page.getByRole('alert')).toContainText('не по форме');
+    await expect(view.getByTestId('approve')).toBeEnabled();
+    await expect(view).toContainText('черновик');
+  });
 });

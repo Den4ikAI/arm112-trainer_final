@@ -52,6 +52,9 @@ export const ScenariosPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  // Модель правит вызов: утверждать нельзя, иначе правка ляжет на уже
+  // утверждённый вызов (UX-проход 1, находка 11)
+  const [chatBusy, setChatBusy] = useState(false);
   const user = useSession((st) => st.user);
   const serviceTitle = useCatalog((st) => st.serviceTitle);
   const loadCatalog = useCatalog((st) => st.load);
@@ -125,7 +128,7 @@ export const ScenariosPage = () => {
   };
 
   const approve = async () => {
-    if (!current) return;
+    if (!current || chatBusy) return;
     try {
       setCurrent(await scenarios.approve(current.id));
       await reload(current.id);
@@ -242,6 +245,8 @@ export const ScenariosPage = () => {
                   <span className={s.source}>{SOURCE[current.source] ?? 'заведён вручную'}</span>
                   {current.status !== 'approved' && (
                     <button className={s.primary} onClick={() => void approve()}
+                            disabled={chatBusy}
+                            title={chatBusy ? 'Модель правит вызов — дождитесь ответа' : undefined}
                             data-testid="approve">утвердить</button>
                   )}
                 </div>
@@ -290,7 +295,7 @@ export const ScenariosPage = () => {
                 )}
               </section>
 
-              <ScenarioChat scenario={current} onChanged={setCurrent} />
+              <ScenarioChat scenario={current} onChanged={setCurrent} onBusy={setChatBusy} />
             </div>
           )}
         </div>
