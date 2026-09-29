@@ -123,7 +123,10 @@ pub async fn closed_for_card(pool: &PgPool, card_id: Uuid, viewer: &AuthUser) ->
         .fetch_optional(pool)
         .await?
         .flatten();
-    let Some(session) = session else { return Ok(false) };
+    // Карточка без сессии — учебное происшествие ДДС: у него свой экзамен
+    let Some(session) = session else {
+        return crate::api::brigade::exam_running(pool, card_id, viewer.id).await;
+    };
     match rules_for_session(pool, session).await? {
         Some(rules) => closed(pool, &rules, viewer.id).await,
         None => Ok(false),

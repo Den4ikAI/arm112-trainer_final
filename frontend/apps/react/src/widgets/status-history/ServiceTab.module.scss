@@ -113,3 +113,14 @@ $blue: #157dbd;
   color: var(--c-danger);
   font-size: var(--fs-xs);
 }
+
+// Узкий экран: окно в 520–560 px от вкладки уходило за правый край,
+// и на телефоне статус было не сохранить — «✓» оставалась за экраном.
+// Здесь окно встаёт над всей полосой служб: она ближайший
+// позиционированный предок, когда у вкладки позиционирование снято
+@media (max-width: 760px) {
+  .wrap { position: static; }
+  .history, .editor { left: 0; right: 0; width: auto; }
+  .select { flex: 1 1 100%; }
+  .histRow { grid-template-columns: 56px 10px minmax(0, 1fr) 10px minmax(0, 1fr); }
+}

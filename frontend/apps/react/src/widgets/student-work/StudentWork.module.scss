@@ -93,3 +93,13 @@ $cell: #2f353a;
   .thLesson, .lesson { display: none; }
   .thDate { width: 70px; }
 }
+
+// Телефон: при ширине 390 кнопка «Открыть» уезжала за край на 26 px.
+// Дата — в две строки, поля ячеек уже, колонки — по содержимому
+@media (max-width: 480px) {
+  .wrap { padding: var(--sp-2); }
+  .thDate, .thStatus, .thScore, .thAction { width: auto; }
+  .date { white-space: normal; }
+  .table th, .row > td { padding: var(--sp-1); }
+  .btn { padding: var(--sp-1) var(--sp-2); }
+}

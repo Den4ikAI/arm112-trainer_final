@@ -540,3 +540,57 @@ async fn в_занятии_нормативы_от_выпуска_карточк
         .bind(занятие).execute(&pool).await.ok();
     прибрать(&pool, &с).await;
 }
+
+/// Экзамен ДДС: разбор прячется до конца не только в просмотре
+/// бригады, но и в ответах на назначение и звонок старшему — их
+/// интерфейс показывает сразу, и замечания мелькали посреди экзамена.
+#[tokio::test]
+async fn на_экзамене_разбор_не_приходит_ни_в_одном_ответе_бригады() {
+    let Some((app, pool, _)) = app().await else { return };
+    let с = стенд(&pool).await;
+    let курсант = токен(&app, &с.login).await;
+
+    let экзамен: Uuid = sqlx::query_scalar(
+        "INSERT INTO lessons (group_id, teacher_id, title, mode, kind, started_at)
+         SELECT m.group_id, t.id, 'экзамен ДДС', 'dds', 'marathon', now()
+           FROM group_members m, users t
+          WHERE m.user_id = $1 AND t.login = 'teacher1'
+          LIMIT 1
+         RETURNING id",
+    )
+    .bind(с.user_id).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO lesson_cards (lesson_id, card_id, release_at)
+                 VALUES ($1, $2, now() - interval '240 seconds')")
+        .bind(экзамен).bind(с.card).execute(&pool).await.unwrap();
+    // Открыта поздно: замечание есть, и спрятать его есть что
+    поступила(&pool, &с, 240).await;
+
+    принять(&app, &с, &курсант).await;
+    let (status, назначено) = назначить(&app, &с, &курсант).await;
+    assert_eq!(status, StatusCode::CREATED, "{назначено}");
+    assert!(виды(&назначено).is_empty(), "разбор в ответе на назначение: {назначено}");
+    assert!(назначено["debrief"]["score"].is_null(), "{назначено}");
+
+    let (status, звонок) = call(&app, Method::POST, &format!("/api/cards/{}/brigade/call", с.card),
+        Some(&курсант), Some(json!({ "serviceId": с.service }))).await;
+    assert_eq!(status, StatusCode::OK, "{звонок}");
+    assert!(виды(&звонок["brigade"]).is_empty(), "разбор в ответе на звонок: {звонок}");
+    assert!(звонок["brigade"]["debrief"]["score"].is_null(), "{звонок}");
+
+    // Разбор попытки под карточкой — тоже разбор: балл там же
+    let разбор = format!("/api/cards/{}/review", с.card);
+    let (status, попытки) = call(&app, Method::GET, &разбор, Some(&курсант), None).await;
+    assert_eq!(status, StatusCode::OK, "{попытки}");
+    assert_eq!(попытки["attempts"], json!([]), "балл попытки посреди экзамена: {попытки}");
+
+    // Экзамен окончен — разбор открыт
+    sqlx::query("UPDATE lessons SET finished_at = now() WHERE id = $1")
+        .bind(экзамен).execute(&pool).await.unwrap();
+    let вид = бригада(&app, &с, &курсант).await;
+    assert!(виды(&вид).contains(&"openedLate".to_string()), "{вид}");
+    let (_, попытки) = call(&app, Method::GET, &разбор, Some(&курсант), None).await;
+    assert!(попытки["attempts"][0]["autoScore"].is_number(), "{попытки}");
+
+    sqlx::query("DELETE FROM lessons WHERE id = $1").bind(экзамен).execute(&pool).await.ok();
+    прибрать(&pool, &с).await;
+}

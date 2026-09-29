@@ -66,4 +66,43 @@ test.describe('Разделы курсанта', () => {
       await expect(page.locator('[data-testid^="work-row-"]').first()).toBeVisible();
       await page.screenshot({ path: path.join(КАДРЫ, '17-разделы-ддс.png') });
     });
+
+  // UX-проход 29.09: на 390 px кнопка «Открыть» уезжала за край, а окно
+  // статуса в 560 px — за правый край вместе с «✓», и статус с телефона
+  // было не сохранить
+  test('диспетчер ДДС на телефоне открывает происшествие и ставит статус',
+    async ({ page }, info) => {
+      const номер = `Т${Date.now()}`;
+      const id = sql(`INSERT INTO cards (number, saved_at, type_ids, description, origin, address)
+                      VALUES ('${номер}', now(), '{101}', 'Горит сарай', 'teacher',
+                              '{"settlement": "Королёв", "street": "Станционная", "house": "30"}')
+                      RETURNING id`).trim();
+      sql(`INSERT INTO card_services (card_id, service_id) VALUES ('${id}', 'mchs'), ('${id}', 'codd')`);
+      выдатьПроисшествие(номер, USERS.mchs);
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await login(page, info, USERS.mchs);
+      await page.getByTestId('section-training').click();
+      const вбок = () => page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(await вбок()).toBeLessThanOrEqual(1);
+
+      const открыть = page.getByTestId(`work-row-${id}`).getByRole('button', { name: 'Открыть' });
+      const кнопка = await открыть.boundingBox();
+      expect(кнопка!.x + кнопка!.width).toBeLessThanOrEqual(390);
+      await открыть.click();
+
+      await page.getByTestId('pencil-mchs').click();
+      const окно = page.getByTestId('status-editor-mchs');
+      const рамка = await окно.boundingBox();
+      expect(рамка!.x).toBeGreaterThanOrEqual(0);
+      expect(рамка!.x + рамка!.width).toBeLessThanOrEqual(390);
+      expect(await вбок()).toBeLessThanOrEqual(1);
+
+      await окно.getByLabel('Статус', { exact: true }).selectOption({ label: 'Принята' });
+      await окно.getByLabel('Комментарий').fill('Принял с телефона');
+      await окно.getByLabel('Сохранить статус').click();
+      await expect(окно).toHaveCount(0);
+      await expect(page.getByTestId('service-tab-mchs')).toContainText('Принята');
+    });
 });
