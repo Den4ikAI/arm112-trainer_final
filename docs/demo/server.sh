@@ -1,7 +1,7 @@
 #!/bin/bash
 # Поднять свой экземпляр тренажёра для записи демо-ролика.
 #
-#   docs/demo/server.sh start gpu   # модель — Qwen3.8-27B в vLLM (:8091)
+#   docs/demo/server.sh start gpu   # модель — Gemma 4 26B-A4B в vLLM (:8095)
 #   docs/demo/server.sh start cpu   # модель — GigaChat 3.1 в llama.cpp (:8090)
 #   docs/demo/server.sh stop
 #
@@ -21,7 +21,7 @@ case "${1:-}" in
   start)
     profile="${2:-gpu}"
     case "$profile" in
-      gpu) ml_url="${ML_BASE_URL_GPU:-http://127.0.0.1:8091}" ;;
+      gpu) ml_url="${ML_BASE_URL_GPU:-http://127.0.0.1:8095}" ;;
       cpu) ml_url="${ML_BASE_URL_CPU:-http://127.0.0.1:8090}" ;;
       *) echo "профиль: gpu или cpu" >&2; exit 2 ;;
     esac

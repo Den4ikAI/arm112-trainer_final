@@ -5,7 +5,7 @@
 же сценарий на новой версии даёт новый ролик одной командой.
 
 ```bash
-docs/demo/build.sh gpu    # профиль с видеокартой: Qwen3.8-27B в vLLM
+docs/demo/build.sh gpu    # профиль с видеокартой: Gemma 4 26B-A4B в vLLM (:8095)
 docs/demo/build.sh cpu    # без видеокарты: GigaChat 3.1 на процессоре
 ```
 
@@ -67,7 +67,7 @@ docs/demo/build.sh cpu    # без видеокарты: GigaChat 3.1 на пр�
 
 - контейнер базы `arm112-db`, собранный backend (`cargo build`),
   `node_modules` в `frontend/apps/react` и `frontend/e2e`;
-- сервер модели: vLLM с Qwen на :8091 (`deploy/gpu/start-vllm.sh`) или
+- сервер модели: vLLM с Gemma 4 26B-A4B на :8095 (`deploy/gpu/start-vllm.sh`) или
   llama.cpp с GigaChat на :8090;
 - сервер голоса на :8092 для приложения и веса голоса для диктора
   (`VOICE_MODELS_DIR`, по умолчанию `/media/denis/work4/llm/voice`);
