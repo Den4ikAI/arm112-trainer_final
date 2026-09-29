@@ -51,7 +51,9 @@ pub struct WorkItem {
     pub lesson_running: bool,
     /// Когда выдано: начало занятия или выпуск происшествия потоком
     pub issued_at: Option<DateTime<Utc>>,
-    /// Тема — тип происшествия, а если его нет — начало легенды
+    /// Тема — тип происшествия, а если его нет — начало легенды. В
+    /// экзамене и блице по типу у оператора 112 — «Учебный вызов»:
+    /// тип там и есть ответ
     pub topic: String,
     /// Подробнее: первая фраза заявителя или адрес происшествия
     pub detail: String,
@@ -169,6 +171,7 @@ async fn op112(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<W
         .map(|Строка112 { id, lesson_id, title, kind, segment, running, started, seq, sid,
                           ticket, call_no, legend, type_title, session_id, finished, score,
                           number, hidden }| {
+            let topic = тема_112(&kind, segment.as_deref(), type_title, &legend);
             let status = if finished.is_some() {
                 "done"
             } else if session_id.is_some() {
@@ -186,7 +189,7 @@ async fn op112(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<W
                 segment,
                 lesson_running: running,
                 issued_at: started,
-                topic: type_title.unwrap_or_else(|| начало(&legend, 60)),
+                topic,
                 detail: начало(&legend, 120),
                 status: status.into(),
                 score: if hidden { None } else { score },
@@ -298,10 +301,50 @@ async fn dds(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<Wor
 }
 
 /// Начало текста по границе символа, с многоточием, если обрезано.
+/// Тема строки у оператора 112.
+///
+/// Тип происшествия оператор 112 определяет сам — в экзамене (и в
+/// блице по типу) он и есть ответ. Тема «1. 101» выдавала его до начала
+/// вызова (UX-проход 1, находка 12). Там тема нейтральная, а различает
+/// вызовы первая фраза заявителя в подробностях — её курсант и так
+/// услышит.
+fn тема_112(kind: &str, segment: Option<&str>, type_title: Option<String>, legend: &str) -> String {
+    let тип_скрыт = kind == "marathon" || segment == Some("type");
+    match type_title {
+        _ if тип_скрыт => "Учебный вызов".to_string(),
+        Some(t) => t,
+        None => начало(legend, 60),
+    }
+}
+
 fn начало(text: &str, n: usize) -> String {
     let t = text.trim();
     if t.chars().count() <= n {
         return t.to_string();
     }
     format!("{}…", t.chars().take(n).collect::<String>().trim_end())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::тема_112;
+
+    #[test]
+    fn в_экзамене_тема_не_выдаёт_тип_происшествия() {
+        let тема = тема_112("marathon", None, Some("101".into()), "Алло! Горит крыша частного дома!");
+        assert_eq!(тема, "Учебный вызов");
+        assert!(!тема.contains("101"));
+    }
+
+    #[test]
+    fn в_блице_по_типу_тема_не_выдаёт_тип_а_по_адресу_выдаёт() {
+        assert_eq!(тема_112("blitz", Some("type"), Some("101".into()), "Алло!"), "Учебный вызов");
+        assert_eq!(тема_112("blitz", Some("address"), Some("101".into()), "Алло!"), "101");
+    }
+
+    #[test]
+    fn в_учебном_вызове_тема_тип_а_без_типа_начало_фразы() {
+        assert_eq!(тема_112("training", None, Some("101".into()), "Алло!"), "101");
+        assert_eq!(тема_112("training", None, None, "Алло! Горит крыша"), "Алло! Горит крыша");
+    }
 }
