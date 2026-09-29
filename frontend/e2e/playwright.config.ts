@@ -14,6 +14,7 @@ const WEB_PORT = process.env.E2E_WEB_PORT ?? '5174';
  */
 export default defineConfig({
   testDir: './tests',
+  globalTeardown: './global-teardown.ts',
   fullyParallel: false,
   workers: 1,
   reporter: [['list'], ['html', { outputFolder: 'report', open: 'never' }]],

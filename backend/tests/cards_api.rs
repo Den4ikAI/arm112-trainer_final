@@ -27,6 +27,12 @@ async fn app() -> Option<(Router, sqlx::PgPool)> {
     let config = Config::from_env().ok()?;
     let pool = sqlx::PgPool::connect(&адрес_базы(&config)).await.ok()?;
     sqlx::migrate!("./migrations").run(&pool).await.ok()?;
+    // Вызовы здесь — свободная практика student1 по билету 3. Идущее
+    // занятие, оставленное e2e в общей тестовой базе, привязало бы попытку
+    // к заданию, а завершённое задание второй раз не проходится (409).
+    // Своих занятий эти проверки не заводят — закрываем чужие
+    sqlx::query("UPDATE lessons SET finished_at = now() WHERE finished_at IS NULL")
+        .execute(&pool).await.ok()?;
     let ml = MlSuite::build(config.ml_provider).ok()?;
     let router = api::routes().with_state(AppState::new(pool.clone(), config, ml));
     Some((router, pool))
