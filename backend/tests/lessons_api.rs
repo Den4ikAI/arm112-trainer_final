@@ -425,13 +425,24 @@ async fn карточка_для(pool: &PgPool, service: &str, закрыта: b
 
 async fn прибрать_отдельно(pool: &PgPool, о: &Отдельно, карточки: &[Uuid]) {
     for к in карточки {
-        sqlx::query("DELETE FROM cards WHERE id = $1").bind(к).execute(pool).await.ok();
+        // Вместе с копиями, выданными занятиями
+        sqlx::query("DELETE FROM cards WHERE id = $1 OR source_card_id = $1")
+            .bind(к).execute(pool).await.ok();
     }
     прибрать(pool, о.group_id).await;
     sqlx::query("UPDATE audit_log SET user_id = NULL WHERE user_id = $1")
         .bind(о.user_id).execute(pool).await.ok();
     sqlx::query("DELETE FROM users WHERE id = $1").bind(о.user_id).execute(pool).await.ok();
     sqlx::query("DELETE FROM services WHERE id = $1").bind(&о.service).execute(pool).await.ok();
+}
+
+/// Копия происшествия, которую выдало занятие: занятие ДДС выдаёт
+/// не само происшествие, а свою копию (UX-проход 2, проблема A).
+async fn копия(pool: &PgPool, занятие: &str, исходник: Uuid) -> Uuid {
+    sqlx::query_scalar(
+        "SELECT lc.card_id FROM lesson_cards lc JOIN cards c ON c.id = lc.card_id
+          WHERE lc.lesson_id = $1::uuid AND c.source_card_id = $2")
+        .bind(занятие).bind(исходник).fetch_one(pool).await.unwrap()
 }
 
 fn номера(лента: &Value) -> Vec<String> {
@@ -473,8 +484,9 @@ async fn занятие_ддс_ограничивает_ленту_своими_
 
     // Во время занятия — только его материал. Закрытая карточка
     // в материал не попала: работы по ней для службы уже нет
+    let выдана = копия(&pool, &id, открытая).await;
     let (_, во_время) = call(&app, Method::GET, лента, Some(&курсант), None).await;
-    assert_eq!(номера(&во_время), vec![открытая.to_string()],
+    assert_eq!(номера(&во_время), vec![выдана.to_string()],
                "в ленте должны быть только карточки занятия");
     assert_eq!(во_время["total"], json!(1), "счётчик тоже считает по занятию");
 
@@ -482,7 +494,7 @@ async fn занятие_ддс_ограничивает_ленту_своими_
 
     // После занятия выданное остаётся — посмотреть свою работу и ошибки
     let (_, после) = call(&app, Method::GET, лента, Some(&курсант), None).await;
-    assert_eq!(номера(&после), vec![открытая.to_string()],
+    assert_eq!(номера(&после), vec![выдана.to_string()],
                "после занятия в ленте — только выданное");
 
     прибрать_отдельно(&pool, &о, &[открытая, закрытая]).await;
@@ -497,12 +509,13 @@ async fn ход_занятия_ддс_виден_по_статусам() {
     let Some((app, pool)) = app().await else { return };
     let teacher = токен(&app, "teacher1").await;
     let о = отдельно(&pool).await;
-    let карточка = карточка_для(&pool, &о.service, false).await;
+    let исходник = карточка_для(&pool, &о.service, false).await;
 
     let (_, занятие) = call(&app, Method::POST, "/api/lessons", Some(&teacher),
         Some(json!({ "groupId": о.group_id, "title": "Статусы", "mode": "dds" }))).await;
     let id = занятие["id"].as_str().unwrap().to_string();
     call(&app, Method::POST, &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
+    let карточка = копия(&pool, &id, исходник).await;
 
     let курсант = токен(&app, &о.login).await;
 
@@ -536,7 +549,7 @@ async fn ход_занятия_ддс_виден_по_статусам() {
             "в режиме ДДС разбора нет, и среднего балла тоже");
 
     call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
-    прибрать_отдельно(&pool, &о, &[карточка]).await;
+    прибрать_отдельно(&pool, &о, &[исходник]).await;
 }
 
 /// Занятие ДДС не стартует, если работы для служб группы нет.
@@ -571,8 +584,8 @@ async fn карточки_занятия_ддс_приходят_потоком(
     let Some((app, pool)) = app().await else { return };
     let teacher = токен(&app, "teacher1").await;
     let о = отдельно(&pool).await;
-    let первая = карточка_для(&pool, &о.service, false).await;
-    let вторая = карточка_для(&pool, &о.service, false).await;
+    let исходники = [карточка_для(&pool, &о.service, false).await,
+                     карточка_для(&pool, &о.service, false).await];
     let курсант = токен(&app, &о.login).await;
     let лента = "/api/cards?scope=service";
 
@@ -591,6 +604,8 @@ async fn карточки_занятия_ддс_приходят_потоком(
         &format!("/api/lessons/{id}/start"), Some(&teacher), None).await;
     assert_eq!(status, StatusCode::OK, "{начато}");
     assert_eq!(начато["items"], 2, "в материал попали обе карточки");
+    let первая = копия(&pool, &id, исходники[0]).await;
+    let вторая = копия(&pool, &id, исходники[1]).await;
 
     // Сразу видна одна: вторая придёт через десять минут
     let (_, сейчас) = call(&app, Method::GET, лента, Some(&курсант), None).await;
@@ -632,7 +647,7 @@ async fn карточки_занятия_ддс_приходят_потоком(
     assert!(объявлена, "о выпущенной карточке должно прийти событие");
 
     call(&app, Method::POST, &format!("/api/lessons/{id}/finish"), Some(&teacher), None).await;
-    прибрать_отдельно(&pool, &о, &[первая, вторая]).await;
+    прибрать_отдельно(&pool, &о, &исходники).await;
 }
 
 /// Попытка по вызову из занятия записывается в задание, хотя клиент

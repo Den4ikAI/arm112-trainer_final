@@ -394,6 +394,15 @@ async fn ход_занятия_ддс_получает_балл() {
         Some(&teacher), None).await;
     assert_eq!(status, StatusCode::OK, "{начато}");
 
+    // Занятие выдаёт копию происшествия, работа идёт по ней
+    let копия: Uuid = sqlx::query_scalar(
+        "SELECT card_id FROM lesson_cards WHERE lesson_id = $1::uuid")
+        .bind(&id).fetch_one(&pool).await.unwrap();
+    let с = Стенд { card: копия, service: с.service.clone(), login: с.login.clone(),
+                    user_id: с.user_id };
+    let исходник: Uuid = sqlx::query_scalar("SELECT source_card_id FROM cards WHERE id = $1")
+        .bind(копия).fetch_one(&pool).await.unwrap();
+
     принять(&app, &с, &курсант).await;
     назначить(&app, &с, &курсант).await;
     call(&app, Method::POST, &format!("/api/cards/{}/responses", с.card),
@@ -410,6 +419,7 @@ async fn ход_занятия_ддс_получает_балл() {
         sqlx::query(sql).bind(группа).execute(&pool).await.ok();
     }
     прибрать(&pool, &с).await;
+    sqlx::query("DELETE FROM cards WHERE id = $1").bind(исходник).execute(&pool).await.ok();
 }
 
 // ─── Приём карточки: открытие и первая запись ───────────────────────

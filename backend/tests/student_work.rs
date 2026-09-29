@@ -192,6 +192,14 @@ async fn происшествия_ддс_выдаются_поимённо_и_т
         Some(&teacher), None).await;
     assert_eq!(status, StatusCode::OK, "{начато}");
 
+    // Занятие выдаёт свои копии происшествий, по порядку исходников
+    let выдано: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT c.source_card_id, c.id FROM lesson_cards lc JOIN cards c ON c.id = lc.card_id
+          WHERE lc.lesson_id = $1::uuid ORDER BY lc.release_at")
+        .bind(&id).fetch_all(&pool).await.unwrap();
+    assert_eq!(выдано.iter().map(|(и, _)| *и).collect::<Vec<_>>(), vec![первое, второе]);
+    let первое = выдано[0].1;
+
     let экзамен = раздел(&app, &т, "exam").await;
     assert_eq!(экзамен.len(), 1, "пока пришло только первое: {экзамен:?}");
     assert_eq!(экзамен[0]["cardId"], первое.to_string());

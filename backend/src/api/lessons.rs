@@ -319,7 +319,7 @@ pub async fn create(
         let годных: i64 = sqlx::query_scalar(
             "SELECT count(DISTINCT id) FROM cards
               WHERE id = ANY($1) AND origin = 'teacher' AND saved_at IS NOT NULL
-                AND approved_at IS NOT NULL",
+                AND approved_at IS NOT NULL AND source_card_id IS NULL",
         )
         .bind(&req.card_ids)
         .fetch_one(&state.db)
@@ -643,21 +643,19 @@ async fn раздать_карточки(
     // Выбранные преподавателем — ровно они, в его порядке: первое сразу,
     // следующие через интервал. Только созданные преподавателем
     if !выбраны.is_empty() {
-        let роздано = sqlx::query(
-            "INSERT INTO lesson_cards (lesson_id, card_id, release_at)
-             SELECT $1, t.id, now() + make_interval(secs => (t.ord - 1) * $3::float8)
-               FROM unnest($2::uuid[]) WITH ORDINALITY AS t(id, ord)
+        let выдача: Vec<(Uuid, f64)> = sqlx::query_as(
+            "SELECT t.id, ((t.ord - 1) * $2::float8)::float8
+               FROM unnest($1::uuid[]) WITH ORDINALITY AS t(id, ord)
                JOIN cards c ON c.id = t.id AND c.origin = 'teacher'
                                  AND c.approved_at IS NOT NULL
-             ON CONFLICT DO NOTHING",
+                                 AND c.source_card_id IS NULL
+              ORDER BY t.ord",
         )
-        .bind(lesson_id)
         .bind(выбраны)
         .bind(интервал as f64)
-        .execute(pool)
-        .await?
-        .rows_affected();
-        return Ok(роздано as i64);
+        .fetch_all(pool)
+        .await?;
+        return выдать_копии(pool, lesson_id, &выдача).await;
     }
 
     // Иначе — случайные учебные происшествия служб группы. Карточки,
@@ -666,9 +664,7 @@ async fn раздать_карточки(
     let условие = "c.origin = 'teacher' AND c.approved_at IS NOT NULL";
 
     let запрос = format!(
-        "INSERT INTO lesson_cards (lesson_id, card_id, release_at)
-         SELECT $1::uuid, card_id,
-                now() + make_interval(secs => (min(n) - 1) * $5::float8)
+        "SELECT card_id, ((min(n) - 1) * $4::float8)::float8
            FROM (
              SELECT cs.card_id,
                     row_number() OVER (PARTITION BY cs.service_id ORDER BY random()) AS n
@@ -676,32 +672,76 @@ async fn раздать_карточки(
                JOIN cards c ON c.id = cs.card_id
               WHERE c.saved_at IS NOT NULL
                 AND {условие}
-                AND ($2::text[] = '{{}}' OR c.type_ids && $2)
+                AND c.source_card_id IS NULL
+                AND ($1::text[] = '{{}}' OR c.type_ids && $1)
                 AND cs.service_id IN (
                       SELECT u.service_id FROM users u
                         JOIN group_members m ON m.user_id = u.id
-                       WHERE m.group_id = $3 AND u.duty = 'dds' AND u.is_active)
+                       WHERE m.group_id = $2 AND u.duty = 'dds' AND u.is_active)
                 AND NOT EXISTS (
                       SELECT 1 FROM response_entries r
                        WHERE r.card_id = c.id AND r.service_id = cs.service_id
                          AND r.status::text IN ({ЗАКРЫВАЮЩИЕ}))
          ) t
-         WHERE n <= $4
+         WHERE n <= $3
          GROUP BY card_id
-         ON CONFLICT DO NOTHING"
+         ORDER BY 2"
     );
 
-    let роздано = sqlx::query(&запрос)
-        .bind(lesson_id)
+    let выдача: Vec<(Uuid, f64)> = sqlx::query_as(&запрос)
         .bind(type_ids)
         .bind(group_id)
         .bind(НА_СЛУЖБУ)
         .bind(интервал as f64)
-        .execute(pool)
-        .await?
-        .rows_affected();
+        .fetch_all(pool)
+        .await?;
 
-    Ok(роздано as i64)
+    выдать_копии(pool, lesson_id, &выдача).await
+}
+
+/// Выдать занятию копии учебных происшествий: у каждой выдачи своя
+/// карточка со своими статусами, бригадой и разбором. Иначе одно
+/// происшествие в двух занятиях делило бы всю работу по нему
+/// (UX-проход 2, проблема A). `выдача` — исходник и через сколько
+/// секунд от начала занятия он приходит.
+async fn выдать_копии(pool: &sqlx::PgPool, lesson_id: Uuid, выдача: &[(Uuid, f64)]) -> AppResult<i64> {
+    let mut tx = pool.begin().await?;
+    for (исходник, через) in выдача {
+        let копия: Uuid = sqlx::query_scalar(
+            "INSERT INTO cards (created_by, workstation, phone_aon, phone_provided, phone_on_site,
+                                applicant_name, applicant_status, address, description, victims,
+                                no_contact, call_dropped, type_ids, answers, outcome_type,
+                                saved_at, origin, title, approved_at, approved_by, source_card_id)
+             SELECT created_by, workstation, phone_aon, phone_provided, phone_on_site,
+                    applicant_name, applicant_status, address, description, victims,
+                    no_contact, call_dropped, type_ids, answers, outcome_type,
+                    saved_at, origin, title, approved_at, approved_by, id
+               FROM cards WHERE id = $1
+             RETURNING id",
+        )
+        .bind(исходник)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO card_services (card_id, service_id, source, added_at)
+             SELECT $2, service_id, source, added_at FROM card_services WHERE card_id = $1",
+        )
+        .bind(исходник)
+        .bind(копия)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO lesson_cards (lesson_id, card_id, release_at)
+             VALUES ($1, $2, now() + make_interval(secs => $3::float8))",
+        )
+        .bind(lesson_id)
+        .bind(копия)
+        .bind(через)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(выдача.len() as i64)
 }
 
 #[utoipa::path(

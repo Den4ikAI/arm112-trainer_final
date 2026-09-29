@@ -108,8 +108,13 @@ type Row = (
 const SELECT: &str = "SELECT c.id, c.number, c.title, c.approved_at, c.applicant_name,
         c.applicant_status, c.phone_aon, c.address, c.description, c.victims,
         c.type_ids, c.answers, c.outcome_type, c.created_at,
-        (SELECT count(DISTINCT lesson_id) FROM lesson_cards lc WHERE lc.card_id = c.id)
-   FROM cards c WHERE c.origin = 'teacher'";
+        (SELECT count(DISTINCT lc.lesson_id) FROM lesson_cards lc
+           JOIN cards k ON k.id = lc.card_id
+          WHERE k.id = c.id OR k.source_card_id = c.id)
+   FROM cards c WHERE c.origin = 'teacher'
+    -- Копии, выданные занятиями, — не учебный материал: их не видно,
+    -- не правят и не удаляют (404)
+    AND c.source_card_id IS NULL";
 
 async fn load(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Incident> {
     let row: Option<Row> = sqlx::query_as(&format!("{SELECT} AND c.id = $1"))
@@ -223,10 +228,13 @@ async fn write(pool: &sqlx::PgPool, id: Uuid, input: &IncidentInput) -> AppResul
 }
 
 /// Выдано ли уже в занятии: такую карточку править и удалять нельзя —
-/// по ней есть работа курсантов.
+/// по ней есть работа курсантов. Занятие выдаёт копию (`source_card_id`),
+/// но и по копии — работа курсантов, а удалённый исходник вывел бы свои
+/// копии в «Учебный материал». Выданное до копий — в `lesson_cards` само.
 async fn in_use(pool: &sqlx::PgPool, id: Uuid) -> AppResult<bool> {
     Ok(sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM lesson_cards WHERE card_id = $1)
+             OR EXISTS (SELECT 1 FROM cards WHERE source_card_id = $1)
              OR EXISTS (SELECT 1 FROM response_entries WHERE card_id = $1)",
     )
     .bind(id)
