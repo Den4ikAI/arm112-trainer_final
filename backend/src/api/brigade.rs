@@ -291,7 +291,7 @@ pub async fn load(
 
     let norm = setting(pool, "brigade.update_norm_sec", 30.0).await as i64;
     let intake = intake(pool, card_id, service_id, &statuses).await?;
-    let debrief = brigade::grade(&brigade::Input {
+    let mut debrief = brigade::grade(&brigade::Input {
         accepted_at,
         assigned_at: assignment.as_ref().map(|a| a.2),
         reports: reports
@@ -307,6 +307,10 @@ pub async fn load(
         intake,
         now: Utc::now(),
     });
+    // Балл — по весам преподавателя (domain::weights); при равных
+    // весах совпадает с разбором domain::brigade
+    let weights = crate::domain::weights::load(pool).await;
+    debrief.score = crate::domain::weights::score_dds(&debrief.findings, &weights);
 
     let reports = reports
         .into_iter()

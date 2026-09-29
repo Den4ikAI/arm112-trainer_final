@@ -216,6 +216,8 @@ fn предел(key: &str) -> Option<(f64, f64)> {
         "applicant.live_model" => (0.0, 1.0),
         // 0 — авто, 1 — кросс-энкодер, 2 — языковая модель (domain::text_analysis)
         "analysis.engine" => (0.0, 2.0),
+        // Веса групп проверок разбора (domain::weights)
+        k if k.starts_with("weight.") => (0.0, 5.0),
         _ => return None,
     })
 }

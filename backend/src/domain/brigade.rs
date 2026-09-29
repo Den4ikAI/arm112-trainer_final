@@ -169,7 +169,7 @@ impl DdsFindingKind {
     /// 1, пропущенное — 2, неверное — 3. Статус не по факту весит как
     /// пропуск: в карточке видят этап, которого, может быть, ещё нет,
     /// и соседние службы строят на этом свои действия.
-    fn weight(self) -> i32 {
+    pub(crate) fn weight(self) -> i32 {
         match self {
             Self::Ok => 0,
             Self::Late | Self::OpenedLate | Self::FirstRecordLate | Self::FirstRecordNoText => 1,

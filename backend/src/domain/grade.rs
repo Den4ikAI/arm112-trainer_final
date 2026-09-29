@@ -437,13 +437,16 @@ pub async fn grade(input: GradeInput<'_>) -> Result<Grade> {
     }
 
     let over_norm = input.elapsed_sec > input.norm_sec;
-    let penalty: i32 =
-        findings.iter().map(|f| f.kind.weight()).sum::<i32>() + if over_norm { 2 } else { 0 };
-    // +2 — сам норматив и тип происшествия: чтобы одна ошибка
-    // в короткой карточке не обнуляла оценку
-    let total = (findings.len() as i32 + 2).max(1);
-    let score = (100.0 * (1.0 - penalty as f64 / (total * 3) as f64)).round() as i32;
-    let score = score.clamp(0, 100);
+    // Балл — взвешенная доля пройденных проверок; веса задаёт
+    // преподаватель (domain::weights). При равных весах — прежняя
+    // формула: штраф от 0 до 3 за замечание, плюс норматив и тип
+    let weights = crate::domain::weights::load(pool).await;
+    let score = crate::domain::weights::score_112(
+        &findings,
+        over_norm,
+        crate::domain::weights::TextChecks { ready: false, issues: 0 },
+        &weights,
+    );
 
     Ok(Grade {
         findings,
