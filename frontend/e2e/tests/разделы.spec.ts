@@ -106,3 +106,37 @@ test.describe('Разделы курсанта', () => {
       await expect(page.getByTestId('service-tab-mchs')).toContainText('Принята');
     });
 });
+
+test.describe('Панель обучающегося', () => {
+  test('у вызова без имени и телефона заявителя под номером нет одинокой запятой',
+    async ({ page }, info) => {
+      // UX-проход 1: у собранного вручную вызова имени и телефона нет,
+      // и под «Вызов № …» стояло «,»
+      const id = sql(`INSERT INTO scenarios (legend, applicant_name, applicant_phone, applicant_status,
+                                            norm_sec, expected, version_id, status, created_by)
+                      SELECT legend, '', '', applicant_status, norm_sec, expected, version_id,
+                             'approved', created_by
+                        FROM scenarios WHERE ticket = 3 AND call_no = 1 AND status = 'approved'
+                       LIMIT 1 RETURNING id`).trim();
+      const задание = sql(`
+        WITH u AS (SELECT id FROM users WHERE login = '${USERS.operator}'),
+             g AS (SELECT group_id FROM group_members WHERE user_id = (SELECT id FROM u) LIMIT 1),
+             t AS (SELECT id FROM users WHERE login = 'teacher1'),
+             l AS (INSERT INTO lessons (group_id, teacher_id, title, mode, started_at)
+                   SELECT g.group_id, t.id, 'выдача вызова', 'card112', now() FROM g, t
+                   RETURNING id, group_id)
+        INSERT INTO assignments (lesson_id, group_id, user_id, scenario_id, created_by, seq)
+        SELECT l.id, l.group_id, u.id, '${id}', t.id, 1 FROM l, t, u RETURNING id`).trim();
+      try {
+        await login(page, info, USERS.operator);
+        await page.getByTestId('section-training').click();
+        await page.getByTestId(`launch-${задание}`).click();
+        await page.getByTestId('card-timer').waitFor();
+        await expect(page.getByLabel('Панель обучающегося')).toContainText('Вызов №');
+        await expect(page.getByLabel('Панель обучающегося').locator('header')).not.toContainText(',');
+      } finally {
+        sql(`UPDATE lessons SET finished_at = now()
+              WHERE id = (SELECT lesson_id FROM assignments WHERE id = '${задание}')`);
+      }
+    });
+});

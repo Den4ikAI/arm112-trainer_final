@@ -165,13 +165,17 @@ export const TrainerHud = ({ scenario, revealed, transcript, elapsedSec, onAsk, 
 
   const voiceTalk = !!voiceSt?.asr && canRecord();
   const micBlocked = voiceSt?.asr ? micBlockedReason() : null;
+  // У вызовов, собранных вручную или моделью, имени и телефона может не
+  // быть — без них под номером вызова висела одинокая запятая
+  const заявитель = [scenario.applicantName, scenario.applicantPhone]
+    .map((v) => v?.trim()).filter(Boolean).join(', ');
 
   return (
     <aside className={clsx(s.hud, collapsed && s.collapsed)} aria-label="Панель обучающегося">
       <header className={s.head}>
         <div>
           <div className={s.badge}>{scenarioTitle(scenario)}</div>
-          <div className={s.sub}>{scenario.applicantName}, {scenario.applicantPhone}</div>
+          {заявитель && <div className={s.sub} data-testid="hud-applicant">{заявитель}</div>}
         </div>
         <div className={s.headRight}>
           {voiceSt?.tts && (
