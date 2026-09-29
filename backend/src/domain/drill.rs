@@ -46,17 +46,50 @@ pub fn in_segment(field: &str, segment: &str) -> bool {
     }
 }
 
-/// Балл по замечаниям: та же шкала, что у полного разбора (угадал и
-/// лишнее — 1, не заполнено — 2, ошибка — 3), но без норматива
-/// времени и без поправки на короткую карточку. Блиц — упражнение
-/// на точность одного сегмента, время в нём не оценивается.
-pub fn score_of(findings: &[Finding]) -> i32 {
-    if findings.is_empty() {
+/// Засчитанная доля одной проверки сегмента.
+///
+/// Верность поля — та же, что в полном разборе (`domain::grade`):
+/// верно — вся проверка; угадано без вопроса — значение верное, и,
+/// как в полном разборе, засчитано две трети. Не заполнено, ошибка и
+/// лишняя служба в блице — ноль: упражнение на то, заполнен ли сегмент
+/// верно, и пустой сегмент не должен давать баллов. Наше допущение.
+fn passed(kind: FindingKind) -> f64 {
+    match kind {
+        FindingKind::Ok => 1.0,
+        FindingKind::Guessed => 1.0 - FindingKind::Guessed.weight() as f64 / 3.0,
+        FindingKind::Wrong | FindingKind::Missing | FindingKind::Extra => 0.0,
+    }
+}
+
+/// Балл блица — доля верных проверок сегмента, без норматива времени
+/// и без поправки на короткую карточку: блиц — упражнение на точность
+/// одного сегмента, время в нём не оценивается.
+///
+/// Верные поля адреса и опросной карты в разборе есть замечаниями
+/// «верно», а верно выбранные службы и тип — нет: разбор перечисляет
+/// только пропущенные и лишние. Их проверки добавляем здесь: каждая
+/// эталонная служба, которую курсант выбрал, и тип, если он не
+/// пропущен. Иначе почти верный сегмент и пустой получали один балл.
+pub fn segment_score(g: &Grade, segment: &str) -> i32 {
+    let mut checks: Vec<f64> = g
+        .findings
+        .iter()
+        .filter(|f| in_segment(&f.field, segment))
+        .map(|f| passed(f.kind))
+        .collect();
+    match segment {
+        "services" => {
+            let chosen = g.services.expected.iter().filter(|s| !g.services.missed.contains(s));
+            checks.extend(chosen.map(|_| 1.0));
+        }
+        "type" if !g.findings.iter().any(|f| f.field == "typeIds") => checks.push(1.0),
+        _ => {}
+    }
+    if checks.is_empty() {
         return 100;
     }
-    let penalty: i32 = findings.iter().map(|f| f.kind.weight()).sum();
-    let max = findings.len() as i32 * 3;
-    ((100.0 * (1.0 - penalty as f64 / max as f64)).round() as i32).clamp(0, 100)
+    let sum: f64 = checks.iter().sum();
+    ((100.0 * sum / checks.len() as f64).round() as i32).clamp(0, 100)
 }
 
 /// Разбор блица: только поля сегмента и балл по ним.
@@ -65,8 +98,8 @@ pub fn score_of(findings: &[Finding]) -> i32 {
 /// показе. Так преподаватель в отчётах по-прежнему видит карточку
 /// целиком, а курсант — то, на чём было упражнение.
 pub fn restrict(mut g: Grade, segment: &str) -> Grade {
+    g.score = segment_score(&g, segment);
     g.findings.retain(|f| in_segment(&f.field, segment));
-    g.score = score_of(&g.findings);
     // Время в блице не оценивается: не красим его как нарушение
     g.over_norm = false;
     g.segment = Some(segment.to_string());
@@ -143,8 +176,84 @@ mod tests {
             ]),
             "services",
         );
-        // 2 штрафа из 6 возможных
-        assert_eq!(g.score, 67);
+        // Из двух эталонных служб выбрана одна: ошибка адреса не в счёт
+        assert_eq!(g.score, 50);
+    }
+
+    fn службы(expected: &[&str], missed: &[&str], extra: &[&str]) -> ServiceDiff {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        ServiceDiff { expected: v(expected), actual: vec![], missed: v(missed), extra: v(extra) }
+    }
+
+    #[test]
+    fn блиц_пустой_адрес_ноль_почти_верный_выше_верный_сто() {
+        let пустой = restrict(
+            разбор(vec![
+                f(FindingKind::Missing, "address.street"),
+                f(FindingKind::Missing, "address.house"),
+                f(FindingKind::Missing, "address.settlement"),
+            ]),
+            "address",
+        );
+        assert_eq!(пустой.score, 0);
+
+        let почти = restrict(
+            разбор(vec![
+                f(FindingKind::Ok, "address.street"),
+                f(FindingKind::Ok, "address.house"),
+                f(FindingKind::Ok, "address.settlement"),
+                f(FindingKind::Missing, "address.flat"),
+            ]),
+            "address",
+        );
+        assert_eq!(почти.score, 75);
+
+        let верный = restrict(
+            разбор(vec![
+                f(FindingKind::Ok, "address.street"),
+                f(FindingKind::Ok, "address.house"),
+            ]),
+            "address",
+        );
+        assert_eq!(верный.score, 100);
+    }
+
+    #[test]
+    fn блиц_по_службам_считает_верно_выбранные() {
+        let mut пусто = разбор(vec![
+            f(FindingKind::Missing, "service.mchs"),
+            f(FindingKind::Missing, "service.smp"),
+            f(FindingKind::Missing, "service.mvd"),
+        ]);
+        пусто.services = службы(&["mchs", "smp", "mvd"], &["mchs", "smp", "mvd"], &[]);
+        assert_eq!(restrict(пусто, "services").score, 0);
+
+        // Две из трёх выбраны, одна лишняя: 2 верных проверки из 4
+        let mut почти = разбор(vec![
+            f(FindingKind::Missing, "service.mvd"),
+            f(FindingKind::Extra, "service.moslift"),
+        ]);
+        почти.services = службы(&["mchs", "smp", "mvd"], &["mvd"], &["moslift"]);
+        assert_eq!(restrict(почти, "services").score, 50);
+
+        let mut верно = разбор(vec![]);
+        верно.services = службы(&["mchs", "smp"], &[], &[]);
+        assert_eq!(restrict(верно, "services").score, 100);
+    }
+
+    #[test]
+    fn блиц_по_типу_засчитывает_выбранный_тип() {
+        let пустой = restrict(
+            разбор(vec![
+                f(FindingKind::Missing, "typeIds"),
+                f(FindingKind::Missing, "answers.101-p1"),
+            ]),
+            "type",
+        );
+        assert_eq!(пустой.score, 0);
+
+        let верный = restrict(разбор(vec![f(FindingKind::Ok, "answers.101-p1")]), "type");
+        assert_eq!(верный.score, 100);
     }
 
     #[test]
