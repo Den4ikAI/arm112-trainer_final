@@ -44,6 +44,8 @@ export interface ScenarioBrief {
   questionsCount: number;
   status: 'draft' | 'approved' | 'archived';
   createdAt: string;
+  /** Тема от преподавателя: «Пожар в жилом доме — вызов 1» */
+  title?: string | null;
 }
 
 export const scenarios = {

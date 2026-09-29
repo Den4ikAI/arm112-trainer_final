@@ -59,10 +59,20 @@ pub async fn sweep(pool: &PgPool, hub: &Hub) -> anyhow::Result<usize> {
     // Незавершённые карточки: завершённые и проверенные пересчитывать
     // незачем, а их со временем станет большинство
     let cards: Vec<(Uuid, String, i64)> = sqlx::query_as(
-        "SELECT id, status::text, EXTRACT(EPOCH FROM (now() - saved_at))::bigint
-           FROM cards
-          WHERE saved_at IS NOT NULL
-            AND status::text NOT IN ('Завершена', 'Проверена')",
+        // Учебное происшествие преподавателя живёт как происшествие только
+        // с выдачи в запущенном занятии: до неё статуса у него нет, и
+        // время норматива идёт от выдачи, а не от утверждения
+        "SELECT c.id, c.status::text,
+                EXTRACT(EPOCH FROM (now() - COALESCE(rel.release_at, c.saved_at)))::bigint
+           FROM cards c
+           LEFT JOIN LATERAL (
+                 SELECT min(lc.release_at) AS release_at
+                   FROM lesson_cards lc JOIN lessons l ON l.id = lc.lesson_id
+                  WHERE lc.card_id = c.id AND l.started_at IS NOT NULL
+                    AND lc.release_at <= now()) rel ON TRUE
+          WHERE c.saved_at IS NOT NULL
+            AND c.status::text NOT IN ('Завершена', 'Проверена')
+            AND (c.origin <> 'teacher' OR rel.release_at IS NOT NULL)",
     )
     .fetch_all(pool)
     .await?;

@@ -132,6 +132,8 @@ pub struct ScenarioBrief {
     /// легендой: у подготовленных моделью и заведённых вручную номера
     /// билета нет, и преподаватель видел ряд одинаковых подписей
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// Тема, которую дал преподаватель: «Пожар в жилом доме — вызов 1»
+    pub title: Option<String>,
 }
 
 /// Список вызовов, которые можно взять в работу. Эталон не отдаётся
@@ -160,7 +162,7 @@ async fn list_scenarios(
     // Вне занятия список открыт — иначе тренажёром нельзя
     // пользоваться для самостоятельной отработки
     let items: Vec<ScenarioBrief> = sqlx::query_as(
-        "SELECT s.id, s.ticket, s.call_no, s.legend, s.norm_sec,
+        "SELECT s.id, s.ticket, s.call_no, s.legend, s.norm_sec, s.title,
                 (SELECT count(*) FROM scenario_hidden_facts f
                   WHERE f.scenario_id = s.id AND NOT f.retired) AS questions_count,
                 s.status::text AS status, s.created_at

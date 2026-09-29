@@ -181,6 +181,9 @@ async fn list(
                     ON $9::uuid IS NOT NULL
              WHERE c.saved_at IS NOT NULL
                AND ($9::uuid IS NULL OR (c.origin = 'teacher' AND rel.release_at IS NOT NULL))
+               -- Учебное происшествие преподавателя до выдачи — учебный
+               -- материал, а не происшествие: в реестре его нет
+               AND (c.origin <> 'teacher' OR EXISTS (SELECT 1 FROM lesson_cards lci JOIN lessons li ON li.id = lci.lesson_id WHERE lci.card_id = c.id AND li.started_at IS NOT NULL AND lci.release_at <= now()))
                AND ($1::text IS NULL OR EXISTS (
                      SELECT 1 FROM card_services cs
                       WHERE cs.card_id = c.id AND cs.service_id = $1))
@@ -235,6 +238,7 @@ async fn list(
     let total: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM cards c
           WHERE c.saved_at IS NOT NULL
+            AND (c.origin <> 'teacher' OR EXISTS (SELECT 1 FROM lesson_cards lci JOIN lessons li ON li.id = lci.lesson_id WHERE lci.card_id = c.id AND li.started_at IS NOT NULL AND lci.release_at <= now()))
             AND ($1::text IS NULL OR EXISTS (
                   SELECT 1 FROM card_services cs
                    WHERE cs.card_id = c.id AND cs.service_id = $1))
