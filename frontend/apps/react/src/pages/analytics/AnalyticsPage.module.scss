@@ -102,3 +102,6 @@
   text-align: center;
   font-size: 15px;
 }
+
+// Выбранная вкладка
+.on { background: var(--c-blue); border-color: var(--c-blue); color: #fff; }

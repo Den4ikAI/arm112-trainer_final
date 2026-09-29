@@ -8,6 +8,7 @@ import { ForecastBlock } from '@/widgets/forecast/ForecastBlock';
 import { AdviceBlock } from '@/widgets/advice/AdviceBlock';
 import clsx from '@/shared/lib/clsx';
 import s from './AnalyticsPage.module.scss';
+import { PeopleAnalytics } from '@/pages/teacher/PeopleAnalytics';
 
 /**
  * Аналитика по группе.
@@ -27,6 +28,9 @@ export const AnalyticsPage = () => {
   const [stats, setStats] = useState<GroupStats | null>(null);
   const [state, setState] = useState<'idle' | 'working' | 'error'>('idle');
   const [insights, setInsights] = useState<string | null>(null);
+  // Отчёт группы целиком — или люди: операторы 112 и диспетчеры ДДС,
+  // и каждый обучающийся отдельно
+  const [view, setView] = useState<'report' | 'people'>('report');
   const user = useSession((st) => st.user);
   const nav = useNavigate();
 
@@ -92,10 +96,19 @@ export const AnalyticsPage = () => {
         </div>
       </header>
 
-      {state === 'working' && <p className={s.empty}>Отчёт считается…</p>}
-      {state === 'error' && <p className={s.empty}>Не удалось получить отчёт.</p>}
+      <div className={s.tools} style={{ marginBottom: 12 }}>
+        <button className={clsx(s.plain, view === 'report' && s.on)} data-testid="analytics-report-tab"
+                onClick={() => setView('report')}>Отчёт группы</button>
+        <button className={clsx(s.plain, view === 'people' && s.on)} data-testid="analytics-people-tab"
+                onClick={() => setView('people')}>Операторы 112 и диспетчеры ДДС · по ученикам</button>
+      </div>
 
-      {stats && (
+      {view === 'people' && <PeopleAnalytics groupId={groupId} />}
+
+      {view === 'report' && state === 'working' && <p className={s.empty}>Отчёт считается…</p>}
+      {view === 'report' && state === 'error' && <p className={s.empty}>Не удалось получить отчёт.</p>}
+
+      {view === 'report' && stats && (
         <>
           <ForecastBlock groupId={groupId} />
           <AdviceBlock groupId={groupId} />

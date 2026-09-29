@@ -49,6 +49,8 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
                   onClick={() => nav('/scenarios')}>вызовы</button>
           <button className={s.link} data-testid="analytics-link"
                   onClick={() => nav('/analytics')}>аналитика</button>
+          <button className={s.link} data-testid="weights-link"
+                  onClick={() => nav('/weights')}>веса оценки</button>
         </>
       )}
       {!compact && user.role === 'admin' && (

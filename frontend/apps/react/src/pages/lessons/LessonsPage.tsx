@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ApiError, lessons, reports, scenarios as scenariosApi, SEGMENT_LABEL,
   type BlitzSegment, type GroupBrief, type LessonBrief, type LessonFull, type LessonKind,
@@ -25,6 +26,7 @@ import s from './LessonsPage.module.scss';
  * `session` и в интерфейсе зовётся вызовом.
  */
 export const LessonsPage = () => {
+  const nav = useNavigate();
   const [list, setList] = useState<LessonBrief[]>([]);
   const [groups, setGroups] = useState<GroupBrief[]>([]);
   const [current, setCurrent] = useState<LessonFull | null>(null);
@@ -384,6 +386,12 @@ export const LessonsPage = () => {
                             onClick={() => void действие(
                               () => lessons.start(current.id), 'Занятие не запустилось')}>
                       Начать обучение
+                    </button>
+                  )}
+                  {current.startedAt && (
+                    <button className={s.primary} data-testid="lesson-monitor-link"
+                            onClick={() => nav(`/lessons/${current.id}/monitor`)}>
+                      Ход занятия по местам
                     </button>
                   )}
                   {идёт(current) && (
