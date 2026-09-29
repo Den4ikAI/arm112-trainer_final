@@ -37,6 +37,13 @@ TRUNCATE advice, assignments, brigade_calls, brigade_reports, brigade_assignment
          card_services, lesson_cards, lessons, cards, scenario_chat,
          scenario_hidden_facts, scenarios, ml_jobs, group_members, training_groups,
          user_backups, audit_log CASCADE;
+-- Настройки и версии классификатора остаются, но помнят, кто их менял:
+-- без этого удаление учётной записи преподавателя, трогавшего «Параметры»
+-- или веса, упиралось во внешний ключ
+UPDATE settings SET updated_by = NULL
+ WHERE updated_by IN (SELECT id FROM users WHERE login <> 'admin');
+UPDATE classifier_versions SET imported_by = NULL
+ WHERE imported_by IN (SELECT id FROM users WHERE login <> 'admin');
 DELETE FROM users WHERE login <> 'admin';
 """
 
