@@ -68,6 +68,29 @@ export const scenarios = {
     api.put<ScenarioFull>(`/api/scenarios/${id}/statements`, body),
   prepareStatements: (id: string) => api.post<void>(`/api/scenarios/${id}/statements/prepare`),
   remove: (id: string) => api.del<void>(`/api/scenarios/${id}`),
+
+  /** Все вызовы с темой и статусом — список преподавателя. */
+  library: () => api.get<import('./types').LibraryItem[]>('/api/teacher/scenarios'),
+  /** Собрать вызов вручную. Эталон посчитает классификатор. */
+  createManual: (body: import('./types').NewScenario) =>
+    api.post<ScenarioFull>('/api/scenarios/manual', body),
+  /** Вызов по описанию: реплики пишет модель, эталон — классификатор. */
+  fromPrompt: (title: string, prompt: string) =>
+    api.post<ScenarioFull>('/api/scenarios/from-prompt', { title, prompt }),
+};
+
+/** Учебные происшествия ДДС — готовые карточки, собранные преподавателем. */
+export const ddsIncidents = {
+  list: () => api.get<import('./types').Incident[]>('/api/dds-incidents'),
+  one: (id: string) => api.get<import('./types').Incident>(`/api/dds-incidents/${id}`),
+  create: (body: import('./types').IncidentInput) =>
+    api.post<import('./types').Incident>('/api/dds-incidents', body),
+  update: (id: string, body: import('./types').IncidentInput) =>
+    api.put<import('./types').Incident>(`/api/dds-incidents/${id}`, body),
+  approve: (id: string) => api.post<import('./types').Incident>(`/api/dds-incidents/${id}/approve`),
+  remove: (id: string) => api.del<void>(`/api/dds-incidents/${id}`),
+  fromPrompt: (title: string, prompt: string) =>
+    api.post<import('./types').Incident>('/api/dds-incidents/from-prompt', { title, prompt }),
 };
 
 /**
@@ -178,6 +201,8 @@ export const lessons = {
     segment?: BlitzSegment;
     callCount?: number;
     scenarioIds?: string[];
+    /** Режим ДДС: учебные происшествия, выбранные преподавателем, по порядку */
+    cardIds?: string[];
   }) => api.post<LessonBrief>('/api/lessons', body),
   /** Итоговый протокол: преподавателю — все, курсанту — он сам. */
   protocol: (id: string) => api.get<Protocol>(`/api/lessons/${id}/protocol`),

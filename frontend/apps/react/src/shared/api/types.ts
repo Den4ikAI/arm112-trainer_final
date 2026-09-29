@@ -376,8 +376,77 @@ export interface HiddenRow {
   statement?: string | null;
 }
 
+/** Строка списка вызовов у преподавателя. */
+export interface LibraryItem {
+  id: string;
+  title: string | null;
+  ticket: number | null;
+  callNo: number | null;
+  legend: string;
+  status: 'draft' | 'approved' | 'archived';
+  /** generated — из билета, prompt — по описанию, manual — вручную */
+  source: string;
+  normSec: number;
+  outcome: string | null;
+  typeIds: string[];
+  questionsCount: number;
+  createdAt: string;
+}
+
+/** Вызов, собранный преподавателем вручную. */
+export interface NewScenario {
+  title: string;
+  legend: string;
+  applicantName?: string;
+  applicantPhone?: string;
+  applicantStatus?: string;
+  normSec?: number;
+  typeIds: string[];
+  answers: Record<string, string[]>;
+  address?: Record<string, string>;
+  hidden: Array<{ key: string; question: string; answer: string }>;
+}
+
+/** Учебное происшествие ДДС. */
+export interface Incident {
+  id: string;
+  number: string;
+  title: string | null;
+  status: 'draft' | 'approved';
+  applicantName: string;
+  applicantStatus: string;
+  phoneAon: string;
+  address: Record<string, string>;
+  description: string;
+  victims: number | null;
+  typeIds: string[];
+  answers: Record<string, string[]>;
+  outcomeType: string | null;
+  services: string[];
+  manualServices: string[];
+  classifyReason: string | null;
+  lessons: number;
+  createdAt: string;
+  approvedAt: string | null;
+}
+
+export interface IncidentInput {
+  title: string;
+  applicantName?: string;
+  applicantStatus?: string;
+  phoneAon?: string;
+  address?: Record<string, string>;
+  description?: string;
+  victims?: number | null;
+  typeIds: string[];
+  answers: Record<string, string[]>;
+  extraServices?: string[];
+}
+
 export interface ScenarioFull {
   id: string;
+  /** Тема вызова, как её назвал преподаватель */
+  title?: string | null;
   ticket: number | null;
   callNo: number | null;
   legend: string;

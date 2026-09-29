@@ -1,0 +1,29 @@
+@use '@styles/mixins' as m;
+
+.box { border: 1px solid var(--c-border); padding: var(--sp-2) var(--sp-3); margin: 0; }
+.box legend { font-size: 12px; font-weight: 600; padding: 0 4px; }
+
+.search { @include m.underline-input; width: 100%; margin-bottom: var(--sp-2); }
+
+.list {
+  display: grid;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  @include m.thin-scroll;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: auto 20px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+  padding: 4px 2px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.num { color: var(--c-blue); font-weight: 700; }
+.title { display: block; font-weight: 600; }
+.text { display: block; color: var(--c-text-muted); font-size: 11px; }
+.empty, .hint { margin: 4px 0 0; font-size: 11px; color: var(--c-text-muted); }

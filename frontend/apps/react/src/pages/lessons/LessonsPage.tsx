@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ApiError, lessons, reports, scenarios as scenariosApi, SEGMENT_LABEL,
-  type BlitzSegment, type GroupBrief, type LessonBrief, type LessonFull, type LessonKind,
-  type Protocol, type ScenarioBrief,
+  ApiError, ddsIncidents, lessons, reports, scenarios as scenariosApi, SEGMENT_LABEL,
+  type BlitzSegment, type GroupBrief, type Incident, type LessonBrief, type LessonFull,
+  type LessonKind, type LibraryItem, type Protocol,
 } from '@/shared/api';
 import { fmt } from '@/shared/lib/useTimer';
-import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import { useCatalog } from '@/entities/catalog/model';
 import { useSession } from '@/entities/session/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { GroupMembers } from '@/widgets/group-members/GroupMembers';
+import { LessonMaterialPicker } from '@/widgets/lesson-material/LessonMaterialPicker';
 import clsx from '@/shared/lib/clsx';
 import s from './LessonsPage.module.scss';
 
@@ -32,8 +32,10 @@ export const LessonsPage = () => {
   const [current, setCurrent] = useState<LessonFull | null>(null);
   // Итоговый протокол марафона и блица
   const [protocol, setProtocol] = useState<Protocol | null>(null);
-  // Утверждённые вызовы — из них преподаватель собирает марафон и блиц
-  const [approved, setApproved] = useState<ScenarioBrief[]>([]);
+  // Утверждённый материал — из него преподаватель собирает любое занятие:
+  // вызовы 112 и происшествия ДДС, в том числе собранные им самим
+  const [approved, setApproved] = useState<LibraryItem[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
@@ -56,6 +58,8 @@ export const LessonsPage = () => {
     // Выбранные поимённо вызовы, в порядке выбора. Пусто — подберёт
     // система по категориям
     scenarioIds: [] as string[],
+    // Режим ДДС: учебные происшествия, выбранные поимённо
+    cardIds: [] as string[],
   });
 
   const reload = useCallback(async (pick?: string) => {
@@ -73,8 +77,12 @@ export const LessonsPage = () => {
         const [гр, зан] = await Promise.all([reports.groups(), lessons.list()]);
         setGroups(гр);
         setList(зан);
-        const все = await scenariosApi.list().catch(() => [] as ScenarioBrief[]);
+        const [все, происшествия] = await Promise.all([
+          scenariosApi.library().catch(() => [] as LibraryItem[]),
+          ddsIncidents.list().catch(() => [] as Incident[]),
+        ]);
         setApproved(все.filter((sc) => sc.status === 'approved'));
+        setIncidents(происшествия.filter((i) => i.status === 'approved'));
         setForm((f) => ({ ...f, groupId: f.groupId || (гр[0]?.id ?? '') }));
       } catch (e) {
         setError(e instanceof ApiError ? (e.detail ?? e.message) : 'Нет связи с сервером');
@@ -127,13 +135,16 @@ export const LessonsPage = () => {
         ...(form.mode === 'dds' ? { cardIntervalSec: form.cardIntervalSec } : {}),
         kind: form.kind,
         ...(сегмент ? { segment: сегмент } : {}),
-        ...(упражнение && form.mode === 'card112'
+        // Выбранные поимённо — в любом виде занятия. Не выбрано: упражнению
+        // — сколько вызовов подобрать, обычному — подберёт система
+        ...(form.mode === 'card112'
           ? (form.scenarioIds.length > 0
             ? { scenarioIds: form.scenarioIds }
-            : { callCount: form.callCount })
+            : упражнение ? { callCount: form.callCount } : {})
           : {}),
+        ...(form.mode === 'dds' && form.cardIds.length > 0 ? { cardIds: form.cardIds } : {}),
       });
-      setForm((f) => ({ ...f, title: '', scenarioIds: [] }));
+      setForm((f) => ({ ...f, title: '', scenarioIds: [], cardIds: [] }));
       await reload(созданное.id);
     }, 'Занятие не собралось');
 
@@ -150,14 +161,6 @@ export const LessonsPage = () => {
   const идёт = (l: LessonBrief) => !!l.startedAt && !l.finishedAt;
   const состояние = (l: LessonBrief) =>
     l.finishedAt ? 'завершено' : l.startedAt ? 'идёт' : 'собрано';
-
-  const выбрать_вызов = (id: string) =>
-    setForm((f) => ({
-      ...f,
-      scenarioIds: f.scenarioIds.includes(id)
-        ? f.scenarioIds.filter((v) => v !== id)
-        : [...f.scenarioIds, id],
-    }));
 
   const ВИД: Record<LessonKind, string> = {
     training: 'обычное занятие',
@@ -223,9 +226,11 @@ export const LessonsPage = () => {
                       data-testid="lesson-kind"
                       onChange={(e) => setForm({ ...form, kind: e.target.value as LessonKind })}>
                 <option value="training">Обычное занятие</option>
-                {form.mode === 'card112' && (
-                  <option value="marathon">Марафон — экзамен на 5–10 вызовов подряд</option>
-                )}
+                <option value="marathon">
+                  {form.mode === 'card112'
+                    ? 'Экзамен (марафон) — 5–10 вызовов подряд'
+                    : 'Экзамен (марафон) — происшествия подряд'}
+                </option>
                 <option value="blitz">Блиц — серия заданий на один сегмент</option>
               </select>
             </label>
@@ -247,37 +252,25 @@ export const LessonsPage = () => {
             )}
 
             {form.kind !== 'training' && form.mode === 'card112' && (
-              <>
-                <label className={s.field}>
-                  <span>Вызовов{form.scenarioIds.length > 0 ? ' (выбраны ниже)' : ''}</span>
-                  <input type="number" aria-label="Число вызовов" data-testid="lesson-count"
-                         min={form.kind === 'marathon' ? 5 : 3} max={10}
-                         disabled={form.scenarioIds.length > 0}
-                         value={form.scenarioIds.length || form.callCount}
-                         onChange={(e) => setForm({ ...form, callCount: Number(e.target.value) })} />
-                </label>
-                <fieldset className={s.types}>
-                  <legend>Вызовы по порядку (необязательно)</legend>
-                  {approved.length === 0 && <p className={s.empty}>Утверждённых вызовов нет</p>}
-                  {approved.map((sc) => {
-                    const номер = form.scenarioIds.indexOf(sc.id);
-                    return (
-                      <label key={sc.id} className={s.type}>
-                        <input type="checkbox" checked={номер >= 0}
-                               data-testid={`lesson-pick-${sc.id}`}
-                               onChange={() => выбрать_вызов(sc.id)} />
-                        <span>{номер >= 0 ? `${номер + 1}. ` : ''}{scenarioTitle(sc)}</span>
-                      </label>
-                    );
-                  })}
-                  <p className={s.hint}>
-                    {form.scenarioIds.length === 0
-                      ? 'Не выбрано — система подберёт по категориям'
-                      : `Выбрано: ${form.scenarioIds.length}`}
-                  </p>
-                </fieldset>
-              </>
+              <label className={s.field}>
+                <span>Вызовов{form.scenarioIds.length > 0 ? ' (выбраны ниже)' : ''}</span>
+                <input type="number" aria-label="Число вызовов" data-testid="lesson-count"
+                       min={form.kind === 'marathon' ? 5 : 3} max={10}
+                       disabled={form.scenarioIds.length > 0}
+                       value={form.scenarioIds.length || form.callCount}
+                       onChange={(e) => setForm({ ...form, callCount: Number(e.target.value) })} />
+              </label>
             )}
+
+            <LessonMaterialPicker
+              mode={form.mode}
+              scenarios={approved}
+              incidents={incidents}
+              picked={form.mode === 'card112' ? form.scenarioIds : form.cardIds}
+              onChange={(ids) => setForm((f) => (f.mode === 'card112'
+                ? { ...f, scenarioIds: ids }
+                : { ...f, cardIds: ids }))}
+            />
 
             {form.mode === 'dds' && (
               <label className={s.field}>

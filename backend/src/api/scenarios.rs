@@ -637,7 +637,9 @@ async fn library(
                 s.created_at
            FROM scenarios s
           WHERE s.status <> 'archived'
-          ORDER BY s.created_at DESC",
+          -- Тот же порядок, что у списка курсанта: билеты впереди.
+          -- Только что созданный вызов интерфейс открывает сам
+          ORDER BY s.ticket NULLS LAST, s.call_no NULLS LAST, s.created_at DESC",
     )
     .fetch_all(&state.db)
     .await?;

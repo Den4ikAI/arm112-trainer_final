@@ -178,3 +178,42 @@
 @media (max-width: 1200px) {
   .body, .detail { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Вкладки по рабочим местам: вызовы 112 и происшествия ДДС */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  border-bottom: 2px solid var(--c-border);
+}
+
+.tab {
+  padding: var(--sp-2) var(--sp-4);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.tabOn { color: var(--c-text); border-bottom-color: var(--c-blue); }
+.count { font-weight: 400; color: var(--c-text-muted); }
+.tabTools { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--sp-2); padding-bottom: 4px; }
+
+.itemOk { font-weight: 400; color: #2e7d32; }
+.itemMeta { color: var(--c-text-muted); font-size: 11px; }
+.cardTitle { font-size: 14px; }
+
+/* Конструктор и происшествие ДДС — во всю ширину, без колонки переписки */
+.detailWide { min-width: 0; }
+
+@media (max-width: 900px) {
+  .body, .detail { grid-template-columns: 1fr; }
+  .tabTools { margin-left: 0; }
+}

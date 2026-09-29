@@ -12,7 +12,10 @@ export const scenarioTitle = (sc: {
   ticket: number | null;
   callNo: number | null;
   createdAt?: string;
+  /** Тема, которую дал преподаватель, — она понятнее номера */
+  title?: string | null;
 }): string => {
+  if (sc.title) return sc.title;
   if (sc.ticket != null) {
     return sc.callNo != null ? `Билет ${sc.ticket} · вызов ${sc.callNo}` : `Билет ${sc.ticket}`;
   }
