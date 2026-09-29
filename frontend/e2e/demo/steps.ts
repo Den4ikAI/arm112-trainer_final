@@ -35,9 +35,63 @@ export const login = async (d: Demo, user: string): Promise<void> => {
   await d.type(p.locator('input[name="login"]'), user, 60);
   await d.type(p.locator('input[name="password"]'), PASSWORD, 40);
   await d.click(p.getByTestId('login-submit'));
-  // Журнал есть у всех; «Учебные вызовы» — только у оператора 112
-  await p.getByLabel('Поиск происшествий').waitFor({ timeout: 60_000 });
+  // У курсанта — разделы выданного, у преподавателя — журнал с поиском
+  await p.getByTestId('student-work').or(p.getByLabel('Поиск происшествий'))
+    .first().waitFor({ timeout: 60_000 });
   await d.pause(500);
+};
+
+/**
+ * Преподаватель выдал курсанту вызов билета занятием (как в e2e/tests/helpers.ts):
+ * курсант сам ничего не берёт из журнала, всё выдаёт преподаватель.
+ */
+const issueCall = (ctx: Ctx, user: string, ticket = 3, callNo = 1): void => {
+  sql(ctx, `
+    DO $$
+    DECLARE u uuid; g uuid; t uuid; sc uuid; l uuid;
+    BEGIN
+      SELECT id INTO u FROM users WHERE login = '${user}';
+      SELECT id INTO t FROM users WHERE login = 'teacher1';
+      SELECT id INTO sc FROM scenarios WHERE ticket = ${ticket} AND call_no = ${callNo}
+        AND status = 'approved' LIMIT 1;
+      SELECT group_id INTO g FROM group_members WHERE user_id = u LIMIT 1;
+      IF g IS NULL THEN
+        INSERT INTO training_groups (title, teacher_id)
+          VALUES ('Группа 112', t) RETURNING id INTO g;
+        INSERT INTO group_members (group_id, user_id) VALUES (g, u);
+      END IF;
+      UPDATE lessons SET finished_at = now()
+       WHERE group_id = g AND title = 'Пожар в частном доме' AND finished_at IS NULL;
+      INSERT INTO lessons (group_id, teacher_id, title, mode, started_at)
+        VALUES (g, t, 'Пожар в частном доме', 'card112', now()) RETURNING id INTO l;
+      INSERT INTO assignments (lesson_id, group_id, user_id, scenario_id, created_by, seq)
+        VALUES (l, g, u, sc, t, 1);
+    END $$;`);
+};
+
+/**
+ * Преподаватель выдал диспетчеру ДДС карточку как учебное происшествие в
+ * занятии ДДС. Карточки курсантов 112 к диспетчерам сами не попадают.
+ */
+const issueIncident = (ctx: Ctx, number: string, user: string): void => {
+  sql(ctx, `
+    DO $$
+    DECLARE u uuid; g uuid; t uuid; c uuid; l uuid;
+    BEGIN
+      SELECT id INTO u FROM users WHERE login = '${user}';
+      SELECT id INTO t FROM users WHERE login = 'teacher1';
+      SELECT id INTO c FROM cards WHERE number = '${number}';
+      UPDATE cards SET origin = 'teacher', saved_at = now() WHERE id = c;
+      SELECT group_id INTO g FROM group_members WHERE user_id = u LIMIT 1;
+      IF g IS NULL THEN
+        INSERT INTO training_groups (title, teacher_id)
+          VALUES ('Группа ДДС', t) RETURNING id INTO g;
+        INSERT INTO group_members (group_id, user_id) VALUES (g, u);
+      END IF;
+      INSERT INTO lessons (group_id, teacher_id, title, mode, started_at, finished_at)
+        VALUES (g, t, 'Пожар в частном доме', 'dds', now(), now()) RETURNING id INTO l;
+      INSERT INTO lesson_cards (lesson_id, card_id, release_at) VALUES (l, c, now());
+    END $$;`);
 };
 
 export const intro = async (d: Demo): Promise<void> => {
@@ -56,17 +110,7 @@ export const teacherPrepare = async (d: Demo, ctx: Ctx): Promise<void> => {
   await login(d, 'teacher1');
   await d.click(p.getByTestId('scenarios-link'));
   await expect(p.getByTestId('legend')).toBeVisible();
-  await d.say('Преподаватель готовит учебные вызовы. Языковая модель пишет их по билетам заказчика, а эталон берётся из классификатора.');
-
-  if (ctx.profile === 'gpu') {
-    await d.sayWhile('Модель готовит новые вызовы из билетов.', async () => {
-      await d.click(p.getByTestId('generate'));
-      await expect(p.getByTestId('generate-note')).toBeVisible({ timeout: 300_000 });
-    }, 'подготовка идёт в фоновой очереди');
-    // Свежий черновик — в конце списка
-    const draft = p.locator('[data-testid^="scenario-"]', { hasText: 'черновик' }).first();
-    if (await visible(draft)) await d.click(draft);
-  }
+  await d.say('Преподаватель готовит учебные вызовы. Языковая модель пишет их по билетам, а эталон берётся из классификатора.');
 
   await d.ring(p.getByTestId('legend'));
   await d.say('Вызов — это легенда заявителя и скрытые факты: их курсант должен выяснить вопросами.');
@@ -110,9 +154,12 @@ const applicantAnswers = async (d: Demo, ctx: Ctx, before: number): Promise<void
 export const operator112 = async (d: Demo, ctx: Ctx): Promise<void> => {
   const p = d.page;
   await d.caption('Оператор 112');
+  issueCall(ctx, 'student1', 3, 1);
   await login(d, 'student1');
-  await d.say('Курсант в роли оператора [112|сто двенадцать] берёт вызов из журнала.');
-  await d.click(p.getByTestId('launch-t3-c1'));
+  await d.say('Курсант в роли оператора [112|сто двенадцать] открывает вызов, который преподаватель выдал ему в занятии.');
+  const section = p.getByTestId('section-training');
+  if (await visible(section)) await d.click(section);
+  await d.click(p.getByTestId('launch-t3-c1').first());
   await p.getByTestId('card-timer').waitFor();
   ctx.number = (await p.getByTestId('card-number').innerText()).trim();
   // Пол заявителя — по отчеству в шапке панели, как у самого приложения
@@ -122,7 +169,7 @@ export const operator112 = async (d: Demo, ctx: Ctx): Promise<void> => {
   // Заявитель начинает разговор — приложение озвучивает легенду
   await d.app(await lastApplicant(d), ctx.applicantVoice);
   await d.ring(p.getByTestId('transcript'));
-  await d.say('Карточка — копия боевой системы. Идёт таймер, заявитель говорит первую фразу.');
+  await d.say('Карточка в форме АРМ-[112|сто двенадцать]. Идёт таймер, заявитель говорит первую фразу.');
   await d.ring(null);
 
   const lines = p.getByTestId('transcript').locator('li');
@@ -161,7 +208,7 @@ export const operator112 = async (d: Demo, ctx: Ctx): Promise<void> => {
 
   const bar = p.getByRole('contentinfo', { name: 'Список оповещения' });
   if (await visible(bar)) await d.ring(bar);
-  await d.say('Службы подтянулись сами: по классификатору заказчика — из [1283|тысячи двухсот восьмидесяти трёх] позиций.');
+  await d.say('Службы подтянулись сами: по классификатору — из [1283|тысячи двухсот восьмидесяти трёх] позиций.');
   await d.ring(null);
 
   await d.sayWhile('Описание со слов заявителя курсант пишет своими словами. Здесь он ошибся: заявитель сказал, что пострадавших нет.', async () => {
@@ -251,16 +298,17 @@ const stageNow = (ctx: Ctx, stage: string, ago = 30): void => {
 export const dispatcherDds = async (d: Demo, ctx: Ctx): Promise<void> => {
   const p = d.page;
   await d.caption('Диспетчер ДДС');
-  // В жизни оператор 112 и диспетчер работают одновременно: карточка
-  // приходит, пока диспетчер у экрана. В ролике между ними разбор 112
-  // и титры, поэтому момент поступления сдвигаем на начало сцены —
-  // иначе норматив «30 с до открытия» истёк бы, пока шёл рассказ
-  sql(ctx, `UPDATE cards SET saved_at = now() WHERE number = '${ctx.number}'`);
+  // Карточки курсантов 112 к диспетчерам сами не попадают: преподаватель
+  // выдаёт происшествие группе диспетчеров занятием ДДС. Момент выдачи —
+  // начало сцены, иначе норматив «30 с до открытия» истёк бы за титрами
+  issueIncident(ctx, ctx.number!, 'student3');
   await login(d, 'student3');
+  const section = p.getByTestId('section-training');
+  if (await visible(section)) await d.click(section);
   const row = p.getByTestId(`journal-row-${ctx.number}`);
   await expect(row).toBeVisible();
   await d.ring(row);
-  await d.say('Карточка ушла в службы. У диспетчера пожарной охраны она в ленте, пошёл отсчёт: тридцать секунд до открытия.');
+  await d.say('Преподаватель выдал это происшествие группе диспетчеров занятием. У диспетчера пожарной охраны оно в ленте, пошёл отсчёт: тридцать секунд до открытия.');
   await d.ring(null);
   await d.click(row);
   await d.say('Открыл — система отметила: получена службой. Три минуты на первую запись: статус и текст.');
@@ -318,7 +366,7 @@ export const chiefReport = async (d: Demo): Promise<void> => {
   const panel = p.getByTestId('chief-report');
   if (!(await visible(panel))) return;
   await d.moveTo(panel);
-  await d.say('По указанию заказчика диспетчер докладывает вышестоящему начальнику.');
+  await d.say('Диспетчер докладывает вышестоящему начальнику.');
   await d.click(p.getByTestId('chief-start'));
   const lines = p.getByTestId('chief-lines').locator('li');
   await expect(lines.first()).toBeVisible();
@@ -369,17 +417,20 @@ export const teacherReview = async (d: Demo, ctx: Ctx): Promise<void> => {
   const p = d.page;
   await d.caption('Преподаватель');
   await login(d, 'teacher1');
-  await d.click(p.getByTestId(`journal-row-${ctx.number}`));
-  const attempt = p.getByTestId('attempt-card112');
-  await expect(attempt).toBeVisible();
-  await d.moveTo(attempt);
-  await d.say('Преподаватель — конечный валидатор. Рядом с автоматической оценкой он ставит свою и подтверждает или отклоняет замечания нейросети.');
-  await d.type(attempt.locator('input[name="expert-score"]'), '70', 120);
-  await d.type(attempt.locator('textarea[name="expert-comment"]'),
-    'Верно записал адрес, но в описании пострадавший, которого не было.', 22);
-  await d.click(attempt.getByRole('button', { name: 'Поставить оценку' }));
-  await expect(attempt.getByTestId('expert-score')).toHaveText('70');
-  await d.pause(800);
+  const row = p.getByTestId(`journal-row-${ctx.number}`);
+  if (await visible(row)) {
+    await d.click(row);
+    const attempt = p.getByTestId('attempt-card112');
+    await expect(attempt).toBeVisible();
+    await d.moveTo(attempt);
+    await d.say('Преподаватель — конечный валидатор. Рядом с автоматической оценкой он ставит свою.');
+    await d.type(attempt.locator('input[name="expert-score"]'), '70', 120);
+    await d.type(attempt.locator('textarea[name="expert-comment"]'),
+      'Верно записал адрес, но в описании пострадавший, которого не было.', 22);
+    await d.click(attempt.getByRole('button', { name: 'Поставить оценку' }));
+    await expect(attempt.getByTestId('expert-score')).toHaveText('70');
+    await d.pause(800);
+  }
 
   // Разделы преподавателя — в шапке журнала
   await p.goto('/#/journal');

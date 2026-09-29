@@ -21,14 +21,25 @@ test('демо: сквозной путь', async ({ page }) => {
   const d = await Demo.init(page, out);
   await page.goto('/#/login');
   await d.startRecording();
+  // Сломанная сцена не валит ролик: остальные снимаются, ошибка — в отчёт
+  const errors: string[] = [];
+  const scene = async (name: string, run: () => Promise<void>) => {
+    if (!parts.has(name)) return;
+    try { await run(); } catch (e) {
+      errors.push(`${name}: ${String(e).split('\n')[0]}`);
+      console.error(`сцена ${name} упала:`, e);
+      await d.ring(null).catch(() => {});
+    }
+  };
   try {
-    if (parts.has('intro')) await step.intro(d);
-    if (parts.has('teacher')) await step.teacherPrepare(d, ctx);
-    if (parts.has('operator')) await step.operator112(d, ctx);
-    if (parts.has('dds') && ctx.number) await step.dispatcherDds(d, ctx);
-    if (parts.has('review') && ctx.number) await step.teacherReview(d, ctx);
-    if (parts.has('outro')) await step.outro(d, ctx);
+    await scene('intro', () => step.intro(d));
+    await scene('teacher', () => step.teacherPrepare(d, ctx));
+    await scene('operator', () => step.operator112(d, ctx));
+    if (ctx.number) await scene('dds', () => step.dispatcherDds(d, ctx));
+    if (ctx.number) await scene('review', () => step.teacherReview(d, ctx));
+    await scene('outro', () => step.outro(d, ctx));
   } finally {
     await d.stopRecording();
   }
+  if (errors.length) throw new Error(`упали сцены: ${errors.join('; ')}`);
 });
