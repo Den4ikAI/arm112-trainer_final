@@ -1,7 +1,16 @@
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSession, roleTitle, dutyTitle } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
 import s from './UserMenu.module.scss';
+
+/** Экраны преподавателя: путь, подпись, testid */
+const TEACHER_LINKS: [string, string, string][] = [
+  ['/lessons', 'занятия', 'lessons-link'],
+  ['/scenarios', 'вызовы', 'scenarios-link'],
+  ['/analytics', 'аналитика', 'analytics-link'],
+  ['/weights', 'веса оценки', 'weights-link'],
+  ['/journal', 'журнал', 'journal-link'],
+];
 
 /**
  * Кто вошёл, куда может перейти и как выйти.
@@ -9,11 +18,18 @@ import s from './UserMenu.module.scss';
  * Отдельный виджет, а не кусок разметки журнала: выход нужен с любого
  * экрана, где есть шапка, и дублировать его в трёх местах — значит
  * однажды забыть в четвёртом.
+ *
+ * У преподавателя и администратора — одна навигация на всех экранах:
+ * «занятия · вызовы · аналитика · веса оценки · журнал · выйти».
+ * Раньше полный набор был только на «Занятиях», а на материале,
+ * весах, аналитике и ходе занятия — одно «← В журнал», и из весов в
+ * аналитику шли через журнал (UX-проход 1, находка 6).
  */
-export const UserMenu = ({ compact }: { compact?: boolean }) => {
+export const UserMenu = () => {
   const user = useSession((st) => st.user);
   const signOut = useSession((st) => st.signOut);
   const nav = useNavigate();
+  const { pathname } = useLocation();
   const serviceShort = useCatalog((st) => st.serviceShort);
 
   if (!user) return null;
@@ -41,20 +57,18 @@ export const UserMenu = ({ compact }: { compact?: boolean }) => {
           Администрирование — системные журналы и учётные записи,
           по ТЗ это функции администратора, и сервер туда
           преподавателя не пустит */}
-      {!compact && user.role !== 'student' && (
+      {user.role !== 'student' && (
         <>
-          <button className={s.link} data-testid="lessons-link"
-                  onClick={() => nav('/lessons')}>занятия</button>
-          <button className={s.link} data-testid="scenarios-link"
-                  onClick={() => nav('/scenarios')}>вызовы</button>
-          <button className={s.link} data-testid="analytics-link"
-                  onClick={() => nav('/analytics')}>аналитика</button>
-          <button className={s.link} data-testid="weights-link"
-                  onClick={() => nav('/weights')}>веса оценки</button>
+          {TEACHER_LINKS.map(([path, label, testid]) => (
+            <button key={path} className={s.link} data-testid={testid}
+                    aria-current={pathname === path ? 'page' : undefined}
+                    onClick={() => nav(path)}>{label}</button>
+          ))}
         </>
       )}
-      {!compact && user.role === 'admin' && (
+      {user.role === 'admin' && (
         <button className={s.link} data-testid="admin-link"
+                aria-current={pathname === '/admin' ? 'page' : undefined}
                 onClick={() => nav('/admin')}>администрирование</button>
       )}
 

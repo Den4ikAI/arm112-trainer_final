@@ -83,8 +83,7 @@ export const WeightsPage = () => {
           </p>
         </div>
         <div className={s.tools}>
-          <UserMenu compact />
-          <button className={s.btn} onClick={() => nav('/journal')}>← В журнал</button>
+          <UserMenu />
         </div>
       </header>
 

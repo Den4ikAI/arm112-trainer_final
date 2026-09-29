@@ -54,8 +54,7 @@ export const AdminPage = () => {
       <header className={s.head}>
         <h1 className={s.title}>Администрирование</h1>
         <div className={s.tools}>
-          <UserMenu compact />
-          <button className={s.back} onClick={() => nav('/journal')}>← В журнал</button>
+          <UserMenu />
         </div>
       </header>
 

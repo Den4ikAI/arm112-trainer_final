@@ -91,8 +91,7 @@ export const AnalyticsPage = () => {
             {groups.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
           </select>
           <button className={s.plain} onClick={() => void load(groupId)}>обновить</button>
-          <UserMenu compact />
-          <button className={s.plain} onClick={() => nav('/journal')}>← В журнал</button>
+          <UserMenu />
         </div>
       </header>
 

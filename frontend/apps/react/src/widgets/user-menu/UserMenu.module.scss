@@ -37,3 +37,11 @@
     display: inline-block;
   }
 }
+
+/* Экран, на котором стоим: подписью, а не ссылкой */
+.link[aria-current='page'] {
+  text-decoration: none;
+  font-weight: 600;
+  opacity: 1;
+  cursor: default;
+}

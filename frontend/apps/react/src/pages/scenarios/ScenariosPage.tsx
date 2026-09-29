@@ -149,8 +149,7 @@ export const ScenariosPage = () => {
       <header className={s.head}>
         <h1 className={s.title}>Учебный материал</h1>
         <div className={s.tools}>
-          <UserMenu compact />
-          <button className={s.plain} onClick={() => nav('/journal')}>← В журнал</button>
+          <UserMenu />
         </div>
       </header>
 

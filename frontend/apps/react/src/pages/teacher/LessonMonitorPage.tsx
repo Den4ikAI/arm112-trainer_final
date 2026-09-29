@@ -95,7 +95,7 @@ export const LessonMonitorPage = () => {
               <button className={s.danger} data-testid="monitor-finish"
                       onClick={() => void finish()}>■ Завершить занятие</button>
             )}
-            <UserMenu compact />
+            <UserMenu />
           </div>
         </header>
       )}

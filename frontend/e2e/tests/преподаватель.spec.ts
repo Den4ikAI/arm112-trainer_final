@@ -7,6 +7,34 @@ import { fillFireCard, launchTicket3, login, sql, USERS } from './helpers';
  * оценки», отчёт с лидерами и отстающими).
  */
 test.describe('Преподаватель', () => {
+  /**
+   * UX-проход 1, находка 6: полный набор ссылок был только на
+   * «Занятиях», остальные экраны вели лишь «← В журнал».
+   */
+  test('на каждом экране преподавателя одна навигация: занятия · вызовы · аналитика · веса · журнал · выйти',
+    async ({ page }, info) => {
+      await login(page, info, 'teacher1');
+      const ссылки = ['lessons-link', 'scenarios-link', 'analytics-link', 'weights-link',
+        'journal-link', 'logout'];
+      const экраны: [string, RegExp][] = [
+        ['lessons-link', /#\/lessons$/],
+        ['scenarios-link', /#\/scenarios$/],
+        ['analytics-link', /#\/analytics/],
+        ['weights-link', /#\/weights$/],
+        ['journal-link', /#\/journal$/],
+      ];
+      for (const [куда, адрес] of экраны) {
+        await page.getByTestId(куда).click();
+        await expect(page).toHaveURL(адрес);
+        for (const id of ссылки) await expect(page.getByTestId(id)).toHaveCount(1);
+        await expect(page.getByTestId(куда)).toHaveAttribute('aria-current', 'page');
+      }
+      // Из весов в аналитику — напрямую, не через журнал
+      await page.getByTestId('weights-link').click();
+      await page.getByTestId('analytics-link').click();
+      await expect(page).toHaveURL(/#\/analytics/);
+    });
+
   test('ход занятия: операторы 112 и диспетчеры ДДС отдельно', async ({ page }, info) => {
     await login(page, info, 'teacher1');
     await page.getByTestId('lessons-link').click();
