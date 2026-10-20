@@ -95,3 +95,54 @@ TeraTTSv2 (стиль вне репозитория, PROVENANCE.md). Репли�
 Если запись оборвалась, кадры и звук остаются в
 `/tmp/arm112-demo/<профиль>/`, а `assemble.py` соберёт из них то, что
 успело записаться.
+
+## Ролики финала: преподаватель и два обучаемых
+
+Запись трёх рабочих мест одновременно — «сеть: ПК преподавателя и два
+ПК обучаемых». Каждое место — свой контекст браузера на одном
+экземпляре тренажёра, свой CDP screencast; в кадре 1920×1080 активное
+место крупно (1280×720 без масштабирования), остальные два — живые
+миниатюры справа, титр диктора снизу.
+
+| Файл | Что делает |
+|---|---|
+| `frontend/e2e/demo/студия.ts` | `Studio` (диктор, заставки, пометки, «какой экран главный») и `Screen` (контекст, курсор, запись кадров) |
+| `frontend/e2e/demo/финал.demo.ts` | главный ролик: занятие, задания от ИИ у dds01 (101) и dds02 (104), бригада и IP-телефон, статусы по докладам, разбор, рекомендация, следующее задание от ИИ, аналитика |
+| `frontend/e2e/demo/финал-короткие.demo.ts` | «IP-телефон и справочник», «Администратор и система 112» |
+| `docs/demo/assemble_multi.py` | кадры всех экранов + звук → MP4 (ffmpeg, numpy, Pillow — системный python3) |
+
+Готовые ролики — `docs/video/финал-*.mp4`.
+
+Пересъёмка:
+
+```bash
+# свой экземпляр на копии базы показа (постгрес в arm112-db), Gemma :8095, голос :8092
+cd backend && DATABASE_URL=postgres://arm112:arm112@localhost:5432/arm112_demo_final \
+  BIND_ADDR=127.0.0.1:8484 ML_PROVIDER=http ML_BASE_URL=http://127.0.0.1:8095 ML_MODEL=local \
+  VOICE_BASE_URL=http://127.0.0.1:8092 DEMO_PASSWORD=arm112 cargo run
+cd frontend/apps/react && VITE_API_TARGET=http://127.0.0.1:8484 npx vite --host 127.0.0.1 --port 5471 --strictPort
+
+# шкала бригады и звонок — короче, чем в бою (в своей базе)
+docker exec -i arm112-db psql -U arm112 -d arm112_demo_final -c "
+  UPDATE settings SET value='8'  WHERE key='brigade.start_sec';
+  UPDATE settings SET value='18' WHERE key='brigade.arrive_sec';
+  UPDATE settings SET value='15' WHERE key='brigade.work_start_sec';
+  UPDATE settings SET value='20' WHERE key='brigade.work_sec';
+  UPDATE settings SET value='2'  WHERE key='brigade.report_delay_sec';
+  UPDATE settings SET value='15' WHERE key='phone.ring_sec';"
+
+cd frontend/e2e
+DEMO_WEB_PORT=5471 DEMO_DB=arm112_demo_final DEMO_NARRATOR_URL=http://127.0.0.1:8092 \
+  DEMO_OUT=/tmp/arm112-demo/final npx playwright test --config playwright.demo.config.ts финал.demo
+python3 ../../docs/demo/assemble_multi.py /tmp/arm112-demo/final ../../docs/video/финал-преподаватель-и-обучаемые.mp4 28
+
+# короткие — тем же способом, по одному тесту
+DEMO_OUT=/tmp/arm112-demo/phone ... npx playwright test --config playwright.demo.config.ts финал-короткие -g телефон
+DEMO_OUT=/tmp/arm112-demo/admin ... npx playwright test --config playwright.demo.config.ts финал-короткие -g администратор
+```
+
+Диктор — голос `narrator` общего сервера голоса (:8092), реплики старшего
+бригады и начальника — голоса `brigade` и `chief`; переозвучки нет.
+Ожидание входящего от бригады помечено плашкой «ускорено ×3» и сжато
+при сборке. Сломанная сцена не валит запись: остальные снимаются,
+ошибка — в вывод прогона.

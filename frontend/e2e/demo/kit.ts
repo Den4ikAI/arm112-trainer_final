@@ -20,7 +20,7 @@ import path from 'node:path';
 const NARRATOR = process.env.DEMO_NARRATOR_URL ?? 'http://127.0.0.1:8193';
 
 /** Код, который ставится в каждую загружаемую страницу. */
-const OVERLAY = `(() => {
+export const OVERLAY = `(() => {
   const S = sessionStorage;
   const install = () => {
     if (document.getElementById('demo-cursor')) return;
