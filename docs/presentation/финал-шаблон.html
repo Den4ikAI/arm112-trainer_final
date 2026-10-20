@@ -244,6 +244,58 @@ b, strong { font-weight: 700; }
 
 .help { position: fixed; left: 16px; bottom: 12px; font: 500 14px/1 var(--sans); color: #8a85a6; opacity: .0; transition: opacity .2s; z-index: 9; }
 body:hover .help { opacity: .7; }
+
+/* ── Гамма шаблона ЛЦТ-2026: фиолетовые фоны, розовый акцент ── */
+.slide, .cover { background:
+  radial-gradient(1100px 700px at 88% 6%, rgba(254, 9, 95, .22), transparent 62%),
+  radial-gradient(900px 640px at 0% 100%, rgba(138, 131, 209, .22), transparent 60%),
+  linear-gradient(135deg, #2D1451 0%, #520977 58%, #5D2B84 100%); }
+.mand { background: #fff; }
+.brand { color: #fff; }
+.brand span { color: rgba(255, 255, 255, .62); }
+.brand img { width: 40px; height: 40px; display: block; }
+.logos { position: absolute; right: 100px; top: 40px; height: 62px; }
+.num { color: rgba(255, 255, 255, .55); }
+.title { color: #fff; }
+.title em, .cover .big em, .thanks em { color: #FF4D86; }
+.lead { color: rgba(255, 255, 255, .80); }
+.cap { color: rgba(255, 255, 255, .74); }
+.panel .cap, .stand p.cap, .book .cap { color: var(--muted); }
+.cover .big { color: #fff; }
+.cover .sub { color: rgba(255, 255, 255, .86); }
+.cover .foot { color: rgba(255, 255, 255, .62); }
+.chip.plum { background: #FE095F; color: #fff; }
+.verdict { background: #fff; color: var(--plum); box-shadow: 0 14px 40px rgba(16, 0, 36, .35); }
+.verdict em { color: var(--pink); }
+.teacher-bar { background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .3); }
+.teacher-bar span { color: rgba(255, 255, 255, .78); }
+.contour { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .45); }
+.thanks { color: #fff; }
+.stats-cap { background: rgba(255, 255, 255, .12); color: #fff; }
+.shot { border-color: rgba(255, 255, 255, .22); box-shadow: 0 18px 50px rgba(10, 0, 30, .45); }
+
+/* Реализация: модели */
+.impl-grid { position: absolute; left: 100px; top: 300px; width: 1720px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.impl { padding: 24px 28px; min-height: 270px; }
+.impl .who { display: inline-block; height: 32px; padding: 0 14px; border-radius: var(--pill); font: 600 16px/32px var(--sans); white-space: nowrap; }
+.impl .who.gpu { background: var(--pink-soft); color: var(--pink-deep); }
+.impl .who.cpu { background: var(--green-soft); color: var(--green-text); }
+.impl .who.rule { background: var(--plum); color: #fff; }
+.impl h4 { margin-top: 14px; font: 700 30px/1.12 var(--sans); letter-spacing: -0.015em; color: var(--plum); }
+.impl .what { margin-top: 6px; font: 600 20px/1.3 var(--sans); color: var(--pink-deep); }
+.impl p { margin-top: 12px; font: 400 20px/1.38 var(--sans); color: var(--body); }
+
+/* Анимации плавнее и медленнее: только прозрачность и сдвиг — без лагов */
+.a, .f, .pop { --t: .75s; }
+.play .a { animation: rise var(--t) cubic-bezier(.16, 1, .3, 1) calc(var(--d) * 2.4) both; }
+.play .f { animation: fade var(--t) cubic-bezier(.16, 1, .3, 1) calc(var(--d) * 2.4) both; }
+.play .pop { animation: pop var(--t) cubic-bezier(.16, 1, .3, 1) calc(var(--d) * 2.4) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(28px); } }
+@keyframes pop { from { opacity: 0; transform: scale(.965); } }
+.slide.on { animation: slideIn .6s ease both; }
+@keyframes slideIn { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .play .a, .play .f, .play .pop, .slide.on { animation: none; } }
+
 @media print {
   html, body { overflow: visible; background: #fff; }
   .stage { position: static; width: 1920px; height: auto; transform: none !important; }
@@ -275,8 +327,8 @@ body:hover .help { opacity: .7; }
 
 <!-- 1 -->
 <section class="slide cover" data-kind="cover">
-  <div class="brand a" style="--d:0s"><i></i>ELABS</div>
-  <div class="tag a" style="--d:0s">ЛЦТ-2026 · финал · задача №9</div>
+  <div class="brand a" style="--d:0s"><img src="{{PNG:emoji}}" alt="">ELABS</div>
+  <img class="logos a" style="--d:0s" src="{{PNG:logos}}" alt="Проект мэра Москвы · Бизнес Москвы · Развитие человеческого капитала · Лидеры цифровой трансформации">
   <h1 class="big a" style="--d:.05s">Тренажёр диспетчера ДДС <em>с искусственным интеллектом</em></h1>
   <p class="sub a" style="--d:.12s">ИИ формирует задание, обучаемый работает в интерфейсе диспетчера, тренажёр оценивает, даёт рекомендации и собирает следующее задание. Преподаватель управляет и видит всё.</p>
   <div class="chips a" style="--d:.18s"><span class="chip plum">Департамент ГОЧСиПБ города Москвы</span><span class="chip">Денис Петров · Александр Головченко</span></div>
@@ -288,7 +340,7 @@ body:hover .help { opacity: .7; }
       <circle cx="298" cy="332" r="52" fill="#fff" stroke="#310F53" stroke-width="3"/><text x="298" y="338">оценка</text>
       <circle cx="122" cy="332" r="52" fill="#fff" stroke="#FF0053" stroke-width="3"/><text x="122" y="328">рекомен-</text><text x="122" y="348">дации</text>
       <circle cx="67" cy="164" r="52" fill="#fff" stroke="#8A83D1" stroke-width="3"/><text x="67" y="161">следующее</text><text x="67" y="181" font-size="14" fill="#6E6A84">задание</text>
-      <circle cx="210" cy="210" r="50" fill="#310F53"/><text x="210" y="206" fill="#fff" font-size="16">препода-</text><text x="210" y="226" fill="#fff" font-size="16">ватель</text>
+      <circle cx="210" cy="210" r="50" fill="#FE095F"/><text x="210" y="206" fill="#fff" font-size="16">препода-</text><text x="210" y="226" fill="#fff" font-size="16">ватель</text>
     </g>
   </svg>
   <p class="foot">Веб-тренажёр · закрытый контур · ИИ и голос работают локально</p>
@@ -312,7 +364,7 @@ body:hover .help { opacity: .7; }
       <li><i></i><span>Разбор сразу после работы: что не так и сколько это стоит в баллах</span></li>
     </ul>
   </div>
-  <div class="verdict a" style="--d:.2s"><span class="k"></span>Преподаватель не может сидеть рядом с каждым. <em>Задания, оценку и рекомендации должна брать на себя система.</em></div>
+  <div class="verdict a" style="--d:.2s"><span class="k"></span><span class="vt">Преподаватель не может сидеть рядом с каждым. <em>Задания, оценку и рекомендации должна брать на себя система.</em></span></div>
 </section>
 
 <!-- 3 -->
@@ -486,7 +538,22 @@ body:hover .help { opacity: .7; }
     <div class="panel v a" style="--d:.26s"><b>0,69 <small>с</small></b><span>максимум отклика при 100 одновременных пользователях, ошибок ноль</span></div>
     <div class="panel v a" style="--d:.29s"><b>1 516<small>/с</small></b><span>правок карточки в секунду при нормативе 100</span></div>
   </div>
-  <div class="verdict a" style="--d:.32s"><span class="k"></span>Модель не стоит на пути курсанта: разбор правилами приходит сразу, <em>анализ текста — следом, в фоне</em></div>
+  <div class="verdict a" style="--d:.32s"><span class="k"></span><span class="vt">Модель не стоит на пути курсанта: разбор правилами приходит сразу, <em>анализ текста — следом, в фоне</em></span></div>
+</section>
+
+<!-- реализация -->
+<section class="slide">
+  <h2 class="title a">Реализация: <em>какие модели и зачем</em></h2>
+  <p class="lead a" style="--d:.04s">Всё работает локально в закрытом контуре; адрес языковой модели — одна переменная</p>
+  <div class="impl-grid">
+    <div class="panel impl a" style="--d:.08s"><span class="who gpu">видеокарта · vLLM</span><h4>Gemma 4 26B-A4B</h4><div class="what">языковая модель, INT4, одна RTX 4090</div><p>Пишет текст карточки «от ИИ», ведёт живого заявителя и разговор с начальником, сверяет комментарии диспетчера с тем, что он слышал.</p></div>
+    <div class="panel impl a" style="--d:.11s"><span class="who cpu">процессор · llama.cpp</span><h4>GigaChat 3.1 10B-A1.8B</h4><div class="what">своя сборка с MTP: +44 % скорости</div><p>Те же задачи без видеокарты — на стенде из требований: 6 ядер и 32 ГБ памяти. Веса — 6,45 ГБ.</p></div>
+    <div class="panel impl a" style="--d:.14s"><span class="who cpu">процессор · ONNX</span><h4>GigaAM v3</h4><div class="what">распознавание речи, 0,2–0,3 с</div><p>Диспетчер говорит в микрофон IP-телефона — фраза распознаётся на своём сервере, наружу ничего не уходит.</p></div>
+    <div class="panel impl a" style="--d:.17s"><span class="who cpu">процессор · ONNX</span><h4>TeraTTS v2</h4><div class="what">синтез речи, 0,5 с</div><p>Голоса старшего бригады, начальника и заявителя; по телефону — с телефонным трактом, как в настоящей линии.</p></div>
+    <div class="panel impl a" style="--d:.2s"><span class="who cpu">процессор · PyTorch</span><h4>OpenJEV</h4><div class="what">кросс-энкодер сверки (Qwen3.5 2B)</div><p>Сверяет описание курсанта с фактами за секунды и точнее языковой модели на процессоре; каждое замечание — с цитатой.</p></div>
+    <div class="panel impl a" style="--d:.23s"><span class="who rule">без нейросети</span><h4>Классификатор и правила</h4><div class="what">1 283 позиции ЕКП, 211 служб</div><p>Эталон служб, оценка, нормативы и прогноз (гребневая регрессия) считает код — модель балл не меняет.</p></div>
+  </div>
+  <div class="verdict a" style="--d:.28s"><span class="k"></span><span class="vt">Модель пишет и говорит — <em>решает и оценивает код</em>. Нет модели — тренажёр работает на заготовках.</span></div>
 </section>
 
 <!-- 12 -->
@@ -510,10 +577,6 @@ body:hover .help { opacity: .7; }
 </section>
 
 <!-- обязательные слайды организаторов -->
-<section class="slide sep" data-kind="sep">
-  <h2 class="big a">Обязательные слайды <em>из шаблона организаторов</em></h2>
-  <p class="sub a" style="--d:.05s">Слайды 7–11 шаблона ЛЦТ-2026 в исходном оформлении: титул, о команде, команда, история команды, коротко о решении. При показе пропускаются — их версии в нашем дизайне выше.</p>
-</section>
 <section class="slide mand" data-kind="mand"><img src="{{IMG:mand-1}}" alt="Титул"><span class="mnum">обязательный 1 / 5</span></section>
 <section class="slide mand" data-kind="mand"><img src="{{IMG:mand-2}}" alt="О команде"><span class="mnum">обязательный 2 / 5</span></section>
 <section class="slide mand" data-kind="mand"><img src="{{IMG:mand-3}}" alt="Команда"><span class="mnum">обязательный 3 / 5</span></section>
@@ -535,15 +598,15 @@ body:hover .help { opacity: .7; }
     if (s.dataset.kind === "sep" || s.dataset.kind === "mand") return;
     const num = document.createElement("span"); num.className = "num"; num.textContent = `${main.indexOf(s) + 1} / ${main.length}`; s.append(num);
     if (s.dataset.kind === "cover") return;
-    const brand = document.createElement("div"); brand.className = "brand"; brand.innerHTML = "<i></i>ELABS <span>· тренажёр диспетчера ДДС</span>"; s.prepend(brand);
-    const tag = document.createElement("div"); tag.className = "tag"; tag.textContent = "ЛЦТ-2026 · задача №9"; s.append(tag);
+    const brand = document.createElement("div"); brand.className = "brand"; brand.innerHTML = '<img src="{{PNG:emoji}}" alt="">ELABS <span>· тренажёр диспетчера ДДС</span>'; s.prepend(brand);
+    const logos = document.createElement("img"); logos.className = "logos"; logos.src = document.querySelector(".cover .logos").src; logos.alt = ""; s.append(logos);
   });
 
   const counters = (slide) => {
     slide.querySelectorAll("[data-count]").forEach((el) => {
       const to = Number(el.dataset.count);
       if (reduced) { el.textContent = fmt(to); return; }
-      const t0 = performance.now(), dur = 600;
+      const t0 = performance.now(), dur = 1400;
       const tick = (now) => {
         if (!slide.classList.contains("on")) return;
         const k = 1 - Math.pow(1 - Math.min((now - t0) / dur, 1), 3);

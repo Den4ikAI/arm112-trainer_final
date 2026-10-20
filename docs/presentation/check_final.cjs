@@ -16,7 +16,7 @@ const PDF = process.argv[3];
   const n = await page.evaluate(() => document.querySelectorAll('.slide').length);
   for (let i = 0; i < n; i++) {
     await page.evaluate((i) => window.__show(i), i);
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(2200);
     const over = await page.evaluate(() => {
       const s = document.querySelector('.slide.on');
       const r0 = s.getBoundingClientRect();

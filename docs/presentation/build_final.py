@@ -38,11 +38,11 @@ SOURCES = {
     "analytics": (SCRATCH / "fin/shots/teacher-analytics.png", (0, 100, 1920, 780), 1200, 80),
     "admin": (SCRATCH / "fin/shots/admin.png", (0, 0, 1920, 760), 1400, 80),
     "login": (SCRATCH / "fin/shots/login.png", None, 1400, 80),
-    "mand-1": (SCRATCH / "fin/mand/s-01.png", None, 1600, 78),
-    "mand-2": (SCRATCH / "fin/mand/s-02.png", None, 1600, 78),
-    "mand-3": (SCRATCH / "fin/mand/s-03.png", None, 1600, 78),
-    "mand-4": (SCRATCH / "fin/mand/s-04.png", None, 1600, 78),
-    "mand-5": (SCRATCH / "fin/mand/s-05.png", None, 1600, 78),
+    "mand-1": (SCRATCH / "mand2/s-01.png", None, 1600, 78),
+    "mand-2": (SCRATCH / "mand2/s-02.png", None, 1600, 78),
+    "mand-3": (SCRATCH / "mand2/s-03.png", None, 1600, 78),
+    "mand-4": (SCRATCH / "mand2/s-04.png", None, 1600, 78),
+    "mand-5": (SCRATCH / "mand2/s-05.png", None, 1600, 78),
 }
 
 
@@ -67,6 +67,12 @@ def build() -> None:
         return "data:image/jpeg;base64," + base64.b64encode(p.read_bytes()).decode()
 
     html = re.sub(r"\{\{IMG:([\w-]+)\}\}", img, html)
+
+    def png(m: re.Match) -> str:
+        p = OUT_DIR / f"{m.group(1)}.png"
+        return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
+
+    html = re.sub(r"\{\{PNG:([\w-]+)\}\}", png, html)
     RESULT.write_text(html, encoding="utf-8")
     print(RESULT, RESULT.stat().st_size // 1024, "КБ")
 
