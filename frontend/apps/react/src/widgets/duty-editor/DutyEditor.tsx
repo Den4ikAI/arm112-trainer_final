@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { admin, ApiError, type Duty } from '@/shared/api';
 import { useCatalog } from '@/entities/catalog/model';
+import { useStand } from '@/entities/stand/model';
 import s from './DutyEditor.module.scss';
 
 /**
@@ -18,7 +19,7 @@ export const DutyEditor = ({ userId, login, duty, serviceId, onChanged }: {
   onChanged: () => void;
 }) => {
   const services = useCatalog((st) => st.services);
-  const [next, setNext] = useState<Duty>(duty ?? 'op112');
+  const [next, setNext] = useState<Duty>(duty ?? (useStand.getState().op112 ? 'op112' : 'dds'));
   const [service, setService] = useState(serviceId ?? '');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

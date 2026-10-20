@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useSession } from '@/entities/session/model';
 import { ApiError } from '@/shared/api';
 import {
@@ -21,7 +20,6 @@ const fmt = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(0))
  */
 export const WeightsPage = () => {
   const user = useSession((st) => st.user);
-  const nav = useNavigate();
   const [saved, setSaved] = useState<Weights | null>(null);
   const [defaults, setDefaults] = useState<Weights | null>(null);
   const [w, setW] = useState<Weights | null>(null);

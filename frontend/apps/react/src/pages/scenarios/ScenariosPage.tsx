@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ApiError, ddsIncidents, reports, scenarios,
   type Incident, type LibraryItem, type ScenarioFull,
 } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
+import { useStand } from '@/entities/stand/model';
 import { ScenarioChat } from '@/widgets/scenario-chat/ScenarioChat';
 import { FactStatements } from '@/widgets/fact-statements/FactStatements';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
@@ -13,13 +14,14 @@ import { PromptBuilder } from '@/widgets/material-builder/PromptBuilder';
 import { ScenarioBuilder } from '@/widgets/material-builder/ScenarioBuilder';
 import { IncidentBuilder } from '@/widgets/material-builder/IncidentBuilder';
 import { IncidentView } from '@/widgets/material-builder/IncidentView';
+import { AiIncidentBuilder } from '@/widgets/material-builder/AiIncidentBuilder';
 import { scenarioTitle } from '@/shared/lib/scenarioTitle';
 import clsx from '@/shared/lib/clsx';
 import s from './ScenariosPage.module.scss';
 
 type Tab = '112' | 'dds';
 /** Что открыто справа: материал или один из конструкторов */
-type Pane = 'view' | 'prompt' | 'manual' | 'edit';
+type Pane = 'view' | 'prompt' | 'manual' | 'edit' | 'ai';
 
 const SOURCE: Record<string, string> = {
   generated: 'подготовлен моделью из билета',
@@ -43,8 +45,15 @@ const дата = (iso: string) => new Date(iso).toLocaleDateString('ru-RU',
  * модель не выдумывала.
  */
 export const ScenariosPage = () => {
-  const [tab, setTab] = useState<Tab>('112');
-  const [pane, setPane] = useState<Pane>('view');
+  // Приём вызовов 112 свёрнут (эксперты, 18.10) — только происшествия ДДС.
+  // С журнала можно прийти сразу к «Происшествию от ИИ»: ?pane=ai
+  const op112 = useStand((st) => st.op112);
+  const [params] = useSearchParams();
+  const сразуИИ = params.get('pane') === 'ai';
+  const [выбрана, setTab] = useState<Tab>(() => (op112 && !сразуИИ ? '112' : 'dds'));
+  // Сведения о стенде могли прийти позже, чем открылась страница
+  const tab: Tab = op112 ? выбрана : 'dds';
+  const [pane, setPane] = useState<Pane>(сразуИИ ? 'ai' : 'view');
   const [list, setList] = useState<LibraryItem[]>([]);
   const [current, setCurrent] = useState<ScenarioFull | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -154,15 +163,21 @@ export const ScenariosPage = () => {
       </header>
 
       <div className={s.tabs} role="tablist" aria-label="Вид материала">
-        <button role="tab" aria-selected={tab === '112'} data-testid="tab-112"
-                className={clsx(s.tab, tab === '112' && s.tabOn)} onClick={() => switchTab('112')}>
-          Вызовы 112 <span className={s.count}>{list.length}</span>
-        </button>
+        {op112 && (
+          <button role="tab" aria-selected={tab === '112'} data-testid="tab-112"
+                  className={clsx(s.tab, tab === '112' && s.tabOn)} onClick={() => switchTab('112')}>
+            Вызовы 112 <span className={s.count}>{list.length}</span>
+          </button>
+        )}
         <button role="tab" aria-selected={tab === 'dds'} data-testid="tab-dds"
                 className={clsx(s.tab, tab === 'dds' && s.tabOn)} onClick={() => switchTab('dds')}>
           Происшествия ДДС <span className={s.count}>{incidents.length}</span>
         </button>
         <span className={s.tabTools}>
+          {tab === 'dds' && (
+            <button className={s.primary} data-testid="create-ai"
+                    onClick={() => setPane('ai')}>Происшествие от ИИ</button>
+          )}
           <button className={s.primary} data-testid="create-prompt"
                   onClick={() => setPane('prompt')}>Создать по описанию (ИИ)</button>
           <button className={s.primary} data-testid="create-manual"
@@ -329,6 +344,15 @@ export const ScenariosPage = () => {
           </aside>
 
           <div className={s.detailWide}>
+            {pane === 'ai' && (
+              <AiIncidentBuilder
+                onCancel={() => setPane('view')}
+                onDone={async (last) => {
+                  await reloadIncidents(last ? last.id : null);
+                  if (last) setPane('view');
+                }}
+              />
+            )}
             {pane === 'prompt' && (
               <PromptBuilder
                 what="происшествие ДДС"

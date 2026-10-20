@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { reports, type GroupBrief, type GroupStats } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
+import { useStand } from '@/entities/stand/model';
 import { FunnelChart, Heatmap, KindsChart, TimeChart } from '@/widgets/charts';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { ForecastBlock } from '@/widgets/forecast/ForecastBlock';
@@ -30,13 +31,19 @@ export const AnalyticsPage = () => {
   const [insights, setInsights] = useState<string | null>(null);
   // Отчёт группы целиком — или люди: операторы 112 и диспетчеры ДДС,
   // и каждый обучающийся отдельно
-  const [view, setView] = useState<'report' | 'people'>('report');
+  // Отчёт группы считается по вызовам 112: пока приём вызовов свёрнут
+  // (эксперты, 18.10), аналитика — сразу по диспетчерам ДДС
+  const op112 = useStand((st) => st.op112);
+  const [view, setView] = useState<'report' | 'people'>(
+    () => (useStand.getState().op112 ? 'report' : 'people'));
   const user = useSession((st) => st.user);
   const nav = useNavigate();
 
   useEffect(() => {
     void reports.groups()
-      .then((g) => {
+      .then((все) => {
+        const g = useStand.getState().op112 ? все
+          : все.filter((x) => x.dispatchers > 0 || x.members === 0);
         setGroups(g);
         if (g.length) setGroupId(g[0].id);
       })
@@ -96,10 +103,14 @@ export const AnalyticsPage = () => {
       </header>
 
       <div className={s.tools} style={{ marginBottom: 12 }}>
-        <button className={clsx(s.plain, view === 'report' && s.on)} data-testid="analytics-report-tab"
-                onClick={() => setView('report')}>Отчёт группы</button>
+        {op112 && (
+          <button className={clsx(s.plain, view === 'report' && s.on)} data-testid="analytics-report-tab"
+                  onClick={() => setView('report')}>Отчёт группы</button>
+        )}
         <button className={clsx(s.plain, view === 'people' && s.on)} data-testid="analytics-people-tab"
-                onClick={() => setView('people')}>Операторы 112 и диспетчеры ДДС · по ученикам</button>
+                onClick={() => setView('people')}>
+          {op112 ? 'Операторы 112 и диспетчеры ДДС · по ученикам' : 'Диспетчеры ДДС · по ученикам'}
+        </button>
       </div>
 
       {view === 'people' && <PeopleAnalytics key={groupId} groupId={groupId} />}

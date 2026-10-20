@@ -105,7 +105,7 @@
   min-width: 0;
 }
 
-.barTools { align-self: center; padding-left: 12px; }
+.barTools { align-self: center; padding-left: 12px; display: flex; align-items: center; gap: 12px; }
 
 .barRight {
   align-self: center;

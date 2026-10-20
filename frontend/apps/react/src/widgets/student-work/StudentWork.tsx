@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ApiError, channel, me, SEGMENT_LABEL, type WorkItem, type WorkSection } from '@/shared/api';
+import { ApiError, channel, ddsIncidents, me, SEGMENT_LABEL, type WorkItem, type WorkSection } from '@/shared/api';
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
 import clsx from '@/shared/lib/clsx';
+import { MyDdsAdvice } from '@/widgets/advice/MyDdsAdvice';
 import s from './StudentWork.module.scss';
 
 /**
@@ -40,6 +41,8 @@ export const StudentWork = () => {
   });
   const [items, setItems] = useState<WorkItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Самостоятельная тренировка: происшествие от ИИ готовится
+  const [practicing, setPracticing] = useState(false);
   const start = useTraining((st) => st.start);
   const resume = useTraining((st) => st.resume);
   const review = useTraining((st) => st.review);
@@ -90,6 +93,25 @@ export const StudentWork = () => {
     }
   };
 
+  /**
+   * Происшествие от ИИ для своей службы — без преподавателя (эксперты,
+   * 18.10: «показать формирование карточек для специалиста ДДС ИИ»).
+   * Признаки и службы — по классификатору, текст — модель; карточка
+   * сразу в ленте, нормативы идут как у выданной на занятии.
+   */
+  const practice = async () => {
+    setPracticing(true);
+    setError(null);
+    try {
+      const got = await ddsIncidents.practice();
+      nav(`/card-dds/${got.cardId}`);
+    } catch (e) {
+      setError(e instanceof ApiError ? (e.detail ?? e.message) : 'Не получилось собрать происшествие');
+    } finally {
+      setPracticing(false);
+    }
+  };
+
   // Экзамен идёт по порядку: начать можно только очередной вызов
   const очередной = new Set<string>();
   const занятия = new Set<string>();
@@ -124,9 +146,26 @@ export const StudentWork = () => {
             {title}
           </button>
         ))}
+        {profile === 'dds' && (
+          <button className={s.practice} data-testid="practice-ai" disabled={practicing}
+                  title="Система соберёт происшествие для вашей службы: признаки и службы — по классификатору, текст пишет модель"
+                  onClick={() => void practice()}>
+            {practicing ? 'ИИ готовит происшествие…' : '＋ Новое происшествие от ИИ'}
+          </button>
+        )}
       </div>
+      {practicing && (
+        <p className={s.empty} role="status" data-testid="practice-wait">
+          Собираю происшествие для вашей службы: на видеокарте — секунды, на процессоре — до двух
+          минут. Карточка откроется сама, отсчёт нормативов начнётся с её появления.
+        </p>
+      )}
 
       {error && <div className={s.error} role="alert">{error}</div>}
+
+      {/* Что тренировать дальше — по разборам закрытых карточек; отсюда
+          же берётся следующее задание от ИИ */}
+      {profile === 'dds' && section === 'training' && <MyDdsAdvice />}
 
       <table className={s.table}>
         <thead>
@@ -143,7 +182,7 @@ export const StudentWork = () => {
           {items?.map((it) => {
             const act = действие(it);
             return (
-              <tr key={it.id} className={s.row} data-status={it.status}
+              <tr key={`${it.lessonId}:${it.id}`} className={s.row} data-status={it.status}
                   data-testid={`work-row-${it.id}`}>
                 <td className={s.date}>{дата(it.issuedAt)}</td>
                 <td className={s.topic}>
@@ -177,7 +216,9 @@ export const StudentWork = () => {
       {items && items.length === 0 && !error && (
         <p className={s.empty}>
           {section === 'training'
-            ? 'Заданий пока нет — их выдаёт преподаватель на занятии.'
+            ? (profile === 'dds'
+              ? 'Заданий пока нет — их выдаёт преподаватель на занятии. Потренироваться можно и самому: «Новое происшествие от ИИ».'
+              : 'Заданий пока нет — их выдаёт преподаватель на занятии.')
             : section === 'exam' ? 'Экзаменов пока не назначено.' : 'Тренировок по частям пока не назначено.'}
         </p>
       )}

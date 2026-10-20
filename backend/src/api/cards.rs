@@ -142,7 +142,9 @@ async fn list(
                JOIN group_members m ON m.group_id = l.group_id
               WHERE m.user_id = $1 AND l.mode = 'dds'
                 AND l.started_at IS NOT NULL AND l.finished_at IS NULL
-              ORDER BY l.started_at DESC
+                AND (l.solo_user_id IS NULL OR l.solo_user_id = $1)
+              -- Занятие группы важнее личной тренировки
+              ORDER BY l.solo_user_id IS NOT NULL, l.started_at DESC
               LIMIT 1",
         )
         .bind(user.id)
@@ -177,6 +179,8 @@ async fn list(
                       JOIN lessons l2 ON l2.id = lc2.lesson_id
                       JOIN group_members m2 ON m2.group_id = l2.group_id
                      WHERE lc2.card_id = c.id AND m2.user_id = $9
+                       -- Личное занятие (самостоятельная тренировка) — только своему
+                       AND (l2.solo_user_id IS NULL OR l2.solo_user_id = $9)
                        AND l2.started_at IS NOT NULL AND lc2.release_at <= now()) rel
                     ON $9::uuid IS NOT NULL
              WHERE c.saved_at IS NOT NULL
@@ -255,6 +259,7 @@ async fn list(
                     JOIN lessons l2 ON l2.id = lc2.lesson_id
                     JOIN group_members m2 ON m2.group_id = l2.group_id
                    WHERE lc2.card_id = c.id AND m2.user_id = $6
+                     AND (l2.solo_user_id IS NULL OR l2.solo_user_id = $6)
                      AND l2.started_at IS NOT NULL AND lc2.release_at <= now())))",
     )
     .bind(&service_filter)
@@ -502,6 +507,13 @@ async fn add_response(
         {
             tracing::warn!(card = %id, error = %e, "анализ комментариев не поставлен в очередь");
         }
+        // Рекомендации диспетчеру: вердикт по прежним и новые по этой
+        // карточке. Надстройка — без неё статус проставляется как обычно
+        if user.role == Role::Student {
+            if let Err(e) = crate::reports::dds_advice::after_close(&state.db, user.id).await {
+                tracing::warn!(card = %id, error = %e, "рекомендации ДДС не обновлены");
+            }
+        }
     }
 
     // Другие диспетчеры той же карточки и преподаватель видят
@@ -673,6 +685,7 @@ pub(crate) async fn visible_card(pool: &sqlx::PgPool, id: Uuid, user: &AuthUser)
                                 JOIN lessons l ON l.id = lc.lesson_id
                                 JOIN group_members m ON m.group_id = l.group_id
                                WHERE lc.card_id = c.id AND m.user_id = $2
+                                 AND (l.solo_user_id IS NULL OR l.solo_user_id = $2)
                                  AND l.started_at IS NOT NULL
                                  AND lc.release_at <= now()))))",
     )

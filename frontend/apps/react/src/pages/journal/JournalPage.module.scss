@@ -48,7 +48,10 @@
 .clockDate { font-size: var(--fs-sm); font-weight: 700; text-transform: capitalize; }
 .clockTime { font-size: 40px; font-weight: 300; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .clockSec { font-size: var(--fs-sm); vertical-align: super; }
-.clockUser { font-size: var(--fs-xs); color: #b9b9b9; }
+.clockUser {
+  display: flex; align-items: center; gap: var(--sp-3);
+  font-size: var(--fs-xs); color: #b9b9b9;
+}
 
 .launcher { padding: var(--sp-3) var(--sp-3) 0; }
 

@@ -103,3 +103,18 @@ $cell: #2f353a;
   .table th, .row > td { padding: var(--sp-1); }
   .btn { padding: var(--sp-1) var(--sp-2); }
 }
+
+// Самостоятельная тренировка: происшествие от ИИ (эксперты, 18.10)
+.practice {
+  margin-left: auto;
+  border: 1px solid #ff7a45;
+  background: #2f353a;
+  color: #ffd2bf;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  padding: var(--sp-2) var(--sp-4);
+  cursor: pointer;
+
+  &:hover:not(:disabled) { background: #3d454b; color: #fff; }
+  &:disabled { opacity: .7; cursor: progress; }
+}

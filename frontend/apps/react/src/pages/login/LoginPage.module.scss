@@ -6,11 +6,13 @@
 }
 
 @media (max-width: 860px) {
-  .page { grid-template-columns: 1fr; }
+  .page { grid-template-columns: 1fr; height: auto; min-height: 100%; }
   .art { display: none; }
 }
 
-.art { position: relative; overflow: hidden; }
+/* Картинка и учебные учётные записи делят левую клетку: список лежит
+   поверх неба, форма справа остаётся как в боевой системе */
+.art { position: relative; overflow: hidden; grid-area: 1 / 1; }
 
 .sky {
   position: absolute; inset: 0;
@@ -89,3 +91,101 @@
   color: var(--c-danger);
   font-size: 13px;
 }
+
+/* Учебные учётные записи стенда (эксперты, 18.10) */
+.demo {
+  grid-area: 1 / 1;
+  z-index: 1;
+  align-self: start;
+  justify-self: start;
+  margin: clamp(16px, 4vh, 40px) clamp(16px, 4vw, 48px);
+  max-width: 560px;
+  max-height: calc(100% - 2 * clamp(16px, 4vh, 40px));
+  overflow-y: auto;
+  padding: var(--sp-4);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 6px 24px rgba(20, 60, 100, .18);
+  color: #1d3b55;
+}
+
+@media (max-width: 860px) {
+  .demo { grid-area: 2 / 1; justify-self: stretch; max-width: none; max-height: none; margin: 16px; }
+}
+
+.demoTitle { margin: 0 0 var(--sp-1); font-size: 18px; font-weight: 600; }
+.demoHint { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); }
+.demoCode { font-size: 15px; font-weight: 600; color: #0f4c81; }
+
+.demoList { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+
+.demoBtn {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 var(--sp-3);
+  width: 100%;
+  text-align: left;
+  border: 1px solid #c9dcec;
+  border-radius: 6px;
+  background: #fff;
+  padding: 6px var(--sp-3);
+  cursor: pointer;
+
+  &:hover:not(:disabled) { border-color: #2b6ea6; background: #f2f8fd; }
+  &:disabled { opacity: .6; cursor: progress; }
+}
+
+.demoRole { font-weight: 600; font-size: 14px; }
+.demoLogin { justify-self: end; font-size: 14px; color: #0f4c81; }
+.demoWhat { grid-column: 1 / -1; font-size: 12px; color: #4b6478; }
+
+// Включение системы 112 администратором — под учётными записями стенда
+.sys {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid #c9dcec;
+}
+
+.sysRow { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); font-size: 14px; }
+.sysOn { color: #1e7a34; }
+.sysOff { color: #8a5a00; }
+
+.sysBtn {
+  border: 1px solid #2b6ea6;
+  border-radius: 6px;
+  background: #2b6ea6;
+  color: #fff;
+  padding: 4px var(--sp-3);
+  font-size: 13px;
+  cursor: pointer;
+
+  &:disabled { opacity: .6; cursor: default; }
+}
+
+.sysForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+
+  input {
+    flex: 1 1 140px;
+    min-width: 0;
+    border: 1px solid #c9dcec;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+}
+
+.sysCancel {
+  border: 0;
+  background: none;
+  color: #2b6ea6;
+  text-decoration: underline;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sysError { flex-basis: 100%; color: #b3261e; font-size: 13px; }

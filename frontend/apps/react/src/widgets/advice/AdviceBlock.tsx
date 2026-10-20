@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ApiError, advice, type AdviceEfficacy, type CheckedAdvice } from '@/shared/api';
+import { ApiError, advice, ddsAdvice, type AdviceEfficacy, type CheckedAdvice } from '@/shared/api';
 import s from './Advice.module.scss';
 
 const процент = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)} %`);
@@ -12,8 +12,11 @@ const процент = (v: number | null) => (v === null ? '—' : `${Math.round
  * насколько они сбылись, и рядом базовая линия: как часто те же
  * повторяющиеся ошибки уходят без рекомендации. Без неё «сработало
  * 60 %» ничего не значит — может, ошибки уходят и сами.
+ *
+ * `source` — чьи рекомендации: операторов 112 или диспетчеров ДДС.
+ * Устройство проверки у них одно, и блок один.
  */
-export const AdviceBlock = ({ groupId }: { groupId: string }) => {
+export const AdviceBlock = ({ groupId, source = 'op112' }: { groupId: string; source?: 'op112' | 'dds' }) => {
   const [э, setЭ] = useState<AdviceEfficacy | null>(null);
   const [лента, setЛента] = useState<CheckedAdvice[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +24,7 @@ export const AdviceBlock = ({ groupId }: { groupId: string }) => {
   useEffect(() => {
     if (!groupId) return;
     let alive = true;
-    void advice.group(groupId)
+    void (source === 'dds' ? ddsAdvice.group(groupId) : advice.group(groupId))
       .then((r) => {
         if (!alive) return;
         setЭ(r.efficacy);
@@ -34,7 +37,7 @@ export const AdviceBlock = ({ groupId }: { groupId: string }) => {
         }
       });
     return () => { alive = false; };
-  }, [groupId]);
+  }, [groupId, source]);
 
   if (error) return <p className={s.empty}>{error}</p>;
   if (!э) return null;
@@ -42,13 +45,17 @@ export const AdviceBlock = ({ groupId }: { groupId: string }) => {
   const разница = э.rate !== null && э.baselineRate !== null ? э.rate - э.baselineRate : null;
 
   return (
-    <section className={s.wrap} aria-label="Рекомендации" data-testid="advice-block">
-      <h2 className={s.title}>Рекомендации и их исполнение</h2>
+    <section className={s.wrap} aria-label="Рекомендации"
+             data-testid={source === 'dds' ? 'advice-block-dds' : 'advice-block'}>
+      <h2 className={s.title}>
+        {source === 'dds' ? 'Рекомендации диспетчерам ДДС и их исполнение' : 'Рекомендации и их исполнение'}
+      </h2>
 
       {э.checked === 0 && (
         <p className={s.empty} data-testid="advice-empty">
-          Проверенных рекомендаций пока нет. Рекомендация выдаётся, когда ошибка
-          повторилась, и проверяется следующим вызовом, где её можно повторить.
+          {source === 'dds'
+            ? 'Проверенных рекомендаций пока нет. Рекомендация выдаётся по замечанию разбора закрытой карточки и проверяется следующей карточкой, где ошибку можно повторить.'
+            : 'Проверенных рекомендаций пока нет. Рекомендация выдаётся, когда ошибка повторилась, и проверяется следующим вызовом, где её можно повторить.'}
         </p>
       )}
 

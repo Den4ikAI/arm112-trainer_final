@@ -1,0 +1,164 @@
+// Режим подсказок: кнопка «?» там, где её поставила страница (полоса
+// служб карточки, блок пользователя в ленте), рамки с номерами поверх
+// окон, пояснение у текущего окна и панель «Назад/Далее» внизу.
+// Всё накладкой: вёрстка рабочего места не меняется.
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 12px 0 4px;
+  border-radius: 20px;
+  border: 1px solid #fff;
+  background: #2e3538;
+  color: #fff;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  &:hover { background: #3c454a; }
+  &:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+}
+
+.toggleMark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--c-blue);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.toggleText { white-space: nowrap; }
+
+.toggleCompact { padding: 0 4px; }
+
+.toggleOn { background: var(--c-blue); .toggleMark { background: #fff; color: var(--c-blue); } }
+
+// Пока курсант не заглядывал в подсказки — кнопка заметнее
+.toggleNew .toggleMark { animation: breathe 1.6s ease-in-out infinite; }
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(22 104 179 / .7); }
+  50% { box-shadow: 0 0 0 8px rgb(22 104 179 / 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggleNew .toggleMark { animation: none; box-shadow: 0 0 0 4px rgb(22 104 179 / .5); }
+}
+
+// Слой рамок не ловит щелчки: интерфейс под ним остаётся живым
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px dashed rgb(22 104 179 / .75);
+  background: rgb(22 104 179 / .06);
+}
+
+.boxOn {
+  border: 3px solid var(--c-warn);
+  background: rgb(237 139 0 / .1);
+  box-shadow: 0 0 0 4px rgb(237 139 0 / .25);
+}
+
+.num {
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--c-blue);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 1px 4px rgb(0 0 0 / .4);
+}
+
+.boxOn .num { background: var(--c-warn); }
+
+.callout {
+  position: fixed;
+  z-index: 41;
+  background: #fff;
+  color: #222;
+  border: 1px solid var(--c-warn);
+  border-left-width: 6px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .35);
+  padding: 10px 12px;
+  font-size: var(--fs-sm);
+}
+
+.calloutHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+  margin-bottom: 4px;
+}
+
+.calloutNum {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--c-warn);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.calloutText { margin: 0; line-height: 1.45; }
+
+.bar {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2e3538;
+  color: #fff;
+  border: 1px solid #fff;
+  border-radius: 24px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / .4);
+  font-size: var(--fs-sm);
+}
+
+.counter { padding: 0 6px; white-space: nowrap; }
+
+.navBtn {
+  border: 1px solid rgb(255 255 255 / .6);
+  background: transparent;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+
+  &:disabled { opacity: .4; cursor: default; }
+  &:not(:disabled):hover { background: rgb(255 255 255 / .12); }
+}
+
+.navClose { border-color: var(--c-warn); color: #ffd39b; }
+
+@media (max-width: 760px) {
+  .toggleText { display: none; }
+  .toggle { padding-right: 4px; }
+}

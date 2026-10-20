@@ -25,7 +25,7 @@
 //! 112: значение, может, и верное, но не выясненное.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Этапы работ бригады, по порядку. Это статусы реагирования из
 /// памятки ДДС, которые диспетчер ставит по докладам старшего.
@@ -78,6 +78,21 @@ pub fn report_text(stage: &str, brigade_no: i32) -> String {
 /// Ответ старшего на звонок диспетчера, когда нового этапа нет.
 pub fn no_change_text(brigade_no: i32) -> String {
     format!("Старший бригады {brigade_no}: пока без изменений.")
+}
+
+/// Ответ специалиста бригады (рекомендации финалистам, п. 8: отдельный
+/// абонент телефона). Знает тот же этап, что и старший, — ничего
+/// сверх него, — но говорит как исполнитель и отсылает к старшему.
+pub fn specialist_text(stage: Option<&str>, brigade_no: i32) -> String {
+    let what = match stage {
+        Some("Начало реагирования") => "мы выехали, едем на место",
+        Some("Прибытие") => "мы на месте, осматриваемся",
+        Some("Проведение работ") => "работаем, старший руководит",
+        Some("Работы завершены") => "закончили, собираемся",
+        Some(other) => other,
+        None => "пока ничего нового",
+    };
+    format!("Специалист бригады {brigade_no}: {what}. Подробности — у старшего.")
 }
 
 /// Этап работ глазами разбора.
@@ -143,7 +158,9 @@ pub struct Input {
 
 /// Имена с приставкой `Dds`: схемы OpenAPI различаются по имени типа,
 /// и одноимённые `Grade` и `Finding` затёрли бы разбор оператора 112.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+// Hash/Ord и Deserialize — для рекомендаций ДДС (domain::dds_advice):
+// вид замечания хранится в базе строкой в этом же написании
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum DdsFindingKind {
     /// Статус проставлен вовремя и после доклада

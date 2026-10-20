@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { JournalTable, type JournalRow } from '@/widgets/journal-table/JournalTable';
 import { useTraining } from '@/entities/incident/model';
 import { useSession } from '@/entities/session/model';
+import { useStand } from '@/entities/stand/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { StudentWork } from '@/widgets/student-work/StudentWork';
+import { UiHints } from '@/widgets/ui-hints/UiHints';
 import { ApiError, cards, channel, lessons, scenarios as scenariosApi, sessions, SEGMENT_LABEL,
          type CardBrief, type LessonBrief, type Protocol, type ScenarioBrief,
          type SessionState } from '@/shared/api';
@@ -129,6 +131,9 @@ export const JournalPage = () => {
   // входа его можно продолжить, а не начинать билет заново
   const [unfinished, setUnfinished] = useState<SessionState | null>(null);
   const user = useSession((st) => st.user);
+  // Приём вызовов 112 свёрнут (эксперты, 18.10): преподавателю вместо
+  // билетов 112 — вход в работу с происшествиями ДДС
+  const showOp112 = useStand((st) => st.op112);
   const nav = useNavigate();
   const now = useClock();
   // Рабочее место обучающегося: у оператора 112 — свои вызовы и билеты
@@ -157,7 +162,8 @@ export const JournalPage = () => {
         op112
           ? Promise.resolve({ items: [] as CardBrief[], total: 0, page: 0, size: PAGE_SIZE })
           : cards.list({ scope, q: query || undefined, page, size: PAGE_SIZE }),
-        user?.role === 'student' ? Promise.resolve([] as ScenarioBrief[]) : scenariosApi.list(),
+        user?.role === 'student' || !showOp112
+          ? Promise.resolve([] as ScenarioBrief[]) : scenariosApi.list(),
       ]);
       if (!alive) return;
 
@@ -222,7 +228,7 @@ export const JournalPage = () => {
       clearInterval(timer);
       if (topics.length) channel.unsubscribe(topics);
     };
-  }, [query, page, user?.role, user?.serviceId, user?.id, dds, op112]);
+  }, [query, page, user?.role, user?.serviceId, user?.id, dds, op112, showOp112]);
 
   const proceed = async (st: SessionState) => {
     if (await resume(st.card.number)) nav(`/card/${st.card.number}`);
@@ -261,7 +267,8 @@ export const JournalPage = () => {
         </div>
         )}
 
-        <div className={s.clock}>
+        {/* data-hint — якорь режима подсказок (widgets/ui-hints) */}
+        <div className={s.clock} data-hint="clock">
           <div className={s.clockDate}>
             {now.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric',
               month: 'long', year: 'numeric' })}
@@ -273,13 +280,42 @@ export const JournalPage = () => {
             </span>
           </div>
           {/* Курсанту разделы не нужны, и сервер его туда не пустит */}
-          <div className={s.clockUser}><UserMenu /></div>
+          <div className={s.clockUser}>
+            <UserMenu />
+            {/* Подсказки по окнам и кнопкам — самостоятельное знакомство
+                диспетчера с интерфейсом (рекомендация заказчика, п. 7) */}
+            {dds && <UiHints page="journal" compact />}
+          </div>
         </div>
       </div>
 
       {user?.role === 'student' && <StudentWork />}
 
-      {user?.role !== 'student' && (
+      {user?.role !== 'student' && !showOp112 && (
+        <section className={s.launcher} aria-label="Учебные происшествия ДДС" data-testid="dds-start">
+          <h2 className={s.launcherTitle}>Учебные происшествия ДДС</h2>
+          <div className={s.launcherList}>
+            <button className={s.launchBtn} data-testid="dds-start-ai"
+                    onClick={() => nav('/scenarios?pane=ai')}>
+              <strong>Происшествие от ИИ</strong>
+              <span>Выберите службу — система соберёт карточку: признаки и службы по
+                классификатору, текст пишет модель. Останется проверить и утвердить.</span>
+            </button>
+            <button className={s.launchBtn} data-testid="dds-start-material"
+                    onClick={() => nav('/scenarios')}>
+              <strong>Учебный материал</strong>
+              <span>Все происшествия: по описанию для модели, вручную, правка и утверждение.</span>
+            </button>
+            <button className={s.launchBtn} data-testid="dds-start-lessons"
+                    onClick={() => nav('/lessons')}>
+              <strong>Занятие или экзамен</strong>
+              <span>Выдать происшествия группе диспетчеров потоком и следить за ходом.</span>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {user?.role !== 'student' && showOp112 && (
       <section className={s.launcher} aria-label="Учебные вызовы">
         <h2 className={s.launcherTitle}>Учебные вызовы</h2>
         <div className={s.launcherList}>
@@ -326,8 +362,10 @@ export const JournalPage = () => {
       )}
 
       {!op112 && (
-        <JournalTable rows={rows}
-                      pager={{ page, size: PAGE_SIZE, total, onPage: setPage }} />
+        <div data-hint="journal">
+          <JournalTable rows={rows}
+                        pager={{ page, size: PAGE_SIZE, total, onPage: setPage }} />
+        </div>
       )}
     </div>
   );

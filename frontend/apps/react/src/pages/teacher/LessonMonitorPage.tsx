@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
+import { useStand } from '@/entities/stand/model';
 import { lessons } from '@/shared/api';
 import { monitor, type LessonMonitor, type MonitorSeat } from '@/shared/api/teacher';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
@@ -30,6 +31,7 @@ export const LessonMonitorPage = () => {
   const user = useSession((st) => st.user);
   const nav = useNavigate();
   const [m, setM] = useState<LessonMonitor | null>(null);
+  const op112 = useStand((st) => st.op112);
   const [fetchedAt, setFetchedAt] = useState(() => Date.now());
   const [tick, setTick] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
@@ -116,11 +118,16 @@ export const LessonMonitorPage = () => {
         </span>
       </div>
 
-      <h2 className={s.blockTitle}>Операторы 112 <span className={s.muted}>({m.op112.length})</span></h2>
-      {m.op112.length === 0 && <p className={s.empty}>В группе нет операторов 112.</p>}
-      <div className={s.seats} data-testid="monitor-112">
-        {m.op112.map((seat) => <Seat key={seat.userId} seat={seat} drift={running ? drift : 0} />)}
-      </div>
+      {/* Пока приём вызовов 112 свёрнут, пустой блок операторов не показываем */}
+      {(op112 || m.op112.length > 0) && (
+        <>
+          <h2 className={s.blockTitle}>Операторы 112 <span className={s.muted}>({m.op112.length})</span></h2>
+          {m.op112.length === 0 && <p className={s.empty}>В группе нет операторов 112.</p>}
+          <div className={s.seats} data-testid="monitor-112">
+            {m.op112.map((seat) => <Seat key={seat.userId} seat={seat} drift={running ? drift : 0} />)}
+          </div>
+        </>
+      )}
 
       <h2 className={s.blockTitle}>Диспетчеры ДДС <span className={s.muted}>({m.dds.length})</span></h2>
       {m.dds.length === 0 && <p className={s.empty}>В группе нет диспетчеров ДДС.</p>}

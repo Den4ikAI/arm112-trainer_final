@@ -113,6 +113,10 @@ pub struct CallRequest {
     /// Без голоса не приходит
     #[serde(default)]
     pub said: Option<String>,
+    /// Кто на линии: `head` — начальник (старший) бригады, `specialist` —
+    /// специалист бригады; он знает тот же этап, но говорит иначе
+    #[serde(default)]
+    pub speaker: Option<String>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -623,9 +627,11 @@ pub async fn call(
         .find(|s| occurred.iter().any(|o| o == *s))
         .map(|s| s.to_string());
 
-    let text = match &learned {
-        Some(stage) => brigade::report_text(stage, brigade_no),
-        None => brigade::no_change_text(brigade_no),
+    let specialist = req.speaker.as_deref() == Some("specialist");
+    let text = match (&learned, specialist) {
+        (Some(stage), false) => brigade::report_text(stage, brigade_no),
+        (None, false) => brigade::no_change_text(brigade_no),
+        (stage, true) => brigade::specialist_text(stage.as_deref(), brigade_no),
     };
 
     // Реплику храним как есть, только обрезаем: распознавание может

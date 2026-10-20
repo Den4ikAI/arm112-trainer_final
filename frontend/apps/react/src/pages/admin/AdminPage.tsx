@@ -6,6 +6,8 @@ import {
 } from '@/shared/api';
 import { useSession } from '@/entities/session/model';
 import { useCatalog } from '@/entities/catalog/model';
+import { useStand } from '@/entities/stand/model';
+import { usePhone } from '@/entities/phone/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { DutyEditor } from '@/widgets/duty-editor/DutyEditor';
 import clsx from '@/shared/lib/clsx';
@@ -291,7 +293,9 @@ const ROLE_TITLE: Record<string, string> = {
 const NewUserForm = ({ onDone }: { onDone: () => void }) => {
   const services = useCatalog((st) => st.services);
   const [form, setForm] = useState({
-    login: '', password: '', fio: '', role: 'student', duty: 'op112',
+    login: '', password: '', fio: '', role: 'student',
+    // Пока приём вызовов 112 свёрнут, новый курсант — диспетчер
+    duty: useStand.getState().op112 ? 'op112' : 'dds',
     serviceId: '', workstation: '',
   });
   const [error, setError] = useState<string | null>(null);
@@ -495,6 +499,10 @@ const SettingsTab = () => {
     try {
       const saved = await forecast.setSetting(key, value);
       setRows((list) => list.map((r) => (r.key === key ? saved : r)));
+      // Свернуть или развернуть 112 — интерфейс перестраивается сразу
+      if (key === 'ui.op112') void useStand.getState().load();
+      // Параметры телефона действуют со следующего открытия карточки
+      if (key === 'ui.phone' || key.startsWith('phone.')) void usePhone.getState().load();
       setNote((n) => ({ ...n, [key]: 'Сохранено' }));
     } catch (e) {
       setNote((n) => ({ ...n, [key]: e instanceof ApiError ? e.message : 'Не сохранилось' }));

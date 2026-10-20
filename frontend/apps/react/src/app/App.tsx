@@ -10,10 +10,12 @@ import { AnalyticsPage } from '@/pages/analytics/AnalyticsPage';
 import { ScenariosPage } from '@/pages/scenarios/ScenariosPage';
 import { LessonsPage } from '@/pages/lessons/LessonsPage';
 import { WeightsPage } from '@/pages/teacher/WeightsPage';
+import { PhonebookPage } from '@/pages/teacher/PhonebookPage';
 import { LessonMonitorPage } from '@/pages/teacher/LessonMonitorPage';
 import { useSession, otherDuty, dutyTitle } from '@/entities/session/model';
 import { NotForDuty } from '@/shared/ui/NotForDuty';
 import { useCatalog } from '@/entities/catalog/model';
+import { useStand } from '@/entities/stand/model';
 
 /**
  * Маршруты повторяют пути боевой ПОВ-112 (/#!/incident/<номер>),
@@ -22,15 +24,24 @@ import { useCatalog } from '@/entities/catalog/model';
 export const App = () => {
   const { user, checking, restore } = useSession();
   const loadCatalog = useCatalog((st) => st.load);
+  const loadStand = useStand((st) => st.load);
+  const standLoaded = useStand((st) => st.loaded);
 
   // Сохранённый токен проверяем один раз при запуске: перезагрузка
   // страницы посреди занятия не должна выкидывать на экран входа
   useEffect(() => { void restore(); }, [restore]);
 
+  // Сведения о стенде нужны уже экрану входа: учебные учётные записи
+  // и свёрнут ли приём вызовов 112
+  useEffect(() => { void loadStand(); }, [loadStand]);
+
   // Справочники нужны всем экранам, кроме входа
   useEffect(() => { if (user) void loadCatalog(); }, [user, loadCatalog]);
 
-  if (checking) return <div data-testid="app-loading" />;
+  // Свёрнут ли 112, экраны решают при первом показе (вкладка, режим
+  // занятия): до ответа о стенде их не рисуем, иначе после перезагрузки
+  // страница открывалась как при свёрнутом 112
+  if (checking || !standLoaded) return <div data-testid="app-loading" />;
 
   return (
     <Routes>
@@ -46,6 +57,7 @@ export const App = () => {
       <Route path="/lessons" element={<Private><LessonsPage /></Private>} />
       <Route path="/lessons/:id/monitor" element={<Private><LessonMonitorPage /></Private>} />
       <Route path="/weights" element={<Private><WeightsPage /></Private>} />
+      <Route path="/phonebook" element={<Private><PhonebookPage /></Private>} />
     </Routes>
   );
 };

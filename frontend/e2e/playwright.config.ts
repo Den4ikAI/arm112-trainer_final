@@ -14,6 +14,7 @@ const WEB_PORT = process.env.E2E_WEB_PORT ?? '5174';
  */
 export default defineConfig({
   testDir: './tests',
+  globalSetup: './global-setup.ts',
   globalTeardown: './global-teardown.ts',
   fullyParallel: false,
   workers: 1,
@@ -60,6 +61,8 @@ export default defineConfig({
         DATABASE_URL: process.env.TEST_DATABASE_URL
           ?? 'postgres://arm112:arm112@localhost:5432/arm112_test',
         BIND_ADDR: `127.0.0.1:${API_PORT}`,
+        // Демонстрационный стенд: учебные учётные записи на экране входа
+        DEMO_PASSWORD: 'arm112',
       },
       url: `http://127.0.0.1:${API_PORT}/api/admin/health`,
       reuseExistingServer: false,

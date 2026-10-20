@@ -39,6 +39,8 @@ pub fn routes() -> Router<AppState> {
         .route("/api/dds-incidents/from-prompt", post(create_from_prompt))
         .route("/api/dds-incidents/{id}", get(one).put(update).delete(remove))
         .route("/api/dds-incidents/{id}/approve", post(approve))
+        .route("/api/dds-incidents/generate", post(generate))
+        .route("/api/dds-incidents/practice", post(practice))
 }
 
 /// Учебное происшествие целиком — как его видит преподаватель.
@@ -69,6 +71,10 @@ pub struct Incident {
     pub classify_reason: Option<String>,
     /// В скольких занятиях уже выдано
     pub lessons: i64,
+    /// Как собрано: `manual` — вручную, `prompt` — моделью по описанию,
+    /// `ai` — системой целиком по позиции классификатора; у собранных
+    /// до 18.10 не записано
+    pub source: Option<String>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub approved_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -102,7 +108,7 @@ pub struct IncidentInput {
 type Row = (
     Uuid, String, Option<String>, Option<chrono::DateTime<chrono::Utc>>, String, String, String,
     Value, String, Option<i32>, Vec<String>, Value, Option<String>,
-    chrono::DateTime<chrono::Utc>, i64,
+    chrono::DateTime<chrono::Utc>, i64, Option<String>,
 );
 
 const SELECT: &str = "SELECT c.id, c.number, c.title, c.approved_at, c.applicant_name,
@@ -110,11 +116,16 @@ const SELECT: &str = "SELECT c.id, c.number, c.title, c.approved_at, c.applicant
         c.type_ids, c.answers, c.outcome_type, c.created_at,
         (SELECT count(DISTINCT lc.lesson_id) FROM lesson_cards lc
            JOIN cards k ON k.id = lc.card_id
-          WHERE k.id = c.id OR k.source_card_id = c.id)
+          WHERE k.id = c.id OR k.source_card_id = c.id),
+        c.draft_source
    FROM cards c WHERE c.origin = 'teacher'
     -- Копии, выданные занятиями, — не учебный материал: их не видно,
     -- не правят и не удаляют (404)
-    AND c.source_card_id IS NULL";
+    AND c.source_card_id IS NULL
+    -- Как и происшествия самостоятельной тренировки диспетчера: их
+    -- заказал себе курсант, а не собрал преподаватель
+    AND NOT EXISTS (SELECT 1 FROM lesson_cards lp JOIN lessons ls ON ls.id = lp.lesson_id
+                     WHERE lp.card_id = c.id AND ls.solo_user_id IS NOT NULL)";
 
 async fn load(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Incident> {
     let row: Option<Row> = sqlx::query_as(&format!("{SELECT} AND c.id = $1"))
@@ -127,7 +138,7 @@ async fn load(pool: &sqlx::PgPool, id: Uuid) -> AppResult<Incident> {
 
 async fn assemble(pool: &sqlx::PgPool, row: Row) -> AppResult<Incident> {
     let (id, number, title, approved_at, applicant_name, applicant_status, phone_aon, address,
-         description, victims, type_ids, answers, outcome_type, created_at, lessons) = row;
+         description, victims, type_ids, answers, outcome_type, created_at, lessons, source) = row;
     let svc: Vec<(String, String)> = sqlx::query_as(
         "SELECT service_id, source::text FROM card_services WHERE card_id = $1 ORDER BY added_at, service_id",
     )
@@ -157,6 +168,7 @@ async fn assemble(pool: &sqlx::PgPool, row: Row) -> AppResult<Incident> {
         manual_services: svc.iter().filter(|(_, src)| src == "manual").map(|(s, _)| s.clone()).collect(),
         classify_reason,
         lessons,
+        source,
         created_at,
         approved_at,
     })
@@ -281,12 +293,14 @@ async fn one(State(state): State<AppState>, user: AuthUser, Path(id): Path<Uuid>
     load(&state.db, id).await.map(Json)
 }
 
-async fn insert_blank(pool: &sqlx::PgPool, user: &AuthUser) -> AppResult<Uuid> {
+async fn insert_blank(pool: &sqlx::PgPool, user: &AuthUser, source: &str) -> AppResult<Uuid> {
     Ok(sqlx::query_scalar(
-        "INSERT INTO cards (origin, created_by, workstation) VALUES ('teacher', $1, 'УМЦ')
+        "INSERT INTO cards (origin, created_by, workstation, draft_source)
+         VALUES ('teacher', $1, 'УМЦ', $2)
          RETURNING id",
     )
     .bind(user.id)
+    .bind(source)
     .fetch_one(pool)
     .await?)
 }
@@ -312,7 +326,7 @@ async fn create(
     if input.title.trim().is_empty() {
         return Err(AppError::Validation("нужна тема происшествия".into()));
     }
-    let id = insert_blank(&state.db, &user).await?;
+    let id = insert_blank(&state.db, &user, "manual").await?;
     write(&state.db, id, &input).await?;
     audit::log(
         &state.db,
@@ -617,7 +631,7 @@ async fn create_from_prompt(
         answers,
         extra_services: Vec::new(),
     };
-    let id = insert_blank(&state.db, &user).await?;
+    let id = insert_blank(&state.db, &user, "prompt").await?;
     write(&state.db, id, &input).await?;
     audit::log(
         &state.db,
@@ -626,4 +640,413 @@ async fn create_from_prompt(
     )
     .await;
     Ok((StatusCode::CREATED, Json(load(&state.db, id).await?)))
+}
+
+/// Что просят собрать системой целиком.
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateRequest {
+    /// Служба, для диспетчера которой собирается происшествие
+    pub service_id: String,
+}
+
+/// Текст карточки, который модель пишет под собранные признаки.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct Narrated {
+    title: String,
+    applicant_name: String,
+    applicant_status: String,
+    description: String,
+    victims: Option<i32>,
+}
+
+/// Адреса учебного набора (`deploy/seed/темы.json`): реальные улицы
+/// Москвы без привязки к реальным событиям. Адрес модель не выдумывает:
+/// при низкой температуре она пишет одни и те же два-три дома, а
+/// придуманный — может не существовать. Улица, дом, корпус.
+const АДРЕСА: [(&str, &str, &str); 26] = [
+    ("Бескудниковский бульвар", "30", ""),
+    ("Дмитровское шоссе", "27", "1"),
+    ("Каширское шоссе", "55", "3"),
+    ("Кировоградская улица", "14", ""),
+    ("Коровинское шоссе", "10", "2"),
+    ("Ленинградское шоссе", "16А", ""),
+    ("Люблинская улица", "141", ""),
+    ("Нагорная улица", "20", "2"),
+    ("Первомайская улица", "42", ""),
+    ("Профсоюзная улица", "104", ""),
+    ("Щёлковское шоссе", "47", ""),
+    ("Ярославское шоссе", "114", "1"),
+    ("улица Академика Королёва", "12", ""),
+    ("улица Академика Янгеля", "2", ""),
+    ("улица Берзарина", "21", "1"),
+    ("улица Бориса Галушкина", "5", ""),
+    ("улица Бутлерова", "8", ""),
+    ("улица Вавилова", "69", ""),
+    ("улица Декабристов", "20", "1"),
+    ("улица Косыгина", "5", ""),
+    ("улица Маршала Бирюзова", "34", ""),
+    ("улица Молостовых", "11", ""),
+    ("улица Новый Арбат", "21", ""),
+    ("улица Паустовского", "3", ""),
+    ("улица Удальцова", "15", ""),
+    ("улица Шверника", "13", ""),
+];
+
+/// Случайный индекс до `n`. Отдельный генератор ради одного выбора
+/// заводить незачем: UUID четвёртой версии и так случаен.
+fn случайно(n: usize) -> usize {
+    (Uuid::new_v4().as_u128() % n as u128) as usize
+}
+
+/// ФИО заявителя — составное из частых имён, не чьё-то настоящее. Модель
+/// при низкой температуре каждый раз писала «Иванов Сергей Петрович».
+/// Фамилии — с окончанием на -ов, -ев, -ин: женская форма через «а».
+const ФАМИЛИИ: [&str; 20] = [
+    "Смирнов", "Кузнецов", "Попов", "Васильев", "Соколов", "Михайлов", "Новиков", "Фёдоров",
+    "Морозов", "Волков", "Алексеев", "Лебедев", "Семёнов", "Егоров", "Козлов", "Степанов",
+    "Николаев", "Орлов", "Никитин", "Захаров",
+];
+const ИМЕНА_М: [&str; 12] = [
+    "Алексей", "Андрей", "Дмитрий", "Михаил", "Игорь", "Павел", "Николай", "Олег", "Виктор",
+    "Роман", "Евгений", "Константин",
+];
+const ИМЕНА_Ж: [&str; 12] = [
+    "Анна", "Елена", "Ольга", "Наталья", "Татьяна", "Ирина", "Мария", "Светлана", "Екатерина",
+    "Юлия", "Галина", "Дарья",
+];
+const ОТЧЕСТВА: [&str; 8] = [
+    "Александров", "Сергеев", "Владимиров", "Николаев", "Андреев", "Викторов", "Юрьев", "Олегов",
+];
+
+/// Заявитель: ФИО и пол словами — для модели.
+fn заявитель() -> (String, &'static str) {
+    let фамилия = ФАМИЛИИ[случайно(ФАМИЛИИ.len())];
+    let отчество = ОТЧЕСТВА[случайно(ОТЧЕСТВА.len())];
+    if случайно(2) == 0 {
+        (format!("{фамилия} {} {отчество}ич", ИМЕНА_М[случайно(ИМЕНА_М.len())]), "мужчина")
+    } else {
+        (format!("{фамилия}а {} {отчество}на", ИМЕНА_Ж[случайно(ИМЕНА_Ж.len())]), "женщина")
+    }
+}
+
+/// Буквы не кириллицы и не латиницы. Квантованная модель изредка
+/// вставляет слово другой письменности («В परिसर учебного заведения») —
+/// такой текст в карточку не пускаем.
+fn чужие_буквы(text: &str) -> bool {
+    text.chars().any(|c| {
+        c.is_alphabetic() && !c.is_ascii_alphabetic() && !('\u{0400}'..='\u{04FF}').contains(&c)
+    })
+}
+
+async fn narrate(
+    state: &AppState,
+    plan: &crate::domain::dds_gen::Plan,
+    service: &str,
+    address: &str,
+    applicant: &str,
+) -> anyhow::Result<Narrated> {
+    let schema = json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "applicantName", "applicantStatus", "description", "victims"],
+        "properties": {
+            "title": { "type": "string", "maxLength": 60 },
+            "applicantName": { "type": "string", "maxLength": 80 },
+            "applicantStatus": { "type": "string", "enum": STATUSES },
+            "description": { "type": "string", "maxLength": 400 },
+            "victims": { "type": ["integer", "null"] },
+        }
+    });
+    let raw = state
+        .ml
+        .llm
+        .chat_json(
+            json!([
+                { "role": "system", "content":
+                    "Ты готовишь учебную карточку происшествия для тренажёра диспетчера ДДС \
+                     Системы-112. Тип происшествия и ответы опросной карты уже выбраны по \
+                     классификатору: менять их нельзя и нельзя писать ничего, что им \
+                     противоречит. Придумай правдоподобную обыденную ситуацию, которая им \
+                     соответствует. description — описание со слов заявителя так, как его \
+                     записал бы оператор 112: кратко, по делу, в третьем лице, одно-три \
+                     предложения; адрес в описание не пиши, он хранится отдельно. \
+                     title — тема в три-шесть слов. applicantName — ФИО заявителя ровно \
+                     как дано. \
+                     victims — число пострадавших, если по ответам карты они есть, иначе null." },
+                { "role": "user", "content": format!(
+                    "Служба: {service}\nТип происшествия: {}\nИтоговый тип по классификатору: {}\n\
+                     Ответы опросной карты:\n- {}\nАдрес: {address}\nЗаявитель: {applicant}",
+                    plan.type_title, plan.outcome, plan.facts.join("\n- ")) },
+            ]),
+            500,
+            Some(schema),
+        )
+        .await?;
+    Ok(serde_json::from_value(raw)?)
+}
+
+/// Собрать происшествие для службы: признаки — по классификатору
+/// (`domain::dds_gen`), текст — модель, адрес — из учебного набора.
+/// Без модели карточка всё равно собирается: описание — из ответов карты.
+async fn generated_input(state: &AppState, service_id: &str) -> AppResult<(IncidentInput, Vec<String>)> {
+    let version_id = crate::api::scenarios::active_version(&state.db).await?;
+    let plan = crate::domain::dds_gen::plan(&state.db, version_id, service_id)
+        .await
+        .map_err(AppError::Other)?
+        .ok_or_else(|| AppError::Validation(
+            "по классификатору эта служба карточек не получает — собрать происшествие не из чего".into(),
+        ))?;
+    let service: String = sqlx::query_scalar(
+        "SELECT COALESCE((SELECT short_title FROM service_catalog WHERE service_id = $1), $1)",
+    )
+    .bind(service_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let (street, house, building) = АДРЕСА[случайно(АДРЕСА.len())];
+    let адрес = if building.is_empty() {
+        format!("Москва, {street}, дом {house}")
+    } else {
+        format!("Москва, {street}, дом {house}, корпус {building}")
+    };
+    let (фио, пол) = заявитель();
+
+    // До трёх попыток: ответ с буквами чужой письменности — не текст
+    // карточки. Не вышло — карточка собирается и без модели
+    let mut notes = Vec::new();
+    let mut n = Narrated::default();
+    for _ in 0..3 {
+        match narrate(state, &plan, &service, &адрес, &format!("{фио}, {пол}")).await {
+            Ok(got) if чужие_буквы(&got.title) || чужие_буквы(&got.description) => {
+                notes.push("в ответе модели — буквы другой письменности, повтор".into());
+            }
+            Ok(got) => {
+                n = got;
+                break;
+            }
+            Err(e) => {
+                notes.push(format!("текст не написан моделью ({e})"));
+                break;
+            }
+        }
+    }
+    if n.applicant_name.trim().is_empty() {
+        n.applicant_name = фио;
+    }
+
+    let mut address = serde_json::Map::new();
+    address.insert("region".into(), json!("Москва"));
+    address.insert("street".into(), json!(street));
+    address.insert("house".into(), json!(house));
+    if !building.is_empty() {
+        address.insert("building".into(), json!(building));
+    }
+    let input = IncidentInput {
+        title: if n.title.trim().is_empty() { plan.outcome.clone() } else { n.title.trim().to_string() },
+        applicant_name: n.applicant_name,
+        applicant_status: n.applicant_status,
+        phone_aon: String::new(),
+        address: Some(Value::Object(address)),
+        description: if n.description.trim().is_empty() {
+            format!("{}. {}.", plan.outcome, plan.facts.join("; "))
+        } else {
+            n.description
+        },
+        victims: n.victims,
+        type_ids: vec![plan.type_id.clone()],
+        answers: plan.answers.clone(),
+        extra_services: if plan.informational { vec![service_id.to_string()] } else { Vec::new() },
+    };
+    Ok((input, notes))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/dds-incidents/generate",
+    tag = "Происшествия ДДС",
+    request_body = GenerateRequest,
+    responses(
+        (status = 201, description = "Черновик, собранный системой: признаки и службы — классификатор, текст — модель", body = Incident),
+        (status = 400, description = "Службе нечего собрать"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Недостаточно прав"),
+    ),
+)]
+async fn generate(
+    State(state): State<AppState>,
+    user: AuthUser,
+    Json(req): Json<GenerateRequest>,
+) -> AppResult<(StatusCode, Json<Incident>)> {
+    user.require(&[Role::Teacher, Role::Admin])?;
+    let service = req.service_id.trim();
+    let (input, notes) = generated_input(&state, service).await?;
+    let id = insert_blank(&state.db, &user, "ai").await?;
+    write(&state.db, id, &input).await?;
+    audit::log(
+        &state.db,
+        audit::Event::new("incident.create").from_user(&user).about("card", id)
+            .with(json!({ "source": "ai", "service": service, "notes": notes })),
+    )
+    .await;
+    Ok((StatusCode::CREATED, Json(load(&state.db, id).await?)))
+}
+
+/// Происшествие самостоятельной тренировки: уже в ленте диспетчера.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Practice {
+    pub card_id: Uuid,
+    pub number: String,
+    pub lesson_id: Uuid,
+}
+
+/// Курсанты, которым сейчас готовится происшествие. На процессоре это
+/// до двух минут, и повторное нажатие не должно ставить в очередь
+/// модели второе.
+static ГОТОВЯТСЯ: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<Uuid>>> =
+    std::sync::LazyLock::new(Default::default);
+
+struct Готовится(Uuid);
+
+impl Drop for Готовится {
+    fn drop(&mut self) {
+        ГОТОВЯТСЯ.lock().unwrap().remove(&self.0);
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/dds-incidents/practice",
+    tag = "Происшествия ДДС",
+    responses(
+        (status = 201, description = "Происшествие собрано и выдано курсанту личным занятием", body = Practice),
+        (status = 400, description = "У курсанта нет службы или ей нечего собрать"),
+        (status = 401, description = "Требуется вход"),
+        (status = 403, description = "Только диспетчеру ДДС"),
+        (status = 409, description = "Курсант не в группе или происшествие уже готовится"),
+    ),
+)]
+async fn practice(
+    State(state): State<AppState>,
+    user: AuthUser,
+) -> AppResult<(StatusCode, Json<Practice>)> {
+    Ok((StatusCode::CREATED, Json(practice_for(&state, &user).await?)))
+}
+
+/// Собрать происшествие от ИИ и выдать его курсанту личным занятием.
+///
+/// Общее для кнопки «Новое происшествие от ИИ» и для «Следующего задания
+/// от ИИ» по рекомендации (api::dds_advice): задание то же, разница —
+/// в отметке, какую рекомендацию оно отрабатывает.
+pub async fn practice_for(state: &AppState, user: &AuthUser) -> AppResult<Practice> {
+    // Самостоятельная тренировка — для курсанта-диспетчера: преподаватель
+    // собирает происшествия в «Учебном материале»
+    user.require(&[Role::Student])?;
+    user.require_duty(crate::api::auth::Duty::Dds)?;
+    let service = user.service_id.clone().ok_or_else(|| {
+        AppError::Validation("у вас не задана служба — обратитесь к преподавателю".into())
+    })?;
+    let group: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT g.id, g.teacher_id FROM group_members m
+           JOIN training_groups g ON g.id = m.group_id
+          WHERE m.user_id = $1
+          ORDER BY g.created_at LIMIT 1",
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((group_id, teacher_id)) = group else {
+        return Err(AppError::Conflict(
+            "вы не состоите в учебной группе — тренировку назначает преподаватель".into(),
+        ));
+    };
+
+    if !ГОТОВЯТСЯ.lock().unwrap().insert(user.id) {
+        return Err(AppError::Conflict("происшествие уже готовится — дождитесь его".into()));
+    }
+    let _готовится = Готовится(user.id);
+
+    let (input, notes) = generated_input(state, &service).await?;
+    let id = insert_blank(&state.db, user, "ai").await?;
+    write(&state.db, id, &input).await?;
+
+    // Автор учебного происшествия — преподаватель группы, как у выданных
+    // занятием: в журнале и шапке карточки столбец «Оператор» — он, а не
+    // сам курсант. Кто заказал тренировку, пишет журнал действий
+    sqlx::query("UPDATE cards SET created_by = $2 WHERE id = $1")
+        .bind(id)
+        .bind(teacher_id)
+        .execute(&state.db)
+        .await?;
+
+    // Выдаём личным занятием: карточку видит только он, занятие сразу
+    // завершено — ленту группы оно не ограничивает и «идущим» у
+    // преподавателя не висит. Поступление — сейчас: нормативы считаются
+    // от него, как у любой выданной карточки
+    let mut tx = state.db.begin().await?;
+    sqlx::query("UPDATE cards SET saved_at = now() WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    let lesson_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO lessons (group_id, teacher_id, title, mode, kind, started_at, finished_at,
+                              solo_user_id)
+         VALUES ($1, $2, 'Самостоятельная тренировка с ИИ', 'dds', 'training', now(), now(), $3)
+         RETURNING id",
+    )
+    .bind(group_id)
+    .bind(teacher_id)
+    .bind(user.id)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO lesson_cards (lesson_id, card_id, release_at, announced)
+         VALUES ($1, $2, now(), true)",
+    )
+    .bind(lesson_id)
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
+    let number: String = sqlx::query_scalar("SELECT number FROM cards WHERE id = $1")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    audit::log(
+        &state.db,
+        audit::Event::new("incident.practice").from_user(user).about("card", id)
+            .with(json!({ "service": service, "lesson": lesson_id, "notes": notes })),
+    )
+    .await;
+    Ok(Practice { card_id: id, number, lesson_id })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn чужая_письменность_в_тексте_заметна() {
+        assert!(чужие_буквы("В परिसर учебного заведения"));
+        assert!(чужие_буквы("Пожар 火 в доме"));
+        assert!(!чужие_буквы("Ёлка горит на 3-м этаже, № 12, корпус А; БПЛА — 1 шт."));
+        assert!(!чужие_буквы("Запах газа в подъезде (ЦОДД, МЦК, Wi-Fi)"));
+    }
+
+    #[test]
+    fn фио_заявителя_согласовано_по_роду() {
+        for _ in 0..50 {
+            let (фио, пол) = заявитель();
+            let части: Vec<&str> = фио.split(' ').collect();
+            assert_eq!(части.len(), 3, "{фио}");
+            if пол == "женщина" {
+                assert!(части[0].ends_with('а') && части[2].ends_with("на"), "{фио}");
+            } else {
+                assert!(части[2].ends_with("ич"), "{фио}");
+            }
+        }
+    }
 }

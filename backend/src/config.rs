@@ -37,6 +37,11 @@ pub struct Config {
     pub backup_dir: Option<std::path::PathBuf>,
     /// Сколько суток хранить копии. ТЗ: 30.
     pub backup_keep_days: i64,
+    /// Пароль учебных учётных записей демонстрационного стенда. Задан —
+    /// экран входа показывает их списком (просьба экспертов 18.10: «не
+    /// искать логины и пароли в документации»). В рабочей установке не
+    /// задаётся, и список пуст.
+    pub demo_password: Option<String>,
 }
 
 impl Config {
@@ -55,6 +60,7 @@ impl Config {
             ml_provider: MlProvider::parse(&env_or("ML_PROVIDER", "mock"))?,
             backup_dir: std::env::var("BACKUP_DIR").ok().map(Into::into),
             backup_keep_days: env_or("BACKUP_KEEP_DAYS", "30").parse().unwrap_or(30),
+            demo_password: std::env::var("DEMO_PASSWORD").ok().filter(|p| !p.is_empty()),
         })
     }
 }

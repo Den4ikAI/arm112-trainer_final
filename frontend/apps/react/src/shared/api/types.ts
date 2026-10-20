@@ -313,6 +313,8 @@ export interface GroupBrief {
   title: string;
   teacherFio: string;
   members: number;
+  /** Из них диспетчеров ДДС */
+  dispatchers: number;
 }
 
 export interface Problem {
@@ -426,8 +428,36 @@ export interface Incident {
   manualServices: string[];
   classifyReason: string | null;
   lessons: number;
+  /** Как собрано: вручную, моделью по описанию, системой целиком
+   *  (позиция классификатора + текст модели); у старых — null */
+  source: 'manual' | 'prompt' | 'ai' | null;
   createdAt: string;
   approvedAt: string | null;
+}
+
+/** Происшествие самостоятельной тренировки: уже в ленте диспетчера. */
+export interface Practice {
+  cardId: string;
+  number: string;
+  lessonId: string;
+}
+
+/** Учебная учётная запись демонстрационного стенда. */
+export interface DemoAccount {
+  login: string;
+  fio: string;
+  role: 'student' | 'teacher' | 'admin';
+  duty: 'dds' | 'op112' | null;
+  /** Краткое название службы диспетчера */
+  service: string | null;
+}
+
+/** Что экран входа знает о стенде до входа (`/api/stand`). */
+export interface Stand {
+  /** Рабочее место оператора 112 не свёрнуто */
+  op112: boolean;
+  /** Учётные записи демонстрационного стенда; null — стенд рабочий */
+  demo: { password: string; accounts: DemoAccount[] } | null;
 }
 
 export interface IncidentInput {
@@ -641,3 +671,92 @@ export interface AskFreeResult {
   unlocks: string[];
 }
 
+
+// ─── IP-телефон диспетчера ДДС ──────────────────────────────────────
+
+/** Параметры телефонии и свой внутренний номер. */
+export interface PhoneConfig {
+  /** Звонки идут через IP-телефон (параметр `ui.phone`). */
+  enabled: boolean;
+  /** Голос диспетчера сохраняется для записи разговора. */
+  record: boolean;
+  ringSec: number;
+  answerSec: number;
+  asr: boolean;
+  tts: boolean;
+  extension: string | null;
+}
+
+/** Роли абонентов справочника ДДС (рекомендации финалистам, п. 8).
+ *  `brigade` и `chief` — прежние имена в старых записях журнала. */
+export type PhonePeer =
+  | 'org_head' | 'response_head' | 'brigade_head' | 'brigade_specialist' | 'applicant'
+  | 'brigade' | 'chief';
+
+export interface PhoneContact {
+  peer: PhonePeer;
+  title: string;
+  number: string;
+  available: boolean;
+  note: string | null;
+  /** Голос синтеза для реплик абонента. */
+  voice: VoiceRole;
+}
+
+/** Запись справочника службы, которую правит преподаватель. */
+export interface PhoneBookEntry {
+  role: PhonePeer;
+  /** У заявителя пустой — номер берётся из карточки. */
+  number: string;
+  title: string;
+}
+
+export interface PhoneBook {
+  serviceId: string;
+  entries: PhoneBookEntry[];
+  /** Преподаватель записи не правил — показан справочник по умолчанию. */
+  isDefault: boolean;
+  max: number;
+  roles: { role: PhonePeer; title: string }[];
+}
+
+/** Ответ абонента, у которого нет своего модуля разговора. */
+export interface PhoneReply {
+  text: string;
+  /** Абонент сказал всё и кладёт трубку. */
+  finished: boolean;
+}
+
+export interface PhoneLine {
+  id: number;
+  who: 'dispatcher' | 'peer';
+  text: string;
+  at: string;
+  hasAudio: boolean;
+}
+
+export type PhoneOutcome = 'ringing' | 'talking' | 'ended' | 'missed' | 'declined';
+
+export interface PhoneCall {
+  id: string;
+  dispatcher: string;
+  serviceId: string;
+  peer: PhonePeer;
+  title: string;
+  direction: 'in' | 'out';
+  number: string;
+  outcome: PhoneOutcome;
+  startedAt: string;
+  answeredAt: string | null;
+  endedAt: string | null;
+  durationSec: number | null;
+  lines: PhoneLine[];
+  recording: boolean;
+  voice: VoiceRole;
+}
+
+export interface PhoneView {
+  extension: string | null;
+  phonebook: PhoneContact[];
+  calls: PhoneCall[];
+}

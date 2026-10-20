@@ -35,6 +35,9 @@ pub struct GroupBrief {
     pub title: String,
     pub teacher_fio: String,
     pub members: i64,
+    /// Из них диспетчеров ДДС: пока приём вызовов 112 свёрнут, группы
+    /// одних операторов интерфейс не показывает
+    pub dispatchers: i64,
 }
 
 /// Курсант видит только свои группы, преподаватель — свои,
@@ -55,7 +58,9 @@ async fn list_groups(
 ) -> AppResult<Json<Vec<GroupBrief>>> {
     let rows: Vec<GroupBrief> = sqlx::query_as(
         "SELECT g.id, g.title, t.fio AS teacher_fio,
-                (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS members
+                (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS members,
+                (SELECT count(*) FROM group_members m JOIN users u ON u.id = m.user_id
+                  WHERE m.group_id = g.id AND u.duty = 'dds') AS dispatchers
            FROM training_groups g
            JOIN users t ON t.id = g.teacher_id
           WHERE $1

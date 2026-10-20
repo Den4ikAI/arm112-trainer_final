@@ -18,7 +18,14 @@ const POLL_MS = 5_000;
  */
 /** `closed` — служба закончила работу («Работы завершены» или «Отказ»):
  *  начатый разговор договорить можно, новый звонок сервер отклоняет. */
-export const ChiefReport = ({ cardId, closed = false }: { cardId: string; closed?: boolean }) => {
+/** `viaPhone` — звонят по IP-телефону карточки: здесь только ход доклада
+ *  и разбор; `stamp` меняется после разговора — перечитать. */
+export const ChiefReport = ({ cardId, closed = false, viaPhone = false, stamp }: {
+  cardId: string;
+  closed?: boolean;
+  viaPhone?: boolean;
+  stamp?: unknown;
+}) => {
   const [report, setReport] = useState<Report | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState('');
@@ -35,7 +42,7 @@ export const ChiefReport = ({ cardId, closed = false }: { cardId: string; closed
       .catch(() => {})
       .finally(() => { if (alive) setLoaded(true); });
     return () => { alive = false; };
-  }, [cardId]);
+  }, [cardId, stamp]);
 
   // Пока модель уточняет разбор, перечитываем его: на процессоре это
   // до минуты
@@ -54,8 +61,9 @@ export const ChiefReport = ({ cardId, closed = false }: { cardId: string; closed
     const lines = report?.lines ?? [];
     const fresh = lines.slice(spoken.current).filter((l) => l.who === 'chief');
     spoken.current = lines.length;
-    for (const l of fresh) void speak(l.text, 'chief');
-  }, [report]);
+    // С телефоном начальника озвучивает телефон
+    if (!viaPhone) for (const l of fresh) void speak(l.text, 'chief');
+  }, [report, viaPhone]);
 
   const run = async (action: () => Promise<Report>) => {
     setBusy(true);
@@ -110,7 +118,14 @@ export const ChiefReport = ({ cardId, closed = false }: { cardId: string; closed
         {open && <span className={s.live}> · на связи</span>}
       </div>
 
-      {!open && (
+      {viaPhone && !report && (
+        <p className={s.hint} data-testid="chief-via-phone">
+          Звоните начальнику по IP-телефону карточки. Доложите, что случилось, где,
+          есть ли пострадавшие, кого направили и что с бригадой.
+        </p>
+      )}
+
+      {!open && !viaPhone && (
         <div className={s.row}>
           <button className={s.btn} disabled={busy || closed} data-testid="chief-start"
                   title={closed ? 'Служба закончила работу по карточке' : undefined}
@@ -136,7 +151,7 @@ export const ChiefReport = ({ cardId, closed = false }: { cardId: string; closed
         </ol>
       )}
 
-      {open && (
+      {open && !viaPhone && (
         <form className={s.row} onSubmit={(e) => { e.preventDefault(); void send(text); }}>
           <textarea className={s.input} rows={2} value={text} name="chief-say"
                     placeholder="Докладывайте…" disabled={busy || recording}

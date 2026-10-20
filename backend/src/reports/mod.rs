@@ -8,6 +8,7 @@
 //! `202` с номером задачи, клиент опрашивает `/api/jobs/:id`.
 
 pub mod advice;
+pub mod dds_advice;
 pub mod csv;
 pub mod forecast;
 pub mod group;

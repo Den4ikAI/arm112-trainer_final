@@ -3,7 +3,9 @@ import {
   analytics, CHECK_GROUP, type CheckGroup, type GroupAnalytics, type StudentAnalytics,
 } from '@/shared/api/teacher';
 import clsx from '@/shared/lib/clsx';
+import { AdviceBlock } from '@/widgets/advice/AdviceBlock';
 import s from './Teacher.module.scss';
+import { useStand } from '@/entities/stand/model';
 
 const fmt = (v: number | null | undefined, digits = 0) => (v == null ? '—' : v.toFixed(digits));
 
@@ -27,7 +29,9 @@ const short = (g: CheckGroup) => CHECK_GROUP[g].title.split(':')[0];
  * данных».
  */
 export const PeopleAnalytics = ({ groupId }: { groupId: string }) => {
-  const [duty, setDuty] = useState<'op112' | 'dds'>('op112');
+  // Приём вызовов 112 свёрнут (эксперты, 18.10) — только диспетчеры
+  const op112 = useStand((st) => st.op112);
+  const [duty, setDuty] = useState<'op112' | 'dds'>(() => (useStand.getState().op112 ? 'op112' : 'dds'));
   const [data, setData] = useState<GroupAnalytics | null>(null);
   const [student, setStudent] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -67,7 +71,7 @@ export const PeopleAnalytics = ({ groupId }: { groupId: string }) => {
 
   return (
     <section data-testid="people-analytics">
-      <div className={s.tabs}>
+      {op112 && <div className={s.tabs}>
         <button className={clsx(s.btn, duty === 'op112' && s.on)} aria-pressed={duty === 'op112'}
                 onClick={() => вкладка('op112')}>
           Операторы 112
@@ -76,10 +80,14 @@ export const PeopleAnalytics = ({ groupId }: { groupId: string }) => {
                 onClick={() => вкладка('dds')}>
           Диспетчеры ДДС
         </button>
-      </div>
+      </div>}
 
       {error && <p className={s.empty}>Аналитика недоступна.</p>}
       {!data && !error && <p className={s.empty}>Считаю…</p>}
+
+      {/* Сработали ли рекомендации диспетчерам: тот же блок, что у
+          операторов 112 в отчёте группы */}
+      {duty === 'dds' && data && <AdviceBlock groupId={groupId} source="dds" />}
 
       {data && (
         <>

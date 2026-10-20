@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { admin, type GroupMember } from '@/shared/api';
 import { DutyEditor } from '@/widgets/duty-editor/DutyEditor';
 import s from './GroupMembers.module.scss';
+import { useStand } from '@/entities/stand/model';
 
 /**
  * Курсанты группы и их рабочие места.
@@ -30,6 +31,8 @@ export const GroupMembers = ({ groupId, mode }: {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Приём вызовов 112 свёрнут — об операторах молчим, пока их нет
+  const op112 = useStand((st) => st.op112);
   const operators = members.filter((m) => m.duty === 'op112').length;
   const dispatchers = members.filter((m) => m.duty === 'dds').length;
   const suitable = mode === 'card112' ? operators : dispatchers;
@@ -38,7 +41,9 @@ export const GroupMembers = ({ groupId, mode }: {
     <section className={s.box} aria-label="Курсанты группы" data-testid="group-members">
       <h2 className={s.subtitle}>Курсанты группы</h2>
       <p className={s.summary}>
-        Операторов 112: {operators}, диспетчеров ДДС: {dispatchers}.{' '}
+        {op112 || operators > 0
+          ? <>Операторов 112: {operators}, диспетчеров ДДС: {dispatchers}.{' '}</>
+          : <>Диспетчеров ДДС: {dispatchers}.{' '}</>}
         {suitable === 0
           ? <b>В этом режиме заниматься некому — назначьте рабочее место ниже.</b>
           : mode === 'card112'

@@ -11,6 +11,13 @@ interface Props {
   onEdit: () => void;
 }
 
+/** Как собрано — чтобы было видно, где поработал ИИ. */
+const ИСТОЧНИК: Record<string, string> = {
+  ai: 'собрано ИИ: признаки и службы — классификатор, текст — модель',
+  prompt: 'собрано моделью по описанию преподавателя',
+  manual: 'собрано вручную',
+};
+
 const ADDRESS_ORDER = ['country', 'region', 'settlement', 'district', 'area', 'street', 'house',
   'building', 'structure', 'flat', 'entrance', 'floor', 'code', 'descriptive'];
 
@@ -53,6 +60,9 @@ export const IncidentView = ({ incident: inc, onChanged, onEdit }: Props) => {
         )}
         {inc.lessons > 0 && <span className={s.note}>выдано в занятиях: {inc.lessons} — правка закрыта</span>}
       </div>
+      {inc.source && (
+        <p className={s.note} data-testid="incident-source">{ИСТОЧНИК[inc.source]}</p>
+      )}
       {error && <p className={s.error} role="alert">{error}</p>}
       <dl className={s.dl}>
         <dt>Заявитель</dt><dd>{[inc.applicantName, inc.applicantStatus].filter(Boolean).join(', ') || '—'}</dd>

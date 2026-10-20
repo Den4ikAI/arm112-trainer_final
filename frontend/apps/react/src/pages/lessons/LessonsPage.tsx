@@ -8,6 +8,7 @@ import {
 import { fmt } from '@/shared/lib/useTimer';
 import { useCatalog } from '@/entities/catalog/model';
 import { useSession } from '@/entities/session/model';
+import { useStand } from '@/entities/stand/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
 import { GroupMembers } from '@/widgets/group-members/GroupMembers';
 import { LessonMaterialPicker } from '@/widgets/lesson-material/LessonMaterialPicker';
@@ -42,10 +43,13 @@ export const LessonsPage = () => {
   const types = useCatalog((st) => st.types);
   const loadCatalog = useCatalog((st) => st.load);
   const user = useSession((st) => st.user);
+  // Приём вызовов 112 свёрнут (эксперты, 18.10): занятия — для диспетчеров
+  const op112 = useStand((st) => st.op112);
 
   // Черновик нового занятия
   const [form, setForm] = useState({
-    groupId: '', title: '', mode: 'card112' as 'card112' | 'dds',
+    groupId: '', title: '',
+    mode: (useStand.getState().op112 ? 'card112' : 'dds') as 'card112' | 'dds',
     typeIds: [] as string[],
     // Режим ДДС: карточки приходят потоком (ответ заказчика 23.09), темп
     // заказчик не задал. 60 секунд — наше допущение, см. PROVENANCE.md
@@ -75,7 +79,10 @@ export const LessonsPage = () => {
     void (async () => {
       try {
         const [гр, зан] = await Promise.all([reports.groups(), lessons.list()]);
-        setGroups(гр);
+        // Группы одних операторов 112, пока 112 свёрнут, не предлагаем
+        const видимые = useStand.getState().op112 ? гр
+          : гр.filter((g) => g.dispatchers > 0 || g.members === 0);
+        setGroups(видимые);
         setList(зан);
         const [все, происшествия] = await Promise.all([
           scenariosApi.library().catch(() => [] as LibraryItem[]),
@@ -83,7 +90,7 @@ export const LessonsPage = () => {
         ]);
         setApproved(все.filter((sc) => sc.status === 'approved'));
         setIncidents(происшествия.filter((i) => i.status === 'approved'));
-        setForm((f) => ({ ...f, groupId: f.groupId || (гр[0]?.id ?? '') }));
+        setForm((f) => ({ ...f, groupId: f.groupId || (видимые[0]?.id ?? '') }));
       } catch (e) {
         setError(e instanceof ApiError ? (e.detail ?? e.message) : 'Нет связи с сервером');
       }
@@ -215,7 +222,9 @@ export const LessonsPage = () => {
                       data-testid="lesson-mode"
                       onChange={(e) => setForm({
                         ...form, mode: e.target.value as 'card112' | 'dds' })}>
-                <option value="card112">Приём вызова (карточка 112)</option>
+                {(op112 || form.mode === 'card112') && (
+                  <option value="card112">Приём вызова (карточка 112)</option>
+                )}
                 <option value="dds">Работа со статусами (ДДС)</option>
               </select>
             </label>

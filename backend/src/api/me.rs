@@ -208,7 +208,7 @@ async fn op112(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<W
 
 type СтрокаДдс = (
     Uuid, Uuid, String, String, Option<String>, bool, Option<DateTime<Utc>>,
-    Uuid, String, Option<String>, String, serde_json::Value, Vec<String>,
+    Uuid, String, Option<String>, String, serde_json::Value, Vec<String>, bool,
 );
 
 async fn dds(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<WorkItem>> {
@@ -225,12 +225,15 @@ async fn dds(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<Wor
                 (SELECT t.title FROM incident_types t WHERE t.id = c.type_ids[1]),
                 c.description, c.address,
                 ARRAY(SELECT r.status::text FROM response_entries r
-                       WHERE r.card_id = c.id AND r.service_id = $3 ORDER BY r.at, r.id)
+                       WHERE r.card_id = c.id AND r.service_id = $3 ORDER BY r.at, r.id),
+                l.solo_user_id IS NOT NULL
            FROM lesson_cards lc
            JOIN lessons l ON l.id = lc.lesson_id
            JOIN group_members m ON m.group_id = l.group_id AND m.user_id = $1
            JOIN cards c ON c.id = lc.card_id
           WHERE l.mode = 'dds' AND l.started_at IS NOT NULL AND l.kind::text = $2
+            -- Личное занятие (самостоятельная тренировка) — только своему
+            AND (l.solo_user_id IS NULL OR l.solo_user_id = $1)
             AND c.origin = 'teacher' AND lc.release_at <= now()
             AND EXISTS (SELECT 1 FROM card_services cs
                          WHERE cs.card_id = c.id AND cs.service_id = $3)
@@ -244,7 +247,7 @@ async fn dds(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<Wor
 
     let mut out = Vec::with_capacity(rows.len());
     for (id, lesson_id, title, kind, segment, running, released, card_id, number, type_title,
-         description, address, chain) in rows
+         description, address, chain, solo) in rows
     {
         let содержательные: Vec<&String> = chain
             .iter()
@@ -257,7 +260,9 @@ async fn dds(state: &AppState, user: &AuthUser, kind: &str) -> AppResult<Vec<Wor
             "done"
         } else if !chain.is_empty() {
             "in_progress"
-        } else if running {
+        } else if running || solo {
+            // Личное занятие завершено сразу при выдаче: пропущенным
+            // его происшествие не становится
             "not_started"
         } else {
             "missed"

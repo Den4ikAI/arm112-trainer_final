@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, cards, channel, type Brigade, type DdsFindingKind, type VoiceStatus } from '@/shared/api';
 import clsx from '@/shared/lib/clsx';
+import { MyDdsAdvice } from '@/widgets/advice/MyDdsAdvice';
 import {
   canRecord, micBlockedReason, recognize, setSoundOn, soundOn, speak, startRecording, stopSpeaking,
   voiceStatus, type Recording,
@@ -16,6 +17,11 @@ interface Props {
   /** Служба закончила работу («Работы завершены» или «Отказ»): звонить
    *  старшему незачем, сервер такой звонок отклоняет. */
   closed?: boolean;
+  /** Звонки идут через IP-телефон карточки: здесь — только бригада,
+   *  доклады и разбор, без своих кнопок звонка. */
+  viaPhone?: boolean;
+  /** Бригаду назначили — телефону карточки есть кому звонить. */
+  onAssigned?: () => void;
 }
 
 const hhmmss = (iso: string) => new Date(iso).toLocaleTimeString('ru-RU',
@@ -51,7 +57,9 @@ const errorText = (e: unknown) =>
  * старшего и его доклады озвучиваются. Нет голоса или микрофона — всё
  * то же текстом: голос дополняет занятие, а не держит его.
  */
-export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props) => {
+export const BrigadePanel = ({
+  cardId, serviceId, stamp, closed = false, viaPhone = false, onAssigned,
+}: Props) => {
   const [brigade, setBrigade] = useState<Brigade | null>(null);
   const [choice, setChoice] = useState(1);
   const [answer, setAnswer] = useState('');
@@ -92,12 +100,15 @@ export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props
   // список докладов и разбор всё равно перечитываются через REST
   useEffect(() => channel.on((e) => {
     if (e.type === 'brigade.report' && e.cardId === cardId && e.serviceId === serviceId) {
-      const text = String(e.text ?? '');
-      setIncoming(text);
-      void speak(text, 'brigade');
+      // С телефоном звонит телефон: здесь только перечитать доклады
+      if (!viaPhone) {
+        const text = String(e.text ?? '');
+        setIncoming(text);
+        void speak(text, 'brigade');
+      }
       void reload();
     }
-  }), [cardId, serviceId, reload]);
+  }), [cardId, serviceId, reload, viaPhone]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -113,6 +124,7 @@ export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props
 
   const assign = () => run(async () => {
     setBrigade(await cards.assignBrigade(cardId, serviceId, choice));
+    onAssigned?.();
   });
 
   const call = (spoken?: string) => run(async () => {
@@ -179,7 +191,7 @@ export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props
             {' '}№ {assignment.brigadeNo}, направлена в {hhmmss(assignment.assignedAt)}
           </span>
         )}
-        {voiceSt?.tts && (
+        {voiceSt?.tts && !viaPhone && (
           <label className={s.sound}>
             <input type="checkbox" data-testid="brigade-sound" checked={sound}
                    onChange={(e) => toggleSound(e.target.checked)} />
@@ -206,7 +218,14 @@ export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props
         <p className={s.muted}>Бригаду направляют после статуса «Принята».</p>
       ))}
 
-      {assignment && (
+      {assignment && viaPhone && (
+        <p className={s.muted} data-testid="brigade-via-phone">
+          Связь со старшим — по IP-телефону карточки: он звонит с докладами сам,
+          вы набираете его из телефонной книги.
+        </p>
+      )}
+
+      {assignment && !viaPhone && (
         <div className={s.row}>
           <button className={s.btn} data-testid="brigade-call"
                   disabled={busy || !!recording || closed}
@@ -229,14 +248,14 @@ export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props
         </div>
       )}
 
-      {assignment && (said || answer) && (
+      {assignment && !viaPhone && (said || answer) && (
         <div className={s.dialog}>
           {said && <div data-testid="brigade-said"><span className={s.who}>Вы:</span> {said}</div>}
           {answer && <div className={s.answer} data-testid="brigade-answer">{answer}</div>}
         </div>
       )}
 
-      {incoming && (
+      {incoming && !viaPhone && (
         <div className={s.incoming} data-testid="brigade-incoming" role="status">
           Входящий звонок. {incoming}
         </div>
@@ -274,6 +293,9 @@ export const BrigadePanel = ({ cardId, serviceId, stamp, closed = false }: Props
             {f.consequence && <div className={s.consequence}>{f.consequence}</div>}
           </div>
         ))}
+        {/* Рекомендации по разбору и следующее задание от ИИ под них —
+            после того, как служба закончила работу по карточке */}
+        <MyDdsAdvice cardId={cardId} closed={closed} />
       </div>
     </section>
   );

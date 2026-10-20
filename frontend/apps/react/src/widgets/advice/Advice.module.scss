@@ -48,3 +48,23 @@
   th, td { padding: 5px 8px; border-bottom: 1px solid var(--c-border); text-align: left; vertical-align: top; }
   th { color: var(--c-text-muted); font-weight: 600; }
 }
+
+/* Следующее задание от ИИ — по рекомендации, без преподавателя */
+.btn {
+  padding: 4px 10px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  &:disabled { opacity: 0.6; cursor: default; }
+}
+.actions { display: flex; gap: var(--sp-2); align-items: center; margin-top: 4px; }
+.focus {
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--c-surface-2);
+  border-left: 3px solid var(--c-ok, #2e7d32);
+  font-size: 13px;
+}

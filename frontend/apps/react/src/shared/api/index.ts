@@ -93,6 +93,43 @@ export const ddsIncidents = {
   remove: (id: string) => api.del<void>(`/api/dds-incidents/${id}`),
   fromPrompt: (title: string, prompt: string) =>
     api.post<import('./types').Incident>('/api/dds-incidents/from-prompt', { title, prompt }),
+  /** Собрать системой целиком для службы: признаки — классификатор, текст — модель */
+  generate: (serviceId: string) =>
+    api.post<import('./types').Incident>('/api/dds-incidents/generate', { serviceId }),
+  /** Самостоятельная тренировка диспетчера: происшествие от ИИ сразу в ленту */
+  practice: () => api.post<import('./types').Practice>('/api/dds-incidents/practice'),
+};
+
+/** Сведения о стенде для экрана входа — до входа, без токена. */
+export const stand = {
+  get: () => api.get<import('./types').Stand>('/api/stand'),
+  /**
+   * Включить или свернуть систему 112 с экрана входа. Решает
+   * администратор: вход его учётной записью, тот же параметр `ui.op112`,
+   * что во вкладке «Параметры», и сразу выход. Своим токеном не
+   * пользуемся — на экране входа его нет, а чужой сеанс не подменяем.
+   */
+  setOp112: async (login: string, password: string, on: boolean) => {
+    const call = async <T,>(path: string, method: string, body?: unknown, token?: string) => {
+      const res = await fetch(path, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      if (!res.ok) {
+        let data: { error?: string; detail?: string } | null = null;
+        try { data = await res.json(); } catch { /* тело не JSON */ }
+        throw new ClientError(res.status, data?.error ?? 'unknown', data?.detail);
+      }
+      return (res.status === 204 ? null : await res.json()) as T;
+    };
+    const { token } = await call<{ token: string }>('/api/auth/login', 'POST', { login, password });
+    try {
+      await call('/api/settings/ui.op112', 'PATCH', { value: on ? 1 : 0 }, token);
+    } finally {
+      await call('/api/auth/logout', 'POST', undefined, token).catch(() => undefined);
+    }
+  },
 };
 
 /**
@@ -350,6 +387,37 @@ export const advice = {
     api.get<{ efficacy: AdviceEfficacy; recent: CheckedAdvice[] }>(`/api/advice/group/${id}`),
 };
 
+/**
+ * Рекомендации диспетчеру ДДС: по замечаниям разбора закрытой карточки,
+ * проверяются следующей карточкой. По открытой рекомендации курсант
+ * берёт следующее задание от ИИ — без преподавателя.
+ */
+export interface DdsAdvice {
+  id: string;
+  text: string;
+  kind: import('./types').DdsFindingKind;
+  stage: string;
+  label: string;
+  occurrences: number;
+  windowSize: number;
+  madeAt: string;
+  /** Карточка, по разбору которой выдана */
+  sourceCardId: string;
+  /** Карточка, которой проверена; null — ещё не проверена */
+  checkCardId: string | null;
+  worked: boolean | null;
+  checkedAt: string | null;
+  /** Задание от ИИ, выданное для отработки этой рекомендации */
+  nextCardId: string | null;
+}
+
+export const ddsAdvice = {
+  mine: () => api.get<DdsAdvice[]>('/api/advice/dds/me'),
+  group: (id: string) =>
+    api.get<{ efficacy: AdviceEfficacy; recent: CheckedAdvice[] }>(`/api/advice/dds/group/${id}`),
+  next: (id: string) => api.post<import('./types').Practice>(`/api/advice/dds/${id}/next`),
+};
+
 /** Попытка внутри карточки: вызов 112 или работа службы ДДС. */
 export interface ReviewTarget {
   kind: 'card112' | 'dds';
@@ -432,9 +500,10 @@ export const cards = {
   assignBrigade: (id: string, serviceId: string, brigadeNo: number) =>
     api.post<Brigade>(`/api/cards/${id}/brigade`, { serviceId, brigadeNo }),
   /** Диспетчер сам звонит старшему и узнаёт текущий этап. */
-  callBrigade: (id: string, serviceId: string, said?: string) =>
+  /** `speaker` — кто на линии: начальник (старший) бригады или её специалист. */
+  callBrigade: (id: string, serviceId: string, said?: string, speaker?: 'head' | 'specialist') =>
     api.post<{ text: string; learned: string | null; brigade: Brigade }>(
-      `/api/cards/${id}/brigade/call`, { serviceId, said }),
+      `/api/cards/${id}/brigade/call`, { serviceId, said, speaker }),
 };
 
 export const admin = {
@@ -525,6 +594,52 @@ const rawRequest = async (path: string, init: RequestInit): Promise<Response> =>
     throw new ClientError(res.status, data?.error ?? 'unknown', data?.detail);
   }
   return res;
+};
+
+/**
+ * IP-телефон диспетчера ДДС. Разговор ведут прежние эндпоинты бригады и
+ * начальника; здесь — вызовы, журнал и запись разговора.
+ */
+export const phone = {
+  config: () => api.get<import('./types').PhoneConfig>('/api/phone/config'),
+  view: (cardId: string, serviceId?: string) =>
+    api.get<import('./types').PhoneView>(`/api/cards/${cardId}/phone${serviceId
+      ? `?serviceId=${encodeURIComponent(serviceId)}` : ''}`),
+  dial: (cardId: string, peer: import('./types').PhonePeer, direction: 'in' | 'out') =>
+    api.post<import('./types').PhoneCall>(`/api/cards/${cardId}/phone/calls`, { peer, direction }),
+  answer: (callId: string) =>
+    api.post<import('./types').PhoneCall>(`/api/phone/calls/${callId}/answer`),
+  /** `declined` — сбросить звонящий вызов; без него — пропущен или окончен. */
+  end: (callId: string, outcome?: 'declined') =>
+    api.post<import('./types').PhoneCall>(`/api/phone/calls/${callId}/end`, outcome ? { outcome } : {}),
+  line: (callId: string, who: 'dispatcher' | 'peer', text: string) =>
+    api.post<{ id: number }>(`/api/phone/calls/${callId}/lines`, { who, text }),
+  /** Голос диспетчера к реплике — для записи разговора. */
+  lineAudio: async (callId: string, lineId: number, wav: Blob) => {
+    await rawRequest(`/api/phone/calls/${callId}/lines/${lineId}/audio`,
+      { method: 'PUT', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+  },
+  /** Запись разговора, WAV. */
+  recording: async (callId: string) =>
+    (await rawRequest(`/api/phone/calls/${callId}/recording`, { method: 'GET' })).blob(),
+  /** Реплика руководителя организации или заявителя: без текста —
+   *  абонент снял трубку. Сервер сам пишет её в журнал разговора. */
+  reply: (callId: string, text?: string) =>
+    api.post<import('./types').PhoneReply>(`/api/phone/calls/${callId}/reply`, text ? { text } : {}),
+};
+
+/**
+ * Телефонный справочник ДДС: формирует преподаватель, не более 10
+ * номеров на службу (рекомендации финалистам, п. 8).
+ */
+export const phonebook = {
+  view: (serviceId?: string) =>
+    api.get<import('./types').PhoneBook>(`/api/phonebook${serviceId
+      ? `?serviceId=${encodeURIComponent(serviceId)}` : ''}`),
+  save: (serviceId: string, entries: import('./types').PhoneBookEntry[]) =>
+    api.put<import('./types').PhoneBook>(`/api/phonebook?serviceId=${encodeURIComponent(serviceId)}`, { entries }),
+  reset: (serviceId: string) =>
+    api.del<import('./types').PhoneBook>(`/api/phonebook?serviceId=${encodeURIComponent(serviceId)}`),
 };
 
 /**
