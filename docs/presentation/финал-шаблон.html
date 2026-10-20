@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ELABS · Тренажёр диспетчера ДДС</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23310F53'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23FF0053'/%3E%3C/svg%3E">
+<style>
+{{FONTS}}
+:root {
+  --canvas: #F3F0FA; --base: #ffffff; --tint: #F8F6FD;
+  --ink: #1C1D22; --body: #3A3650; --muted: #6E6A84; --faint: #9A96B0;
+  --hair: #DCD8EA; --rule: #C9C4E0;
+  --plum: #310F53; --plum-soft: #E9E3F3;
+  --pink: #FF0053; --pink-deep: #C8003F; --pink-soft: #FFE4EC;
+  --lilac: #8A83D1; --lilac-deep: #5F57B0; --lilac-soft: #E8E6F6;
+  --green: #1E9E5A; --green-soft: #E3F5EA; --green-text: #146C3C;
+  --r-sm: 8px; --r-md: 14px; --r-lg: 20px; --r-xl: 26px; --pill: 999px;
+  --sans: "Onest", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0f0a18; color: var(--ink); font-family: var(--sans); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4, p, ul, ol { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+b, strong { font-weight: 700; }
+.stage { position: fixed; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: 50% 50%; }
+.slide { position: absolute; inset: 0; display: none; overflow: hidden; background: var(--canvas); }
+.slide.on { display: block; }
+
+/* шапка и номер */
+.brand { position: absolute; left: 100px; top: 54px; display: flex; align-items: center; gap: 14px; font: 700 24px/1 var(--sans); color: var(--plum); letter-spacing: -0.02em; }
+.brand i { width: 26px; height: 26px; border-radius: 7px; background: var(--plum); position: relative; }
+.brand i::after { content: ""; position: absolute; left: 7px; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--pink); }
+.brand span { font-weight: 500; color: var(--muted); }
+.tag { position: absolute; right: 100px; top: 50px; height: 36px; padding: 0 16px; border-radius: var(--pill); background: var(--plum-soft); color: var(--plum); font: 600 18px/36px var(--sans); }
+.num { position: absolute; right: 100px; bottom: 44px; font: 600 20px/1 var(--sans); color: var(--faint); }
+
+/* заголовок */
+.title { position: absolute; left: 100px; top: 136px; width: 1720px; font: 700 58px/1.1 var(--sans); letter-spacing: -0.025em; color: var(--plum); text-wrap: balance; }
+.title em { font-style: normal; color: var(--pink); }
+.lead { position: absolute; left: 100px; top: 222px; width: 1600px; font: 400 26px/1.35 var(--sans); color: var(--muted); }
+
+/* общие блоки */
+.panel { background: var(--base); border: 1px solid var(--hair); border-radius: var(--r-lg); }
+.chip { display: inline-flex; align-items: center; gap: 10px; height: 44px; padding: 0 20px; border-radius: var(--pill); background: var(--base); border: 1px solid var(--hair); font: 500 22px/1 var(--sans); color: var(--body); white-space: nowrap; }
+.chip.pink { background: var(--pink-soft); border-color: transparent; color: var(--pink-deep); }
+.chip.plum { background: var(--plum); border-color: transparent; color: #fff; }
+.chip.lilac { background: var(--lilac-soft); border-color: transparent; color: var(--lilac-deep); }
+.chip.ok { background: var(--green-soft); border-color: transparent; color: var(--green-text); }
+.chip.sm { height: 36px; padding: 0 14px; font-size: 18px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex: none; }
+.cap { font: 400 20px/1.35 var(--sans); color: var(--muted); }
+.shot { display: block; border-radius: var(--r-md); border: 1px solid var(--hair); box-shadow: 0 10px 30px rgba(49, 15, 83, .10); background: #fff; }
+.verdict { position: absolute; left: 100px; right: 100px; top: 930px; height: 84px; padding: 0 32px; border-radius: var(--r-xl); background: var(--plum); color: #fff; display: flex; align-items: center; gap: 18px; font: 600 27px/1.2 var(--sans); letter-spacing: -0.01em; }
+.verdict em { font-style: normal; color: #FF7AA3; }
+.verdict .k { width: 14px; height: 14px; border-radius: 50%; background: var(--pink); flex: none; }
+
+/* анимации: короткие, без циклов */
+.a, .f, .pop { --d: 0s; --t: .22s; }
+.play .a { animation: rise var(--t) var(--ease) var(--d) both; }
+.play .f { animation: fade var(--t) var(--ease) var(--d) both; }
+.play .pop { animation: pop var(--t) var(--ease) var(--d) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes fade { from { opacity: 0; } }
+@keyframes pop { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) { .play .a, .play .f, .play .pop { animation: none; } }
+
+/* 1. титул */
+.cover { background: linear-gradient(135deg, #F3F0FA 0%, #ECE7F7 55%, #F7E6EE 100%); }
+.cover .big { position: absolute; left: 100px; top: 250px; width: 1500px; font: 700 96px/1.02 var(--sans); letter-spacing: -0.035em; color: var(--plum); }
+.cover .big em { font-style: normal; color: var(--pink); }
+.cover .sub { position: absolute; left: 100px; top: 540px; width: 1180px; font: 400 34px/1.35 var(--sans); color: var(--body); }
+.cover .chips { position: absolute; left: 100px; top: 760px; display: flex; gap: 14px; }
+.cover .loop { position: absolute; right: 100px; top: 500px; width: 440px; height: 440px; }
+.cover .foot { position: absolute; left: 100px; bottom: 60px; font: 500 22px/1.3 var(--sans); color: var(--muted); }
+
+/* 2. проблема */
+.facts { position: absolute; left: 100px; top: 320px; width: 760px; display: grid; gap: 22px; }
+.fact { padding: 40px 30px; display: grid; grid-template-columns: 250px 1fr; align-items: center; gap: 20px; }
+.fact b { font: 700 64px/1 var(--sans); letter-spacing: -0.035em; color: var(--plum); white-space: nowrap; }
+.fact b small { font-size: .5em; font-weight: 600; color: var(--pink); }
+.fact > span { font: 400 24px/1.3 var(--sans); color: var(--body); }
+.needs { position: absolute; left: 920px; top: 320px; width: 900px; min-height: 560px; padding: 34px 36px; }
+.needs h3 { font: 700 28px/1.2 var(--sans); color: var(--plum); }
+.needs ul { margin-top: 24px; display: grid; gap: 20px; }
+.needs li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; font: 400 26px/1.35 var(--sans); color: var(--body); }
+.needs li i { width: 26px; height: 26px; margin-top: 4px; border-radius: 50%; background: var(--pink-soft); position: relative; }
+.needs li i::after { content: ""; position: absolute; left: 8px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--pink); }
+
+/* 3. цикл */
+.loopline { position: absolute; left: 100px; top: 400px; width: 1720px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; align-items: stretch; }
+.step { position: relative; padding: 30px 24px 26px; min-height: 290px; border: 2px solid transparent; margin: 0 14px; }
+.step .n { position: absolute; left: 22px; top: -20px; height: 38px; min-width: 38px; padding: 0 12px; border-radius: var(--pill); background: var(--pink); color: #fff; font: 700 19px/38px var(--sans); text-align: center; }
+.step h4 { margin-top: 10px; font: 700 29px/1.15 var(--sans); color: var(--plum); letter-spacing: -0.01em; }
+.step p { margin-top: 14px; font: 400 22px/1.35 var(--sans); color: var(--body); }
+.step.ai { border-color: var(--lilac); background: #FBFAFF; }
+.step.user { border-color: var(--plum); }
+.arrow-row { position: absolute; left: 100px; width: 1720px; height: 0; }
+.teacher-bar { position: absolute; left: 114px; width: 1692px; top: 300px; height: 72px; border-radius: var(--r-lg); background: var(--plum); color: #fff; display: flex; align-items: center; gap: 18px; padding: 0 28px; font: 600 25px/1 var(--sans); }
+.teacher-bar span { font-weight: 400; color: #D8D0E8; }
+.backloop { position: absolute; left: 114px; width: 1692px; top: 740px; height: 90px; }
+.loop-foot { position: absolute; left: 100px; right: 100px; top: 870px; display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* 4. рабочее место */
+.shot-l { position: absolute; left: 100px; top: 300px; width: 1180px; }
+.shot-l img { width: 100%; }
+.side { position: absolute; left: 1330px; top: 300px; width: 490px; display: grid; gap: 16px; }
+.side .card { padding: 22px 24px; }
+.side .card h4 { font: 700 24px/1.2 var(--sans); color: var(--plum); display: flex; align-items: center; gap: 12px; }
+.side .card p { margin-top: 8px; font: 400 20px/1.35 var(--sans); color: var(--body); }
+.side .card .ic { width: 40px; height: 40px; border-radius: 10px; background: var(--lilac-soft); color: var(--lilac-deep); display: flex; align-items: center; justify-content: center; flex: none; }
+.side .card .ic svg { width: 22px; height: 22px; }
+
+/* 5. ИИ формирует карточку */
+.pipe { position: absolute; left: 100px; top: 310px; width: 1720px; display: grid; grid-template-columns: 300px 60px 470px 60px 470px 60px 300px; align-items: center; }
+.pipe .box { padding: 24px 24px; min-height: 230px; }
+.pipe .box h4 { font: 700 25px/1.15 var(--sans); color: var(--plum); }
+.pipe .box p { margin-top: 10px; font: 400 19px/1.35 var(--sans); color: var(--body); }
+.pipe .box .who { display: inline-block; margin-bottom: 10px; height: 30px; padding: 0 12px; border-radius: var(--pill); font: 600 15px/30px var(--sans); white-space: nowrap; }
+.who.code { background: var(--plum); color: #fff; }
+.who.model { background: var(--lilac-soft); color: var(--lilac-deep); }
+.who.user { background: var(--pink-soft); color: var(--pink-deep); }
+.pipe .arr { display: flex; justify-content: center; color: var(--lilac); }
+.pipe .arr svg { width: 34px; height: 34px; }
+.pipe .box.code { border: 2px solid var(--plum); }
+.pipe .box.model { border: 2px dashed var(--lilac); background: #FBFAFF; }
+.ai-shots { position: absolute; left: 100px; top: 580px; width: 1720px; display: grid; grid-template-columns: 880px 820px; gap: 20px; align-items: start; }
+.ai-shots img { width: 100%; }
+.ai-shots .cap { margin-top: 8px; }
+.guarantee { position: absolute; left: 100px; right: 100px; top: 930px; display: flex; gap: 14px; }
+
+/* 6. телефон */
+.phone-shot { position: absolute; left: 100px; top: 300px; width: 560px; }
+.phone-shot img { width: 100%; }
+.phone-shot .badge { position: absolute; right: -16px; top: -18px; height: 40px; padding: 0 14px; border-radius: var(--pill); background: var(--green); color: #fff; font: 600 18px/40px var(--sans); display: flex; align-items: center; gap: 8px; }
+.book { position: absolute; left: 700px; top: 300px; width: 560px; padding: 24px 26px; }
+.book h4 { font: 700 24px/1.2 var(--sans); color: var(--plum); }
+.book .cap { margin-top: 4px; }
+.book ol { margin-top: 16px; display: grid; gap: 8px; }
+.book li { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; height: 50px; padding: 0 14px; border-radius: var(--r-sm); background: var(--tint); font: 500 20px/1.2 var(--sans); color: var(--body); }
+.book li .n { font: 600 16px/1 var(--sans); color: var(--faint); }
+.book li .t { font: 500 15px/1 var(--sans); color: var(--green-text); background: var(--green-soft); height: 26px; padding: 0 9px; border-radius: var(--pill); display: flex; align-items: center; }
+.book li.opt { border: 2px dashed var(--rule); background: transparent; }
+.book li.opt .t { color: var(--pink-deep); background: var(--pink-soft); }
+.voice { position: absolute; left: 1300px; top: 300px; width: 520px; display: grid; gap: 14px; }
+.voice .v { padding: 18px 24px; display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 16px; }
+.voice .v b { font: 700 40px/1 var(--sans); letter-spacing: -0.03em; color: var(--plum); white-space: nowrap; }
+.voice .v b small { font-size: .5em; color: var(--pink); }
+.voice .v span { font: 400 19px/1.3 var(--sans); color: var(--body); }
+.phone-foot { position: absolute; left: 100px; right: 100px; top: 830px; display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* 7. оценка */
+.deb { position: absolute; left: 100px; top: 300px; width: 880px; }
+.deb img { width: 100%; }
+.deb .cap { margin-top: 10px; }
+.crit { position: absolute; left: 1020px; top: 300px; width: 800px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.crit .c { padding: 22px 24px; min-height: 230px; }
+.crit .c b { display: block; font: 700 34px/1 var(--sans); letter-spacing: -0.02em; color: var(--pink); }
+.crit .c h4 { margin-top: 12px; font: 700 23px/1.2 var(--sans); color: var(--plum); }
+.crit .c p { margin-top: 8px; font: 400 19px/1.35 var(--sans); color: var(--body); }
+
+/* 8. рекомендации */
+.rec { position: absolute; left: 100px; top: 300px; width: 1720px; display: grid; grid-template-columns: 1fr 50px 1fr 50px 1fr 50px 1fr; align-items: center; }
+.rec .box { padding: 26px 26px; min-height: 250px; }
+.rec .box h4 { font: 700 26px/1.15 var(--sans); color: var(--plum); }
+.rec .box p { margin-top: 12px; font: 400 21px/1.35 var(--sans); color: var(--body); }
+.rec .box.hl { border: 2px solid var(--pink); background: #FFF8FA; }
+.rec .arr { display: flex; justify-content: center; color: var(--lilac); }
+.rec .arr svg { width: 30px; height: 30px; }
+.stats { position: absolute; left: 100px; top: 620px; width: 1720px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+.stat { padding: 30px 26px 26px; }
+.stat b { display: block; font: 700 72px/1 var(--sans); letter-spacing: -0.035em; color: var(--plum); }
+.stat b small { font-size: .5em; color: var(--pink); }
+.stat > span { display: block; margin-top: 12px; font: 400 21px/1.3 var(--sans); color: var(--body); }
+.stat.hl b { color: var(--pink); }
+.stats-cap { position: absolute; left: 100px; right: 100px; top: 880px; padding: 18px 26px; border-radius: var(--r-md); background: var(--lilac-soft); color: var(--lilac-deep); font: 500 21px/1.35 var(--sans); }
+
+/* 9. преподаватель */
+.mon { position: absolute; left: 100px; top: 300px; width: 1060px; }
+.mon img { width: 100%; }
+.mon .cap { margin-top: 10px; }
+.tgrid { position: absolute; left: 1200px; top: 300px; width: 620px; display: grid; gap: 12px; }
+.tgrid .t { padding: 16px 22px; display: grid; grid-template-columns: 44px 1fr; gap: 14px; align-items: center; }
+.tgrid .t .ic { width: 44px; height: 44px; border-radius: 12px; background: var(--lilac-soft); color: var(--lilac-deep); display: flex; align-items: center; justify-content: center; }
+.tgrid .t .ic svg { width: 24px; height: 24px; }
+.tgrid .t h4 { font: 700 22px/1.15 var(--sans); color: var(--plum); }
+.tgrid .t p { margin-top: 4px; font: 400 18px/1.3 var(--sans); color: var(--body); }
+.tshots { position: absolute; left: 100px; top: 945px; display: none; }
+
+/* 10. администратор */
+.adm-shot { position: absolute; left: 100px; top: 300px; width: 1100px; }
+.adm-shot img { width: 100%; }
+.adm { position: absolute; left: 1240px; top: 300px; width: 580px; display: grid; gap: 14px; }
+.adm .c { padding: 22px 24px; }
+.adm .c h4 { font: 700 24px/1.2 var(--sans); color: var(--plum); }
+.adm .c p { margin-top: 8px; font: 400 20px/1.35 var(--sans); color: var(--body); }
+.adm .c.hl { border: 2px solid var(--pink); background: #FFF8FA; }
+
+/* 11. контур */
+.contour { position: absolute; left: 100px; top: 300px; width: 1180px; height: 600px; border: 3px dashed var(--lilac); border-radius: var(--r-xl); background: rgba(255,255,255,.4); }
+.contour .lbl { position: absolute; left: 24px; top: -22px; height: 42px; padding: 0 16px; border-radius: var(--pill); background: var(--lilac); color: #fff; font: 600 19px/42px var(--sans); }
+.node { position: absolute; padding: 18px 20px; }
+.node h4 { font: 700 23px/1.15 var(--sans); color: var(--plum); }
+.node p { margin-top: 6px; font: 400 17px/1.3 var(--sans); color: var(--body); }
+.node .tags { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.node .tags .chip { height: 30px; padding: 0 10px; font-size: 15px; }
+.node.hero { border: 2px solid var(--plum); }
+.node.ai { border: 2px dashed var(--lilac); background: #FBFAFF; }
+.node.db { border: 2px solid var(--ink); }
+.wires { position: absolute; left: 0; top: 0; width: 1180px; height: 600px; pointer-events: none; }
+.wires path { fill: none; stroke: var(--lilac); stroke-width: 3; stroke-linecap: round; }
+.tech { position: absolute; left: 1320px; top: 300px; width: 500px; display: grid; gap: 14px; }
+.tech .v { padding: 18px 24px; display: grid; grid-template-columns: 170px 1fr; align-items: center; gap: 16px; }
+.tech .v b { font: 700 46px/1 var(--sans); letter-spacing: -0.03em; color: var(--plum); white-space: nowrap; }
+.tech .v b small { font-size: .5em; color: var(--pink); }
+.tech .v span { font: 400 19px/1.3 var(--sans); color: var(--body); }
+
+/* 12. как посмотреть */
+.stands { position: absolute; left: 100px; top: 300px; width: 860px; display: grid; gap: 16px; }
+.stand { padding: 24px 28px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; }
+.stand h4 { font: 700 26px/1.15 var(--sans); color: var(--plum); }
+.stand p { margin-top: 6px; font: 500 24px/1.3 var(--sans); color: var(--pink-deep); }
+.stand p.cap { margin-top: 4px; font: 400 20px/1.35 var(--sans); color: var(--muted); }
+.docs { padding: 22px 28px; }
+.docs h4 { font: 700 24px/1.2 var(--sans); color: var(--plum); }
+.docs ul { margin-top: 12px; display: grid; gap: 8px; }
+.docs li { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: center; font: 400 21px/1.3 var(--sans); color: var(--body); }
+.docs li svg { width: 24px; height: 24px; color: var(--lilac-deep); }
+.login-shot { position: absolute; left: 1000px; top: 300px; width: 820px; }
+.login-shot img { width: 100%; }
+.login-shot .cap { margin-top: 10px; }
+.thanks { position: absolute; left: 100px; top: 930px; font: 700 40px/1 var(--sans); color: var(--plum); letter-spacing: -0.02em; }
+.thanks em { font-style: normal; color: var(--pink); }
+
+/* обязательные слайды */
+.sep { background: var(--plum); }
+.sep .big { position: absolute; left: 100px; top: 380px; width: 1600px; font: 700 80px/1.05 var(--sans); letter-spacing: -0.03em; color: #fff; }
+.sep .big em { font-style: normal; color: #FF7AA3; }
+.sep .sub { position: absolute; left: 100px; top: 600px; width: 1500px; font: 400 30px/1.4 var(--sans); color: #D8D0E8; }
+.mand { background: #fff; }
+.mand img { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; object-fit: contain; }
+.mand .mnum { position: absolute; right: 24px; bottom: 16px; height: 34px; padding: 0 14px; border-radius: var(--pill); background: var(--plum); color: #fff; font: 600 17px/34px var(--sans); opacity: .85; }
+
+.help { position: fixed; left: 16px; bottom: 12px; font: 500 14px/1 var(--sans); color: #8a85a6; opacity: .0; transition: opacity .2s; z-index: 9; }
+body:hover .help { opacity: .7; }
+@media print {
+  html, body { overflow: visible; background: #fff; }
+  .stage { position: static; width: 1920px; height: auto; transform: none !important; }
+  .slide { position: relative; display: block !important; width: 1920px; height: 1080px; page-break-after: always; break-after: page; }
+  .help { display: none; }
+  .a, .f, .pop { animation: none !important; }
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6.5 3h3l1.5 4-2 1.5a11 11 0 0 0 6.5 6.5L17 13l4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 5a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.5M12 17h.01" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 10h18M7 14h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 10h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-bars" viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9-4.3-4.1 5.9-.8L12 3.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-slider" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="2.2" fill="#fff" stroke="currentColor" stroke-width="2"/><circle cx="15" cy="12" r="2.2" fill="#fff" stroke="currentColor" stroke-width="2"/><circle cx="8" cy="17" r="2.2" fill="#fff" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M14 3v5h5 M9 13h7M9 17h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7L7 5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<main class="stage" id="stage">
+
+<!-- 1 -->
+<section class="slide cover" data-kind="cover">
+  <div class="brand a" style="--d:0s"><i></i>ELABS</div>
+  <div class="tag a" style="--d:0s">ЛЦТ-2026 · финал · задача №9</div>
+  <h1 class="big a" style="--d:.05s">Тренажёр диспетчера ДДС <em>с искусственным интеллектом</em></h1>
+  <p class="sub a" style="--d:.12s">ИИ формирует задание, обучаемый работает в интерфейсе диспетчера, тренажёр оценивает, даёт рекомендации и собирает следующее задание. Преподаватель управляет и видит всё.</p>
+  <div class="chips a" style="--d:.18s"><span class="chip plum">Департамент ГОЧСиПБ города Москвы</span><span class="chip">Денис Петров · Александр Головченко</span></div>
+  <svg class="loop pop" style="--d:.1s" viewBox="0 0 420 420" aria-hidden="true">
+    <circle cx="210" cy="210" r="150" fill="none" stroke="#C9C4E0" stroke-width="3" stroke-dasharray="4 10"/>
+    <g font-family="Onest, sans-serif" font-weight="600" font-size="17" text-anchor="middle" fill="#310F53">
+      <circle cx="210" cy="60" r="52" fill="#fff" stroke="#8A83D1" stroke-width="3"/><text x="210" y="57">задание</text><text x="210" y="77" font-size="14" fill="#6E6A84">от ИИ</text>
+      <circle cx="353" cy="164" r="52" fill="#fff" stroke="#310F53" stroke-width="3"/><text x="353" y="161">работа</text><text x="353" y="181" font-size="14" fill="#6E6A84">диспетчера</text>
+      <circle cx="298" cy="332" r="52" fill="#fff" stroke="#310F53" stroke-width="3"/><text x="298" y="338">оценка</text>
+      <circle cx="122" cy="332" r="52" fill="#fff" stroke="#FF0053" stroke-width="3"/><text x="122" y="328">рекомен-</text><text x="122" y="348">дации</text>
+      <circle cx="67" cy="164" r="52" fill="#fff" stroke="#8A83D1" stroke-width="3"/><text x="67" y="161">следующее</text><text x="67" y="181" font-size="14" fill="#6E6A84">задание</text>
+      <circle cx="210" cy="210" r="50" fill="#310F53"/><text x="210" y="206" fill="#fff" font-size="16">препода-</text><text x="210" y="226" fill="#fff" font-size="16">ватель</text>
+    </g>
+  </svg>
+  <p class="foot">Веб-тренажёр · закрытый контур · ИИ и голос работают локально</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <h2 class="title a">Диспетчера учит практика, <em>а не памятка</em></h2>
+  <p class="lead a" style="--d:.04s">Живые карточки, бригада с докладами, звонки, нормативы по секундам — и преподаватель один на группу</p>
+  <div class="facts">
+    <div class="panel fact a" style="--d:.08s"><b><span data-count="30">0</span> <small>с</small></b><span>на открытие карточки с момента поступления</span></div>
+    <div class="panel fact a" style="--d:.12s"><b><span data-count="3">0</span> <small>мин</small></b><span>на первую запись: статус и текст</span></div>
+    <div class="panel fact a" style="--d:.16s"><b><span data-count="7">0</span> <small>статусов</small></b><span>реагирования, порядок и обязательные комментарии — по памятке ДДС</span></div>
+  </div>
+  <div class="panel needs a" style="--d:.14s">
+    <h3>Что нужно, чтобы диспетчер был готов к смене</h3>
+    <ul>
+      <li><i></i><span>Карточки приходят потоком, пока он занят предыдущей — как на реальной смене</span></li>
+      <li><i></i><span>Бригада докладывает с места, начальник переспрашивает, заявитель перезванивает</span></li>
+      <li><i></i><span>Каждый раз — новое происшествие, а не выученный наизусть билет</span></li>
+      <li><i></i><span>Разбор сразу после работы: что не так и сколько это стоит в баллах</span></li>
+    </ul>
+  </div>
+  <div class="verdict a" style="--d:.2s"><span class="k"></span>Преподаватель не может сидеть рядом с каждым. <em>Задания, оценку и рекомендации должна брать на себя система.</em></div>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <h2 class="title a">Решение — <em>замкнутый цикл</em> обучения</h2>
+  <div class="teacher-bar a" style="--d:.04s">Преподаватель<span>— включает цикл, настраивает нормативы и веса, видит ход занятия по местам, ставит экспертную оценку</span></div>
+  <div class="loopline">
+    <div class="panel step ai a" style="--d:.08s"><span class="n">1</span><h4>ИИ формирует задание</h4><p>классификатор выбирает позицию и признаки, модель пишет текст карточки</p></div>
+    <div class="panel step user a" style="--d:.11s"><span class="n">2</span><h4>Диспетчер работает</h4><p>в интерфейсе АРМ ДДС: статусы, бригада, IP-телефон, нормативы</p></div>
+    <div class="panel step a" style="--d:.14s"><span class="n">3</span><h4>Автоматическая оценка</h4><p>статусы по факту докладов, нормативы, цена ошибки, анализ комментариев</p></div>
+    <div class="panel step a" style="--d:.17s"><span class="n">4</span><h4>Рекомендации</h4><p>что тренировать дальше; следующий разбор проверяет, ушла ли ошибка</p></div>
+    <div class="panel step ai a" style="--d:.2s"><span class="n">5</span><h4>Следующее задание</h4><p>«Следующее задание от ИИ» — происшествие под рекомендацию, без преподавателя</p></div>
+  </div>
+  <svg class="backloop f" style="--d:.24s" viewBox="0 0 1692 90" aria-hidden="true">
+    <path d="M1530 0 V46 H162 V0" fill="none" stroke="#FF0053" stroke-width="4" stroke-linecap="round"/>
+    <path d="M150 16 L162 0 L174 16" fill="none" stroke="#FF0053" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="846" y="78" text-anchor="middle" font-family="Onest, sans-serif" font-weight="600" font-size="22" fill="#C8003F">и снова — новая карточка, пока ошибка не уйдёт</text>
+  </svg>
+  <div class="loop-foot">
+    <span class="chip a" style="--d:.26s"><span class="dot" style="color:var(--lilac)"></span>пунктир — делает ИИ</span>
+    <span class="chip a" style="--d:.28s"><span class="dot" style="color:var(--plum)"></span>сплошная — работает человек</span>
+    <span class="chip pink a" style="--d:.3s">эталон служб всегда считает классификатор, а не модель</span>
+    <span class="chip a" style="--d:.32s">преподаватель видит каждую попытку и запись каждого звонка</span>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <h2 class="title a">Рабочее место диспетчера — <em>как в АРМ-112</em>, плюс учебный слой</h2>
+  <div class="shot-l pop" style="--d:.06s"><img class="shot" src="{{IMG:card}}" alt="Карточка происшествия ДДС с включёнными подсказками"></div>
+  <div class="side">
+    <div class="panel card a" style="--d:.1s"><h4><span class="ic"><svg><use href="#i-card"/></svg></span>Та же карточка</h4><p>Поля карточки 112 только для чтения; диспетчер ведёт статусы, комментарии и бригаду. Порядок статусов проверяет сервер</p></div>
+    <div class="panel card a" style="--d:.14s"><h4><span class="ic"><svg><use href="#i-clock"/></svg></span>Таймеры нормативов</h4><p>30 секунд до открытия, 3 минуты до первой записи. Просрочка видна сразу и попадает в разбор</p></div>
+    <div class="panel card a" style="--d:.18s"><h4><span class="ic"><svg><use href="#i-help"/></svg></span>Подсказки «?»</h4><p>Окна обводятся и нумеруются в порядке памятки ДДС: что это и когда этим пользоваться. Интерфейс не перестраивается</p></div>
+    <div class="panel card a" style="--d:.22s"><h4><span class="ic"><svg><use href="#i-phone"/></svg></span>Зелёный кружок</h4><p>За ним — IP-телефон: бригада, начальник, заявитель</p></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <h2 class="title a">Как ИИ формирует карточку <em>и почему ей можно верить</em></h2>
+  <div class="pipe">
+    <div class="panel box a" style="--d:.06s"><span class="who user">диспетчер или преподаватель</span><h4>Одно нажатие</h4><p>«Новое происшествие от ИИ» в ленте диспетчера или в учебном материале преподавателя</p></div>
+    <div class="arr a" style="--d:.09s"><svg><use href="#i-arrow"/></svg></div>
+    <div class="panel box code a" style="--d:.12s"><span class="who code">код · классификатор ЕКП</span><h4>Позиция и признаки</h4><p>Из 1 283 позиций выбирается та, по которой выезжает именно эта служба; ответы опросной карты собираются и проверяются классификатором</p></div>
+    <div class="arr a" style="--d:.15s"><svg><use href="#i-arrow"/></svg></div>
+    <div class="panel box model a" style="--d:.18s"><span class="who model">языковая модель</span><h4>Только текст</h4><p>Заявитель и описание пишутся под уже проверенные признаки. Службы, эталон и адрес модель не трогает</p></div>
+    <div class="arr a" style="--d:.21s"><svg><use href="#i-arrow"/></svg></div>
+    <div class="panel box a" style="--d:.24s"><span class="who user">диспетчер</span><h4>Карточка в ленте</h4><p>Нормативы идут как обычно; преподаватель видит попытку в ходе занятия</p></div>
+  </div>
+  <div class="ai-shots">
+    <div class="a" style="--d:.2s"><img class="shot" src="{{IMG:ai-button}}" alt="Кнопка «Новое происшествие от ИИ» в ленте диспетчера"><p class="cap">Лента диспетчера: кнопка «Новое происшествие от ИИ»</p></div>
+    <div class="a" style="--d:.24s"><img class="shot" src="{{IMG:teacher-home}}" alt="Главный экран преподавателя с блоком «Происшествие от ИИ»"><p class="cap">Преподаватель: то же на главном экране и в учебном материале, с правкой и утверждением</p></div>
+  </div>
+  <div class="guarantee">
+    <span class="chip plum a" style="--d:.26s">службы и эталон считает классификатор</span>
+    <span class="chip a" style="--d:.28s">без модели карточка собирается из ответов карты</span>
+    <span class="chip lilac a" style="--d:.3s">материал преподавателя — только после утверждения</span>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <h2 class="title a">Бригада и IP-телефон: <em>за зелёным кружком</em></h2>
+  <div class="phone-shot pop" style="--d:.06s"><img class="shot" src="{{IMG:phone}}" alt="Окно виртуального IP-телефона на карточке"><span class="badge"><svg style="width:18px;height:18px"><use href="#i-phone"/></svg>линия доступна</span><p class="cap" style="margin-top:12px">Статус линии, свой внутренний номер, книга, набор, удержание, журнал вызовов</p></div>
+  <div class="panel book a" style="--d:.1s">
+    <h4>Телефонную книгу задаёт преподаватель</h4>
+    <p class="cap">до 10 номеров на службу, каждый отвечает по-своему</p>
+    <ol>
+      <li><span class="n">01</span>Руководитель организации<span class="t">отвечает</span></li>
+      <li><span class="n">02</span>Начальник отдела реагирования<span class="t">отвечает</span></li>
+      <li><span class="n">03</span>Начальник аварийной бригады<span class="t">звонит сам с места</span></li>
+      <li><span class="n">04</span>Специалист аварийной бригады<span class="t">отвечает</span></li>
+      <li class="opt"><span class="n">05</span>Заявитель<span class="t">только если включил преподаватель</span></li>
+    </ol>
+  </div>
+  <div class="voice">
+    <div class="panel v a" style="--d:.14s"><b>АОН</b><span>входящие от старшего бригады с определителем номера, звонок подсвечивает кружок</span></div>
+    <div class="panel v a" style="--d:.17s"><b>0,2–0,3 <small>с</small></b><span>распознавание речи GigaAM v3 на процессоре</span></div>
+    <div class="panel v a" style="--d:.2s"><b>0,5 <small>с</small></b><span>синтез ответа TeraTTS v2 на процессоре</span></div>
+    <div class="panel v a" style="--d:.23s"><b>WAV</b><span>запись каждого разговора — преподаватель переслушивает</span></div>
+  </div>
+  <div class="phone-foot">
+    <span class="chip a" style="--d:.26s"><svg style="width:22px;height:22px;color:var(--lilac-deep)"><use href="#i-mic"/></svg>говорить в микрофон или текстом</span>
+    <span class="chip a" style="--d:.28s">что ответит собеседник — решает движок тренажёра, голос только произносит</span>
+    <span class="chip lilac a" style="--d:.3s">доклад начальнику: переспросит пропущенное, скажет «Принял»</span>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <h2 class="title a">Оценка: <em>статусы по факту</em>, нормативы по секундам, цена ошибки</h2>
+  <div class="deb pop" style="--d:.06s"><img class="shot" src="{{IMG:debrief}}" alt="Разбор диспетчера: доклады бригады, статусы по факту, доклад начальнику"><p class="cap">Разбор закрытой карточки: доклады бригады, «по факту, через 14 с после доклада», доклад начальнику — доложено 5 из 6</p></div>
+  <div class="crit">
+    <div class="panel c a" style="--d:.1s"><b>по факту</b><h4>Статус засчитывается по докладу</h4><p>«Прибытие» — только если старший бригады действительно доложил о прибытии. Поставил раньше — замечание</p></div>
+    <div class="panel c a" style="--d:.14s"><b>30 с · 3 мин</b><h4>Нормативы по секундам</h4><p>Открытие карточки и первая запись; просрочка — в разборе с временем</p></div>
+    <div class="panel c a" style="--d:.18s"><b>−баллы</b><h4>Цена каждой ошибки</h4><p>Семь групп проверок с весами; балл воспроизводим: один и тот же ответ — одна и та же оценка</p></div>
+    <div class="panel c a" style="--d:.22s"><b>цитаты</b><h4>Комментарии читает модель</h4><p>Сверяет с тем, что диспетчер слышал от бригады; у каждого замечания цитата, которую проверяет код. Балл модель не меняет</p></div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <h2 class="title a">Рекомендации — <em>и проверка следующей карточкой</em></h2>
+  <div class="rec">
+    <div class="panel box a" style="--d:.06s"><h4>Разбор</h4><p>замечания закрытой карточки: статусы, нормативы, бригада, комментарии</p></div>
+    <div class="arr a" style="--d:.09s"><svg><use href="#i-arrow"/></svg></div>
+    <div class="panel box a" style="--d:.12s"><h4>Рекомендация</h4><p>что тренировать дальше; текст — из памятки ДДС и нормативов. Фиксируется со временем</p></div>
+    <div class="arr a" style="--d:.15s"><svg><use href="#i-arrow"/></svg></div>
+    <div class="panel box hl a" style="--d:.18s"><h4>«Следующее задание от ИИ»</h4><p>новое происшествие своей службы с отметкой, какую рекомендацию оно отрабатывает. Преподаватель не нужен</p></div>
+    <div class="arr a" style="--d:.21s"><svg><use href="#i-arrow"/></svg></div>
+    <div class="panel box a" style="--d:.24s"><h4>Вердикт</h4><p>следующий разбор отмечает: ошибка ушла или нет. Преподавателю — доля сработавших рядом с базовой линией</p></div>
+  </div>
+  <div class="stats">
+    <div class="panel stat a" style="--d:.2s"><b>~<span data-count="70">0</span></b><span>попыток диспетчеров ДДС за 8–18 октября</span></div>
+    <div class="panel stat a" style="--d:.23s"><b data-count="34">0</b><span>рекомендаций выдано</span></div>
+    <div class="panel stat hl a" style="--d:.26s"><b data-count="24">0</b><span>сработали — ошибка не повторилась</span></div>
+    <div class="panel stat a" style="--d:.29s"><b><span data-count="400">0</span><small>+</small></b><span>звонков в журнале IP-телефона</span></div>
+    <div class="panel stat a" style="--d:.32s"><b data-count="23">0</b><span>экспертные оценки преподавателя</span></div>
+  </div>
+  <div class="stats-cap a" style="--d:.34s">Демонстрационная группа: 10 симулированных курсантов прошли занятия через настоящий API; баллы и рекомендации посчитал тренажёр. 2 задания от ИИ собраны под рекомендацию.</div>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <h2 class="title a">Преподаватель <em>управляет и видит всё</em></h2>
+  <div class="mon pop" style="--d:.06s"><img class="shot" src="{{IMG:monitor}}" alt="Ход занятия по местам: таймеры, статусы, кто опаздывает"><p class="cap">Ход занятия по местам: у каждого курсанта текущая карточка, таймер против норматива, «не оповещено»; опоздавшие — красным; есть режим проектора</p></div>
+  <div class="tgrid">
+    <div class="panel t a" style="--d:.1s"><span class="ic"><svg><use href="#i-cal"/></svg></span><div><h4>Занятия трёх видов</h4><p>обычное, экзамен, тренировка по частям карточки; материал — поимённо</p></div></div>
+    <div class="panel t a" style="--d:.13s"><span class="ic"><svg><use href="#i-phone"/></svg></span><div><h4>Телефоны ДДС</h4><p>справочник службы: роли, номера, заявитель — включать или нет</p></div></div>
+    <div class="panel t a" style="--d:.16s"><span class="ic"><svg><use href="#i-bars"/></svg></span><div><h4>Аналитика</h4><p>по группе и по ученику: лидеры и отстающие с причиной, тепловая карта ошибок</p></div></div>
+    <div class="panel t a" style="--d:.19s"><span class="ic"><svg><use href="#i-star"/></svg></span><div><h4>Экспертная оценка</h4><p>балл 0–100 с комментарием рядом с автоматическим; вердикт по каждому замечанию модели</p></div></div>
+    <div class="panel t a" style="--d:.22s"><span class="ic"><svg><use href="#i-slider"/></svg></span><div><h4>Веса оценки</h4><p>семь групп проверок с ползунками; до сохранения видно «было → стало» по каждому ученику</p></div></div>
+    <div class="panel t a" style="--d:.25s"><span class="ic"><svg><use href="#i-eye"/></svg></span><div><h4>Записи звонков</h4><p>журнал IP-телефона по каждой карточке, запись разговора можно переслушать</p></div></div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <h2 class="title a">Администратор: <em>роли, параметры</em> и свёрнутое 112</h2>
+  <div class="adm-shot pop" style="--d:.06s"><img class="shot" src="{{IMG:admin}}" alt="Экран администрирования: журнал действий"><p class="cap" style="margin-top:10px">Администрирование: журнал действий, пользователи, классификатор, параметры, системная вкладка</p></div>
+  <div class="adm">
+    <div class="panel c a" style="--d:.1s"><h4>Учётные записи и роли</h4><p>администратор, преподаватель, обучаемый; рабочее место курсанта — ДДС своей службы или 112</p></div>
+    <div class="panel c a" style="--d:.14s"><h4>Параметры — в таблице, а не в коде</h4><p>нормативы, шкала бригады, телефония, движки ИИ; у каждого допустимые пределы</p></div>
+    <div class="panel c hl a" style="--d:.18s"><h4>Система 112 — только через администратора</h4><p>приём вызовов 112 свёрнут параметром; включается в «Параметрах» или с экрана входа по логину и паролю администратора</p></div>
+    <div class="panel c a" style="--d:.22s"><h4>Журнал и резервные копии</h4><p>каждое действие — в журнале; пароли хешами Argon2, права проверяет сервер</p></div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <h2 class="title a">Закрытый контур: <em>всё на одной машине</em>, внешних обращений нет</h2>
+  <div class="contour a" style="--d:.04s">
+    <span class="lbl">закрытый контур учебного центра</span>
+    <svg class="wires" viewBox="0 0 1180 600" aria-hidden="true">
+      <path d="M250 300 H330"/><path d="M620 300 H700"/>
+      <path d="M475 230 V150"/><path d="M475 370 V450"/>
+      <path d="M700 300 H890"/>
+    </svg>
+    <div class="panel node a" style="left:40px;top:245px;width:210px;--d:.08s"><h4>Браузер</h4><p>рабочие места: диспетчер, преподаватель, администратор</p></div>
+    <div class="panel node hero a" style="left:330px;top:235px;width:290px;--d:.12s"><h4>Сервер на Rust</h4><p>axum, tokio: роли, оценка, машина статусов, сторож нормативов, бригада, телефон</p><div class="tags"><span class="chip">OpenAPI</span><span class="chip">WebSocket</span></div></div>
+    <div class="panel node db a" style="left:700px;top:245px;width:200px;--d:.16s"><h4>PostgreSQL 16</h4><p>карточки, занятия, звонки и записи, журналы, параметры</p></div>
+    <div class="panel node ai a" style="left:330px;top:40px;width:400px;--d:.2s"><h4>Языковая модель</h4><p>Gemma 4 на видеокарте или GigaChat 3.1 на процессоре — адрес одной переменной, код не меняется</p></div>
+    <div class="panel node ai a" style="left:330px;top:450px;width:400px;--d:.24s"><h4>Голос на процессоре</h4><p>GigaAM v3 — распознавание, TeraTTS v2 — синтез; без него разговор идёт текстом</p></div>
+    <div class="panel node a" style="left:900px;top:60px;width:240px;--d:.26s"><h4>Клиент</h4><p>React 19, TypeScript, Vite; статика через nginx, HTTPS</p></div>
+    <div class="panel node a" style="left:900px;top:430px;width:240px;--d:.28s"><h4>Стенд одной командой</h4><p>docker compose на чистой машине; 6 ядер, 32 ГБ, без видеокарты</p></div>
+  </div>
+  <div class="tech">
+    <div class="panel v a" style="--d:.2s"><b data-count="437">0</b><span>серверных проверок — без модели, все зелёные</span></div>
+    <div class="panel v a" style="--d:.23s"><b data-count="120">0</b><span>сценариев в браузере</span></div>
+    <div class="panel v a" style="--d:.26s"><b>0,69 <small>с</small></b><span>максимум отклика при 100 одновременных пользователях, ошибок ноль</span></div>
+    <div class="panel v a" style="--d:.29s"><b>1 516<small>/с</small></b><span>правок карточки в секунду при нормативе 100</span></div>
+  </div>
+  <div class="verdict a" style="--d:.32s"><span class="k"></span>Модель не стоит на пути курсанта: разбор правилами приходит сразу, <em>анализ текста — следом, в фоне</em></div>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <h2 class="title a">Как посмотреть: <em>стенд, видео, документация</em></h2>
+  <div class="stands">
+    <div class="panel stand a" style="--d:.06s"><div><h4>Стенд с видеокартой · Gemma 4</h4><p>https://87.242.101.125:25580</p><p class="cap">учётные записи — на экране входа, вход одним щелчком</p></div><span class="chip lilac">GPU</span></div>
+    <div class="panel stand a" style="--d:.1s"><div><h4>Стенд на процессоре · GigaChat 3.1</h4><p>https://87.242.101.125:25566</p><p class="cap">профиль из требований: 6 ядер, 32 ГБ, без видеокарты</p></div><span class="chip">CPU</span></div>
+    <div class="panel docs a" style="--d:.14s">
+      <h4>В репозитории и на диске</h4>
+      <ul>
+        <li><svg><use href="#i-play"/></svg>Видеоролик: преподаватель и два рабочих места, задания от ИИ, разбор и рекомендации</li>
+        <li><svg><use href="#i-doc"/></svg>1. Общее техническое описание · 2. Руководство администратора</li>
+        <li><svg><use href="#i-doc"/></svg>3. Руководство преподавателя · 4. Руководство обучаемого</li>
+        <li><svg><use href="#i-doc"/></svg>Замеры: нагрузка, голос, модели — методика и сырые данные</li>
+      </ul>
+    </div>
+  </div>
+  <div class="login-shot pop" style="--d:.1s"><img class="shot" src="{{IMG:login}}" alt="Экран входа с учебными учётными записями"><p class="cap">Экран входа: учебные учётные записи стенда и переключатель «Система 112» для администратора</p></div>
+  <p class="thanks a" style="--d:.18s">Спасибо. <em>Готовы ответить на вопросы.</em></p>
+</section>
+
+<!-- обязательные слайды организаторов -->
+<section class="slide sep" data-kind="sep">
+  <h2 class="big a">Обязательные слайды <em>из шаблона организаторов</em></h2>
+  <p class="sub a" style="--d:.05s">Слайды 7–11 шаблона ЛЦТ-2026 в исходном оформлении: титул, о команде, команда, история команды, коротко о решении. При показе пропускаются — их версии в нашем дизайне выше.</p>
+</section>
+<section class="slide mand" data-kind="mand"><img src="{{IMG:mand-1}}" alt="Титул"><span class="mnum">обязательный 1 / 5</span></section>
+<section class="slide mand" data-kind="mand"><img src="{{IMG:mand-2}}" alt="О команде"><span class="mnum">обязательный 2 / 5</span></section>
+<section class="slide mand" data-kind="mand"><img src="{{IMG:mand-3}}" alt="Команда"><span class="mnum">обязательный 3 / 5</span></section>
+<section class="slide mand" data-kind="mand"><img src="{{IMG:mand-4}}" alt="История команды"><span class="mnum">обязательный 4 / 5</span></section>
+<section class="slide mand" data-kind="mand"><img src="{{IMG:mand-5}}" alt="Коротко о решении"><span class="mnum">обязательный 5 / 5</span></section>
+
+</main>
+<script>
+(() => {
+  const root = document.documentElement;
+  const stage = document.getElementById("stage");
+  const slides = [...document.querySelectorAll(".slide")];
+  const main = slides.filter((s) => s.dataset.kind !== "sep" && s.dataset.kind !== "mand");
+  const last = slides.length - 1;
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const fmt = (v) => new Intl.NumberFormat("ru-RU").format(Math.round(v));
+
+  slides.forEach((s) => {
+    if (s.dataset.kind === "sep" || s.dataset.kind === "mand") return;
+    const num = document.createElement("span"); num.className = "num"; num.textContent = `${main.indexOf(s) + 1} / ${main.length}`; s.append(num);
+    if (s.dataset.kind === "cover") return;
+    const brand = document.createElement("div"); brand.className = "brand"; brand.innerHTML = "<i></i>ELABS <span>· тренажёр диспетчера ДДС</span>"; s.prepend(brand);
+    const tag = document.createElement("div"); tag.className = "tag"; tag.textContent = "ЛЦТ-2026 · задача №9"; s.append(tag);
+  });
+
+  const counters = (slide) => {
+    slide.querySelectorAll("[data-count]").forEach((el) => {
+      const to = Number(el.dataset.count);
+      if (reduced) { el.textContent = fmt(to); return; }
+      const t0 = performance.now(), dur = 600;
+      const tick = (now) => {
+        if (!slide.classList.contains("on")) return;
+        const k = 1 - Math.pow(1 - Math.min((now - t0) / dur, 1), 3);
+        el.textContent = fmt(to * k);
+        if (k < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  };
+
+  let current = -1;
+  const show = (i) => {
+    i = Math.max(0, Math.min(last, i));
+    if (i === current) return;
+    slides.forEach((s) => s.classList.remove("on", "play"));
+    current = i;
+    const s = slides[i];
+    s.classList.add("on");
+    requestAnimationFrame(() => s.classList.add("play"));
+    counters(s);
+    history.replaceState(null, "", `#${i + 1}`);
+  };
+  const fit = () => { const k = Math.min(root.clientWidth / 1920, root.clientHeight / 1080); stage.style.transform = `translate(-50%, -50%) scale(${k})`; };
+  fit();
+  addEventListener("resize", fit);
+  addEventListener("keydown", (e) => {
+    if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); show(current + 1); }
+    else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); show(current - 1); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(main.length - 1);
+    else if (e.key === "f" || e.key === "F" || e.key === "а" || e.key === "А") { if (document.fullscreenElement) document.exitFullscreen(); else root.requestFullscreen(); }
+  });
+  addEventListener("click", (e) => { if (e.target.closest("a")) return; show(current + (e.clientX < innerWidth / 4 ? -1 : 1)); });
+  window.__show = show;
+  const start = parseInt(location.hash.slice(1), 10);
+  document.fonts.ready.then(() => show(Number.isNaN(start) ? 0 : start - 1));
+})();
+</script>
+</body>
+</html>
