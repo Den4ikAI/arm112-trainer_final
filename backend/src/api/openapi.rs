@@ -164,6 +164,9 @@ use utoipa::{
         crate::api::phonebook::view,
         crate::api::phonebook::save,
         crate::api::phonebook::reset,
+        crate::api::demo_stats::view,
+        crate::api::demo_stats::clear,
+        crate::api::demo_stats::fill,
     ),
     modifiers(&BearerAuth),
 )]

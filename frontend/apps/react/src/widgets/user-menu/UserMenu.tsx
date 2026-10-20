@@ -11,6 +11,7 @@ const TEACHER_LINKS: [string, string, string][] = [
   ['/analytics', 'аналитика', 'analytics-link'],
   ['/weights', 'веса оценки', 'weights-link'],
   ['/phonebook', 'телефоны ДДС', 'phonebook-link'],
+  ['/demo-stats', 'демо-статистика', 'demo-stats-link'],
   ['/journal', 'журнал', 'journal-link'],
 ];
 
@@ -64,7 +65,8 @@ export const UserMenu = () => {
       {user.role !== 'student' && (
         <>
           {TEACHER_LINKS.map(([path, label, testid]) => (
-            <button key={path} className={s.link} data-testid={testid}
+            <button key={path} className={path === '/demo-stats' ? `${s.link} ${s.accent}` : s.link}
+                    data-testid={testid}
                     aria-current={pathname === path ? 'page' : undefined}
                     onClick={() => nav(path)}>
               {path === '/scenarios' && !op112 ? 'учебный материал' : label}

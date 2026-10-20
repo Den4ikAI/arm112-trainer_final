@@ -28,6 +28,7 @@ pub mod health;
 pub mod stand;
 pub mod phone;
 pub mod phonebook;
+pub mod demo_stats;
 pub mod openapi;
 
 use crate::state::AppState;
@@ -58,6 +59,7 @@ pub fn routes() -> Router<AppState> {
         .merge(stand::routes())
         .merge(phone::routes())
         .merge(phonebook::routes())
+        .merge(demo_stats::routes())
     // сюда добавляются роутеры задач:
     // .merge(catalog::routes())   — задача 5
     // .merge(classifier::routes())— задачи 2, 3, 6

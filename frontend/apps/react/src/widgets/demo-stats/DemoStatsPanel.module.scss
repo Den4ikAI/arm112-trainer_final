@@ -1,0 +1,35 @@
+// Панель заметная, но в стиле остальных карточек преподавателя:
+// белая карточка с акцентной полосой слева
+.panel {
+  background: #fff;
+  border: 1px solid #d9dde3;
+  border-left: 6px solid var(--c-accent);
+  border-radius: 8px;
+  padding: var(--sp-3) var(--sp-4);
+  display: grid;
+  gap: var(--sp-2);
+  max-width: 980px;
+}
+
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-3); }
+.title { margin: 0; font-size: 18px; font-weight: 700; }
+.on { color: #1e7a34; font-size: var(--fs-sm); font-weight: 600; }
+.off { color: var(--c-text-muted); font-size: var(--fs-sm); }
+.text { margin: 0; font-size: var(--fs-sm); color: #3b4450; line-height: 1.45; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+
+.fill, .clear {
+  border-radius: 6px;
+  padding: 8px var(--sp-4);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:disabled { opacity: .55; cursor: default; }
+}
+
+.fill { border: 1px solid var(--c-accent); background: var(--c-accent); color: #fff; }
+.clear { border: 1px solid #b3261e; background: #fff; color: #b3261e; }
+.muted { margin: 0; color: var(--c-text-muted); font-size: var(--fs-sm); }
+.note { margin: 0; color: #1e7a34; font-size: var(--fs-sm); }
+.error { margin: 0; color: #b3261e; font-size: var(--fs-sm); }

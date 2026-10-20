@@ -101,6 +101,23 @@ export const ddsIncidents = {
 };
 
 /** Сведения о стенде для экрана входа — до входа, без токена. */
+/** Демонстрационная статистика: сколько есть, заполнить, очистить. */
+export interface DemoStats {
+  lessons: number;
+  attempts: number;
+  students: number;
+  calls: number;
+  advice: number;
+  /** Есть ли на стенде образец, которым заполняется программа */
+  sample: boolean;
+}
+
+export const demoStats = {
+  view: () => api.get<DemoStats>('/api/demo-stats'),
+  fill: () => api.post<DemoStats>('/api/demo-stats/fill'),
+  clear: () => api.post<DemoStats>('/api/demo-stats/clear'),
+};
+
 export const stand = {
   get: () => api.get<import('./types').Stand>('/api/stand'),
   /**

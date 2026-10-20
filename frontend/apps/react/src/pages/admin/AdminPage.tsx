@@ -9,11 +9,12 @@ import { useCatalog } from '@/entities/catalog/model';
 import { useStand } from '@/entities/stand/model';
 import { usePhone } from '@/entities/phone/model';
 import { UserMenu } from '@/widgets/user-menu/UserMenu';
+import { DemoStatsPanel } from '@/widgets/demo-stats/DemoStatsPanel';
 import { DutyEditor } from '@/widgets/duty-editor/DutyEditor';
 import clsx from '@/shared/lib/clsx';
 import s from './AdminPage.module.scss';
 
-type Tab = 'audit' | 'users' | 'classifier' | 'settings' | 'health';
+type Tab = 'audit' | 'users' | 'classifier' | 'settings' | 'health' | 'demo';
 
 /**
  * Экран администратора.
@@ -49,6 +50,7 @@ export const AdminPage = () => {
     ['classifier', 'Классификатор'],
     ['settings', 'Параметры'],
     ['health', 'Состояние'],
+    ['demo', '★ Демо-статистика'],
   ];
 
   return (
@@ -80,6 +82,7 @@ export const AdminPage = () => {
       {tab === 'classifier' && <ClassifierTab />}
       {tab === 'settings' && <SettingsTab />}
       {tab === 'health' && <HealthTab />}
+      {tab === 'demo' && <div style={{ padding: '16px 0' }}><DemoStatsPanel /></div>}
     </div>
   );
 };
