@@ -145,6 +145,22 @@ test('финал: администратор и система 112', async ({ br
     await A.ring(p.getByTestId('setting-ui.phone'));
     await st.say('Параметры: нормативы, шкала бригады, телефон, веса оценки — всё меняется здесь, без правки кода.');
     await A.ring(null);
+    const demoTab = p.getByTestId('admin-tab-demo');
+    if (await visible(demoTab)) {
+      await st.sayWhile('Для показа есть демо-статистика: одна кнопка заполняет стенд учебными группами, занятиями и попытками.', async () => {
+        await A.click(demoTab);
+        await expect(p.getByTestId('demo-stats-panel')).toBeVisible({ timeout: 30_000 });
+        await A.moveTo(p.getByTestId('demo-stats-panel'));
+      });
+      const fill = p.getByTestId('demo-stats-fill');
+      if (await visible(fill) && await fill.isEnabled()) {
+        await A.click(fill);
+        await expect(p.getByTestId('demo-stats-note')).toBeVisible({ timeout: 120_000 }).catch(() => {});
+      }
+      await A.ring(p.getByTestId('demo-stats-state'));
+      await st.say('Очистить её так же просто — останутся только учётные записи и учебный материал.');
+      await A.ring(null);
+    }
     await st.pause(600);
   } finally {
     await st.stop();
